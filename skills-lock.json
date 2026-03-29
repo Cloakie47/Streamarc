@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "skills": {
+    "bridge-stablecoin": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "c57772c9829d7ca70433d5ca887c0a3539ad7445f628baaabf76ec18270795c9"
+    },
+    "use-arc": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "dfd429962197a08347f150c058ec0ae3294ea03facd545ec2b0a84a27eb98564"
+    },
+    "use-circle-wallets": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "33fbbd114d70f8fc543d9549ef1251d8f842bd128a7e3b40cfab8e03db25ed4d"
+    },
+    "use-developer-controlled-wallets": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "d91fe287c7e4e59108f6a2f5799b7da3379c6a9b44a5c65a14725714a8a02f8d"
+    },
+    "use-gateway": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "dae4be04c84c8d7f7d69374d7f4bb990c7bcfe7a12be137ac5e581e864f6b107"
+    },
+    "use-modular-wallets": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "f7f13e4fc14949e5590348a7c0b15cca3044ea5d3ec7d4247791a819a1f84ba4"
+    },
+    "use-smart-contract-platform": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "7e84e071d0caedb31715c69f5e88e76d6bb0ee5b21a9c83ad7b782b1c6ceb363"
+    },
+    "use-usdc": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "63bfcf3764e8e1e596c0196790d13f37d98291b67019f369f21c938ca7839d11"
+    },
+    "use-user-controlled-wallets": {
+      "source": "circlefin/skills",
+      "sourceType": "github",
+      "computedHash": "27701221323dd91e43e535ae84d81ce2af4b53421126f144f9ae136c58f7bcf1"
+    }
+  }
+}
