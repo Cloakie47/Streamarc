@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import {
   Home, Compass, PlayCircle, LayoutDashboard, Shield,
-  History, Heart, Clock, Settings, LogOut,
+  History, Heart, Clock, Settings, LogOut, Copy, Check,
 } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
 import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
@@ -22,6 +22,7 @@ function WalletBalances({ userId, walletAddress, onDeposited, open }: {
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositTxHash, setDepositTxHash] = useState<string | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
+  const [copiedAddress, setCopiedAddress] = useState(false);
 
   useEffect(() => {
     if (!userId || !open) return;
@@ -66,6 +67,18 @@ function WalletBalances({ userId, walletAddress, onDeposited, open }: {
       setDepositError("Deposit failed");
     } finally {
       setDepositing(false);
+    }
+  };
+
+  const handleCopyAddress = async () => {
+    if (!walletAddress) return;
+
+    try {
+      await navigator.clipboard.writeText(walletAddress);
+      setCopiedAddress(true);
+      window.setTimeout(() => setCopiedAddress(false), 2000);
+    } catch {
+      setDepositError("Could not copy wallet address");
     }
   };
 
@@ -136,6 +149,16 @@ function WalletBalances({ userId, walletAddress, onDeposited, open }: {
         <p className="text-xs text-sa-text-3">Your Circle wallet address</p>
         <div className="flex items-center gap-2 p-3 rounded-xl font-mono text-xs break-all bg-sa-surface border border-sa-border">
           <span className="flex-1 text-foreground">{walletAddress || "Loading..."}</span>
+          <button
+            type="button"
+            onClick={handleCopyAddress}
+            disabled={!walletAddress}
+            className="inline-flex items-center gap-1 rounded-lg border border-sa-border px-2 py-1 text-[11px] text-sa-text-2 transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Copy Circle wallet address"
+          >
+            {copiedAddress ? <Check size={12} /> : <Copy size={12} />}
+            {copiedAddress ? "Copied" : "Copy"}
+          </button>
         </div>
       </div>
     </div>
