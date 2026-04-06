@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "./components/layout/Navbar";
 import Sidebar from "./components/layout/Sidebar";
@@ -10,7 +10,7 @@ import StudioPage from "./components/studio/StudioPage";
 import LandingPage from "./components/landing/LandingPage";
 import { DEFAULT_WATCH_VIDEO_ID } from "./lib/constants";
 
-export default function Home() {
+function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentPage, setCurrentPage] = useState(
@@ -95,5 +95,19 @@ export default function Home() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-sa-bg text-sa-text flex items-center justify-center">
+          <span className="text-sm text-sa-text-3">Loading...</span>
+        </div>
+      }
+    >
+      <HomeContent />
+    </Suspense>
   );
 }

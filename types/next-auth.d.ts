@@ -8,6 +8,7 @@ declare module "next-auth" {
       gateway_balance?: number;
       wallet_address?: string | null;
       display_name?: string | null;
+      avatar_url?: string | null;
     };
   }
 }
@@ -19,5 +20,6 @@ declare module "next-auth/jwt" {
     gateway_balance?: number;
     wallet_address?: string | null;
     display_name?: string | null;
+    avatar_url?: string | null;
   }
 }

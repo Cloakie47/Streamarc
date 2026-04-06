@@ -66,6 +66,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             gateway_balance: user.gateway_balance,
             wallet_address: user.wallet_address,
             display_name: user.display_name,
+            avatar_url: (user as { avatar_url?: string | null }).avatar_url ?? null,
           };
         }
 
@@ -96,6 +97,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           gateway_balance: profile.gateway_balance,
           wallet_address: profile.wallet_address,
           display_name: profile.display_name,
+          avatar_url: (profile as { avatar_url?: string | null }).avatar_url ?? null,
         };
       },
     }),
@@ -141,6 +143,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.gateway_balance = 0;
           token.wallet_address = wallet?.address ?? null;
           token.display_name = user.name ?? null;
+          token.avatar_url = null;
         } else {
           // Existing user â€” check if they need a Circle wallet created
           if (!profile.circle_wallet_id && !profile.wallet_address) {
@@ -166,6 +169,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.role = profile.role;
           token.gateway_balance = profile.gateway_balance;
           token.display_name = profile.display_name ?? null;
+          token.avatar_url = (profile as { avatar_url?: string | null }).avatar_url ?? null;
         }
       } else if (user) {
         token.id = user.id;
@@ -173,6 +177,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.gateway_balance = (user as { gateway_balance?: number }).gateway_balance;
         token.wallet_address = (user as { wallet_address?: string | null }).wallet_address;
         token.display_name = (user as { display_name?: string | null }).display_name ?? null;
+        token.avatar_url = (user as { avatar_url?: string | null }).avatar_url ?? null;
       }
 
       return token;
@@ -188,6 +193,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           | undefined;
         (session.user as { display_name?: string | null }).display_name =
           (token.display_name as string | null | undefined) ?? null;
+        session.user.avatar_url = (token.avatar_url as string | undefined) ?? null;
       }
       return session;
     },

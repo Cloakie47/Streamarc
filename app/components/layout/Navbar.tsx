@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Search, Bell, Plus, Upload } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
@@ -10,7 +11,22 @@ export default function Navbar({ onPageChange, balance, scrolled }: {
   balance?: number;
   scrolled?: boolean;
 }) {
+  const router = useRouter();
   const { user, isSignedIn } = useCurrentUser();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      const el = userMenuRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [userMenuOpen]);
 
   const openTopUp = () => {
     window.dispatchEvent(new CustomEvent("open-top-up"));
@@ -58,13 +74,51 @@ export default function Navbar({ onPageChange, balance, scrolled }: {
               <span className="absolute top-2 right-2 w-2 h-2 bg-sa-accent rounded-full border-2 border-sa-bg" />
             </button>
             {isSignedIn ? (
-              <button
-                type="button"
-                onClick={() => signOut()}
-                className="w-10 h-10 rounded-full glass overflow-hidden border-2 border-sa-border hover:border-sa-accent transition-colors cursor-pointer flex items-center justify-center text-sm font-bold text-foreground"
-              >
-                {user?.email?.[0]?.toUpperCase() || "U"}
-              </button>
+              <div ref={userMenuRef} className="relative">
+                <button
+                  type="button"
+                  aria-expanded={userMenuOpen}
+                  aria-haspopup="menu"
+                  onClick={() => setUserMenuOpen((open) => !open)}
+                  className="w-10 h-10 rounded-full glass overflow-hidden border-2 border-sa-border hover:border-sa-accent transition-colors cursor-pointer flex items-center justify-center text-sm font-bold text-foreground"
+                >
+                  {user?.avatar_url ? (
+                    <img src={user.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    user?.email?.[0]?.toUpperCase() || "U"
+                  )}
+                </button>
+                {userMenuOpen && (
+                  <div
+                    className="absolute right-0 top-12 w-48 glass rounded-2xl border border-sa-border shadow-2xl py-2 z-50"
+                    role="menu"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        router.push("/settings");
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-white/5 transition-colors"
+                    >
+                      Settings
+                    </button>
+                    <div className="h-px bg-sa-border mx-3 my-1" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        signOut();
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-sa-accent hover:bg-white/5 transition-colors"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <button
                 type="button"
