@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabase-server";
+import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 import bcrypt from "bcryptjs";
 import { auth } from "@/app/lib/auth";
 
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
     }
 
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await getSupabaseAdmin()
       .from("users")
       .select("password_hash")
       .eq("id", session.user.id)
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     const password_hash = await bcrypt.hash(new_password, 12);
 
-    await supabaseAdmin.from("users").update({ password_hash }).eq("id", session.user.id);
+    await getSupabaseAdmin().from("users").update({ password_hash }).eq("id", session.user.id);
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

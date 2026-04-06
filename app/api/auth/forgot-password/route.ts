@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabase-server";
+import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 import { sendVerificationCode, generateCode } from "@/app/lib/email";
 
 export async function POST(req: NextRequest) {
@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
     const { email } = await req.json();
     if (!email) return NextResponse.json({ error: "Email required" }, { status: 400 });
 
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await getSupabaseAdmin()
       .from("users")
       .select("id, email, password_hash")
       .eq("email", email.toLowerCase())
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
     // Delete existing reset codes for this user
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("verification_codes")
       .delete()
       .eq("user_id", user.id)
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       .eq("used", false);
 
     // Create reset code
-    await supabaseAdmin.from("verification_codes").insert({
+    await getSupabaseAdmin().from("verification_codes").insert({
       user_id: user.id,
       email: email.toLowerCase(),
       code,

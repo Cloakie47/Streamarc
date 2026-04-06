@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { sendVerificationCode, generateCode } from "@/app/lib/email"
 
 export async function POST(req: NextRequest) {
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Check user exists and is not already verified
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await getSupabaseAdmin()
       .from("users")
       .select("id, email_verified")
       .eq("id", user_id)
@@ -29,14 +29,14 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
 
     // Delete existing unused codes
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("verification_codes")
       .delete()
       .eq("user_id", user_id)
       .eq("used", false)
 
     // Create new code
-    await supabaseAdmin.from("verification_codes").insert({
+    await getSupabaseAdmin().from("verification_codes").insert({
       user_id,
       email: email.toLowerCase(),
       code,

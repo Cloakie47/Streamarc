@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets"
 import { signTypedDataWithWallet } from "@/app/lib/circle-wallets"
 import { randomUUID } from "crypto"
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Minimum withdrawal is $0.10" }, { status: 400 })
     }
 
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await getSupabaseAdmin()
       .from("users")
       .select("wallet_address, circle_wallet_id")
       .eq("id", user_id)
@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
 
     console.log("Withdrawal complete:", { withdrawAmount, recipient, txId: mintTxId, txHash })
 
-    await supabaseAdmin.from("withdrawals").insert({
+    await getSupabaseAdmin().from("withdrawals").insert({
       creator_id: user_id,
       gross_amount: withdrawAmount,
       platform_fee: 0,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { createGatewayWallet } from "@/app/lib/circle-wallets"
 
 export async function POST(req: NextRequest) {
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Find valid code
-    const { data: verificationCode } = await supabaseAdmin
+    const { data: verificationCode } = await getSupabaseAdmin()
       .from("verification_codes")
       .select("*")
       .eq("user_id", user_id)
@@ -25,20 +25,20 @@ export async function POST(req: NextRequest) {
     }
 
     // Mark code as used
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("verification_codes")
       .update({ used: true })
       .eq("id", verificationCode.id)
 
     // Mark user as verified
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("users")
       .update({ email_verified: true })
       .eq("id", user_id)
 
     const wallet = await createGatewayWallet(user_id)
     if (wallet) {
-      await supabaseAdmin
+      await getSupabaseAdmin()
         .from("users")
         .update({
           wallet_address: wallet.address,

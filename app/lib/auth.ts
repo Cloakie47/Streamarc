@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
-import { supabaseAdmin } from "./supabase-server";
+import { getSupabaseAdmin } from "./supabase-server";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -32,7 +32,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const email = (credentials.email as string).toLowerCase();
           const password = credentials.password as string;
 
-          const { data: user } = await supabaseAdmin
+          const { data: user } = await getSupabaseAdmin()
             .from("users")
             .select("*")
             .eq("email", email)
@@ -75,13 +75,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const password = credentials.password as string;
 
         const { data: signInData, error: signInError } =
-          await supabaseAdmin.auth.signInWithPassword({ email, password });
+          await getSupabaseAdmin().auth.signInWithPassword({ email, password });
 
         if (signInError || !signInData.user) {
           throw new Error("Invalid email or password");
         }
 
-        const { data: profile } = await supabaseAdmin
+        const { data: profile } = await getSupabaseAdmin()
           .from("users")
           .select("*")
           .eq("id", signInData.user.id)
@@ -103,7 +103,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async jwt({ token, user, account }) {
       if (user && account?.provider === "google") {
-        const { data: profile } = await supabaseAdmin
+        const { data: profile } = await getSupabaseAdmin()
           .from("users")
           .select("*")
           .eq("email", user.email!)
@@ -111,7 +111,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (!profile) {
           const { data: authUser, error: createAuthError } =
-            await supabaseAdmin.auth.admin.createUser({
+            await getSupabaseAdmin().auth.admin.createUser({
               email: user.email!,
               email_confirm: true,
             });
@@ -124,7 +124,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const { createGatewayWallet } = await import("./circle-wallets");
           const wallet = await createGatewayWallet(userId);
 
-          await supabaseAdmin.from("users").insert({
+          await getSupabaseAdmin().from("users").insert({
             id: userId,
             email: user.email!,
             role: "creator",
@@ -147,7 +147,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             const { createGatewayWallet } = await import("./circle-wallets");
             const wallet = await createGatewayWallet(profile.id);
             if (wallet) {
-              await supabaseAdmin
+              await getSupabaseAdmin()
                 .from("users")
                 .update({
                   wallet_address: wallet.address,
