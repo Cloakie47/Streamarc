@@ -6,14 +6,14 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 export async function getCreatorWallet(
   creatorId: string,
-  supabaseAdmin: SupabaseClient,
+  supabase: SupabaseClient,
 ): Promise<string | null> {
   const cached = creatorWalletCache.get(creatorId);
   if (cached && Date.now() - cached.cachedAt < CACHE_TTL) {
     return cached.address;
   }
 
-  const { data } = await supabaseAdmin
+  const { data } = await supabase
     .from("users")
     .select("wallet_address")
     .eq("id", creatorId)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { sendVerificationCode, generateCode } from "@/app/lib/email"
 
 export async function POST(req: NextRequest) {
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Check if email already exists
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await getSupabaseAdmin()
       .from("users")
       .select("id, email_verified")
       .eq("email", email.toLowerCase())
@@ -33,15 +33,15 @@ export async function POST(req: NextRequest) {
     let userId: string
 
     if (existing) {
-      // User exists but unverified — update password and resend code
+      // User exists but unverified â€” update password and resend code
       userId = existing.id
-      await supabaseAdmin
+      await getSupabaseAdmin()
         .from("users")
         .update({ password_hash: passwordHash })
         .eq("id", userId)
     } else {
       // Create Supabase auth user first to get UUID
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      const { data: authData, error: authError } = await getSupabaseAdmin().auth.admin.createUser({
         email: email.toLowerCase(),
         email_confirm: false,
       })
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Failed to create account" }, { status: 500 })
       }
 
-      const { data: newUser, error: createError } = await supabaseAdmin
+      const { data: newUser, error: createError } = await getSupabaseAdmin()
         .from("users")
         .insert({
           id: authData.user.id,
@@ -73,14 +73,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Delete any existing unused codes for this email
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("verification_codes")
       .delete()
       .eq("email", email.toLowerCase())
       .eq("used", false)
 
     // Create verification code
-    await supabaseAdmin.from("verification_codes").insert({
+    await getSupabaseAdmin().from("verification_codes").insert({
       user_id: userId,
       email: email.toLowerCase(),
       code,

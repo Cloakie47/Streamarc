@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { notFound } from "next/navigation"
 import WatchPage from "@/app/components/watch/WatchPage"
 
@@ -9,7 +9,7 @@ interface Props {
 export default async function WatchVideoPage({ params }: Props) {
   const { videoId } = await params
 
-  const { data: video } = await supabaseAdmin
+  const { data: video } = await getSupabaseAdmin()
     .from("videos")
     .select("id, creator_id, title, description, status, rate_per_sec, duration_secs, cloudflare_uid")
     .eq("id", videoId)

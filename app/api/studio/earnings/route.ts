@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,12 +9,12 @@ export async function POST(req: NextRequest) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    const { data: earnings } = await supabaseAdmin
+    const { data: earnings } = await getSupabaseAdmin()
       .from("earnings")
       .select("net_amount, gross_amount, created_at")
       .eq("creator_id", creator_id)
 
-    const { data: sessions } = await supabaseAdmin
+    const { data: sessions } = await getSupabaseAdmin()
       .from("watch_sessions")
       .select("seconds_watched, viewer_id")
       .eq("creator_id", creator_id)

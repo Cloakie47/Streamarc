@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabase-server";
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 
 export async function GET(req: NextRequest) {
   try {
@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status") || "live";
     const creator_id = searchParams.get("creator_id");
 
-    let query = supabaseAdmin
+    let query = getSupabaseAdmin()
       .from("videos")
       .select("*")
       .eq("status", status)
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const { creator_id, title, description, cloudflare_uid, duration_secs } =
       body;
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await getSupabaseAdmin()
       .from("videos")
       .insert({
         creator_id,

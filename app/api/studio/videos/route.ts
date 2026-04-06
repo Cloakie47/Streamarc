@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 
 export async function POST(req: NextRequest) {
   try {
     const { creator_id } = await req.json()
     if (!creator_id) return NextResponse.json({ error: "creator_id required" }, { status: 400 })
 
-    const { data: dbVideos } = await supabaseAdmin
+    const { data: dbVideos } = await getSupabaseAdmin()
       .from("videos")
       .select("id, title, created_at, status, total_views, total_earned")
       .eq("creator_id", creator_id)
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
     // Get avg watch time per video from settled sessions
     const { data: sessions } = videoIds.length > 0
-      ? await supabaseAdmin
+      ? await getSupabaseAdmin()
           .from("watch_sessions")
           .select("video_id, seconds_watched")
           .in("video_id", videoIds)
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     // Get net earnings per video
     const { data: earnings } = videoIds.length > 0
-      ? await supabaseAdmin
+      ? await getSupabaseAdmin()
           .from("earnings")
           .select("video_id, net_amount")
           .eq("creator_id", creator_id)

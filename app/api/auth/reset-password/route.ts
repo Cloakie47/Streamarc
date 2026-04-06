@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabase-server";
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import bcrypt from "bcryptjs";
 
 export async function POST(req: NextRequest) {
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify reset code
-    const { data: resetCode } = await supabaseAdmin
+    const { data: resetCode } = await getSupabaseAdmin()
       .from("verification_codes")
       .select("*")
       .eq("user_id", user_id)
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Mark code as used
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("verification_codes")
       .update({ used: true })
       .eq("id", resetCode.id);
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     const password_hash = await bcrypt.hash(new_password, 12);
 
     // Update password
-    await supabaseAdmin.from("users").update({ password_hash }).eq("id", user_id);
+    await getSupabaseAdmin().from("users").update({ password_hash }).eq("id", user_id);
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

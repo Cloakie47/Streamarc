@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets"
 
 const client = initiateDeveloperControlledWalletsClient({
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       seconds_covered,
     } = body
 
-    // Create watch session (client: createWatchSession — only viewer_id + video_id)
+    // Create watch session (client: createWatchSession â€” only viewer_id + video_id)
     if (body.session_id === undefined && body.seconds_covered === undefined) {
       if (!viewer_id || !video_id) {
         return NextResponse.json(
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      const { data: inserted, error } = await supabaseAdmin
+      const { data: inserted, error } = await getSupabaseAdmin()
         .from("watch_sessions")
         .insert({
           viewer_id,
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      const { error: rpcErr } = await supabaseAdmin.rpc("increment_video_views", {
+      const { error: rpcErr } = await getSupabaseAdmin().rpc("increment_video_views", {
         video_id,
       })
       if (rpcErr) {
@@ -100,13 +100,13 @@ export async function POST(req: NextRequest) {
     const net_amount = amount - platform_fee
 
     // Get both wallet addresses from DB
-    const { data: viewer } = await supabaseAdmin
+    const { data: viewer } = await getSupabaseAdmin()
       .from("users")
       .select("wallet_address")
       .eq("id", viewer_id)
       .single()
 
-    const { data: creator } = await supabaseAdmin
+    const { data: creator } = await getSupabaseAdmin()
       .from("users")
       .select("wallet_address")
       .eq("id", creator_id)
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
     })
 
     // Log to Supabase
-    const { data: batch, error: batchError } = await supabaseAdmin
+    const { data: batch, error: batchError } = await getSupabaseAdmin()
       .from("payment_batches")
       .insert({
         session_id,
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Log earnings
-    await supabaseAdmin.from("earnings").insert({
+    await getSupabaseAdmin().from("earnings").insert({
       creator_id,
       video_id,
       batch_id: batch.id,

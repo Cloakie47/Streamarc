@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabase-server";
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { PAYMENT_CONFIG } from "@/app/lib/constants";
 
 export async function POST(req: NextRequest) {
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const platform_fee = amount * PAYMENT_CONFIG.platformFeePercent;
     const net_amount = amount - platform_fee;
 
-    const { data: batch, error: batchError } = await supabaseAdmin
+    const { data: batch, error: batchError } = await getSupabaseAdmin()
       .from("payment_batches")
       .insert({
         session_id,
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: batchError.message }, { status: 400 });
     }
 
-    const { error: earnError } = await supabaseAdmin.from("earnings").insert({
+    const { error: earnError } = await getSupabaseAdmin().from("earnings").insert({
       creator_id,
       video_id,
       batch_id: batch.id,
@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: earnError.message }, { status: 400 });
     }
 
-    // PostgREST .update() cannot embed rpc() — read current row then add deltas
-    const { data: ws, error: wsErr } = await supabaseAdmin
+    // PostgREST .update() cannot embed rpc() â€” read current row then add deltas
+    const { data: ws, error: wsErr } = await getSupabaseAdmin()
       .from("watch_sessions")
       .select("seconds_paid, total_cost")
       .eq("id", session_id)
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     const secDelta = Number(seconds_covered);
-    const { error: updErr } = await supabaseAdmin
+    const { error: updErr } = await getSupabaseAdmin()
       .from("watch_sessions")
       .update({
         seconds_paid: (ws?.seconds_paid ?? 0) + secDelta,
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: updErr.message }, { status: 400 });
     }
 
-    const { error: vidRpcErr } = await supabaseAdmin.rpc(
+    const { error: vidRpcErr } = await getSupabaseAdmin().rpc(
       "increment_video_earnings",
       { video_id, amount },
     );
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: vidRpcErr.message }, { status: 400 });
     }
 
-    const { error: userRpcErr } = await supabaseAdmin.rpc(
+    const { error: userRpcErr } = await getSupabaseAdmin().rpc(
       "increment_user_spent",
       { user_id: viewer_id, amount },
     );
