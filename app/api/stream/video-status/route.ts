@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     if (ready) {
       // Update video status to live
-      await supabaseAdmin
+      await getSupabaseAdmin()
         .from("videos")
         .update({
           status: "live",

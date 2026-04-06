@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { generateSecret, generateURI } from "otplib"
 import QRCode from "qrcode"
 
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "user_id required" }, { status: 400 })
     }
 
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await getSupabaseAdmin()
       .from("users")
       .select("email, totp_enabled")
       .eq("id", user_id)
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     const secret = generateSecret()
 
     // Save secret (not yet enabled until verified)
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("users")
       .update({ totp_secret: secret })
       .eq("id", user_id)

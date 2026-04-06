@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets"
 import { randomUUID } from "crypto"
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "user_id required" }, { status: 400 })
     }
 
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await getSupabaseAdmin()
       .from("users")
       .select("wallet_address, circle_wallet_id")
       .eq("id", user_id)

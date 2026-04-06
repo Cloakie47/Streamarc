@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { getCreatorWallet } from "@/app/lib/cache"
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server"
 
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     // If payload + requirements present → nanopayment settle
     if (payload && requirements) {
       // Verify session belongs to viewer
-      const { data: session } = await supabaseAdmin
+      const { data: session } = await getSupabaseAdmin()
         .from("watch_sessions")
         .select("id")
         .eq("id", session_id)
@@ -31,13 +31,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid session" }, { status: 403 })
       }
 
-      const { data: viewer } = await supabaseAdmin
+      const { data: viewer } = await getSupabaseAdmin()
         .from("users")
         .select("wallet_address")
         .eq("id", viewer_id)
         .single()
 
-      const creatorWalletAddress = await getCreatorWallet(creator_id, supabaseAdmin)
+      const creatorWalletAddress = await getCreatorWallet(creator_id, getSupabaseAdmin())
 
       if (!viewer?.wallet_address || !creatorWalletAddress) {
         return NextResponse.json({ error: "Missing wallet addresses" }, { status: 400 })
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
       const nonce = (payload as { payload?: { authorization?: { nonce?: string } } })?.payload
         ?.authorization?.nonce
       if (nonce) {
-        const { data: existingNonce } = await supabaseAdmin
+        const { data: existingNonce } = await getSupabaseAdmin()
           .from("used_nonces")
           .select("nonce")
           .eq("nonce", nonce)
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Reserve nonce before settling
-        const { error: nonceInsertErr } = await supabaseAdmin
+        const { error: nonceInsertErr } = await getSupabaseAdmin()
           .from("used_nonces")
           .insert({ nonce, viewer_id })
 
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       const platform_fee = amount * 0.20
       const net_amount = amount - platform_fee
 
-      const { data: batch, error: batchError } = await supabaseAdmin
+      const { data: batch, error: batchError } = await getSupabaseAdmin()
         .from("payment_batches")
         .insert({
           session_id,
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: batchError.message }, { status: 400 })
       }
 
-      await supabaseAdmin.from("earnings").insert({
+      await getSupabaseAdmin().from("earnings").insert({
         creator_id,
         video_id,
         batch_id: batch.id,

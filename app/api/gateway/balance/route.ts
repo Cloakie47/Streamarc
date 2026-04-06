@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GatewayClient } from "@circle-fin/x402-batching/client";
 import { getWalletBalance } from "@/app/lib/circle-wallets";
-import { supabaseAdmin } from "@/app/lib/supabase-server";
+import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 
 const gatewayClient = new GatewayClient({
   chain: "arcTestnet",
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   try {
     const { user_id } = await req.json();
 
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await getSupabaseAdmin()
       .from("users")
       .select("wallet_address, gateway_balance")
       .eq("id", user_id)
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       gatewayBalances?.gateway?.formattedAvailable ?? "0",
     );
 
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("users")
       .update({ gateway_balance: gatewayBalance })
       .eq("id", user_id);

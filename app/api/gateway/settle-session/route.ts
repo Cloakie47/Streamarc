@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server"
 import { getWalletIdByAddress, signTypedDataWithWallet } from "@/app/lib/circle-wallets"
 
@@ -16,7 +16,7 @@ function randomNonce(): string {
 }
 
 async function getCreatorWallet(creatorId: string): Promise<string | null> {
-  const { data } = await supabaseAdmin
+  const { data } = await getSupabaseAdmin()
     .from("users")
     .select("wallet_address")
     .eq("id", creatorId)
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   try {
     const { session_id, viewer_id, creator_id, video_id, seconds_watched } = await req.json()
 
-    const { data: session } = await supabaseAdmin
+    const { data: session } = await getSupabaseAdmin()
       .from("watch_sessions")
       .select("id, settled")
       .eq("id", session_id)
@@ -40,14 +40,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (!seconds_watched || seconds_watched <= 0) {
-      await supabaseAdmin.from("watch_sessions").update({ settled: true }).eq("id", session_id)
+      await getSupabaseAdmin().from("watch_sessions").update({ settled: true }).eq("id", session_id)
       return NextResponse.json({ success: true, amount: 0 })
     }
 
     const ratePerSecond = 0.00003
     const actualAmount = seconds_watched * ratePerSecond
 
-    const { data: viewer } = await supabaseAdmin
+    const { data: viewer } = await getSupabaseAdmin()
       .from("users")
       .select("wallet_address, circle_wallet_id")
       .eq("id", viewer_id)
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     const validBefore = (now + 345600).toString()
 
     // Check nonce collision
-    const { data: existingNonce } = await supabaseAdmin
+    const { data: existingNonce } = await getSupabaseAdmin()
       .from("used_nonces")
       .select("nonce")
       .eq("nonce", creatorNonce)
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Reserve both nonces
-    await supabaseAdmin.from("used_nonces").insert([
+    await getSupabaseAdmin().from("used_nonces").insert([
       { nonce: creatorNonce, viewer_id },
       { nonce: platformNonce, viewer_id },
     ])
@@ -233,7 +233,7 @@ export async function POST(req: NextRequest) {
     const net_amount = actualAmount * 0.80
     const platform_fee = actualAmount * 0.20
 
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from("watch_sessions")
       .update({
         actual_amount: actualAmount,
@@ -243,7 +243,7 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", session_id)
 
-    const { data: batch } = await supabaseAdmin
+    const { data: batch } = await getSupabaseAdmin()
       .from("payment_batches")
       .insert({
         session_id,
@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (batch) {
-      await supabaseAdmin.from("earnings").insert({
+      await getSupabaseAdmin().from("earnings").insert({
         creator_id,
         video_id,
         batch_id: batch.id,

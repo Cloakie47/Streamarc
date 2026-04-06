@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "user_id and title required" }, { status: 400 })
     }
 
-    const { data: user } = await supabaseAdmin
+    const { data: user } = await getSupabaseAdmin()
       .from("users")
       .select("id")
       .eq("id", user_id)
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create video record in DB with processing status
-    const { data: video } = await supabaseAdmin
+    const { data: video } = await getSupabaseAdmin()
       .from("videos")
       .insert({
         creator_id: user_id,
