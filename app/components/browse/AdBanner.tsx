@@ -8,7 +8,9 @@ export default function AdBanner() {
   if (!visible) return null;
 
   return (
-    <div className="glass rounded-sa-card p-5 flex items-center gap-5 mx-6 mt-4 relative">
+    <div className="glass rounded-sa-card p-5 flex items-center gap-5 mx-6 mt-4 relative border border-white/[0.06]"
+      style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.3)" }}
+    >
       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
         <span className="text-lg font-bold text-white">PR</span>
       </div>

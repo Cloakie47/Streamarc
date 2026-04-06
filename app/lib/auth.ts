@@ -131,6 +131,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             gateway_balance: 0,
             wallet_address: wallet?.address ?? null,
             circle_wallet_id: wallet?.id ?? null,
+            eoa_wallet_id: wallet?.eoaId ?? null,
+            eoa_wallet_address: wallet?.eoaAddress ?? null,
             display_name: user.name || null,
           });
 
@@ -150,6 +152,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 .update({
                   wallet_address: wallet.address,
                   circle_wallet_id: wallet.id,
+                  eoa_wallet_id: wallet.eoaId,
+                  eoa_wallet_address: wallet.eoaAddress,
                 })
                 .eq("id", profile.id);
               token.wallet_address = wallet.address;

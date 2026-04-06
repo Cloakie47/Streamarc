@@ -151,8 +151,10 @@ const SidebarItem = ({ icon: Icon, label, active = false, onClick }: {
   <button
     type="button"
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group cursor-pointer border-none ${
-      active ? "bg-white text-black" : "text-sa-text-3 hover:bg-sa-surface hover:text-white bg-transparent"
+    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group cursor-pointer ${
+      active
+        ? "bg-white/[0.05] text-white border-l-2 border-sa-accent border-t-0 border-r-0 border-b-0"
+        : "text-sa-text-3 hover:bg-white/[0.03] hover:text-white bg-transparent border-l-2 border-transparent border-t-0 border-r-0 border-b-0"
     }`}
   >
     <Icon size={20} className={active ? "" : "group-hover:scale-110 transition-transform"} />
@@ -224,12 +226,15 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   }, []);
 
   const navigateTo = (page: string) => {
+    setActiveItem("");
     if (page === "watch") {
       router.push(`/watch/${DEFAULT_WATCH_VIDEO_ID}`);
     } else {
       onPageChange?.(page);
     }
   };
+
+  const isOnPageRoute = ["studio", "admin", "watch", "explore"].includes(currentPage ?? "");
 
   return (
     <>
@@ -263,9 +268,9 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
 
             <div className="flex flex-col gap-1">
               <span className="px-4 text-[10px] font-bold text-sa-text-3 uppercase tracking-widest mb-2">Your Activity</span>
-              <SidebarItem icon={History} label="History" active={activeItem === "history"} onClick={() => setActiveItem("history")} />
-              <SidebarItem icon={Heart} label="Favourites" active={activeItem === "favourites"} onClick={() => setActiveItem("favourites")} />
-              <SidebarItem icon={Clock} label="Watch later" active={activeItem === "watchlater"} onClick={() => setActiveItem("watchlater")} />
+              <SidebarItem icon={History} label="History" active={activeItem === "history" && !isOnPageRoute} onClick={() => setActiveItem("history")} />
+              <SidebarItem icon={Heart} label="Favourites" active={activeItem === "favourites" && !isOnPageRoute} onClick={() => setActiveItem("favourites")} />
+              <SidebarItem icon={Clock} label="Watch later" active={activeItem === "watchlater" && !isOnPageRoute} onClick={() => setActiveItem("watchlater")} />
             </div>
 
             <div className="h-px bg-sa-border my-2 mx-4" />

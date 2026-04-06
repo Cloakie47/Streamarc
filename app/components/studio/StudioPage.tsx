@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { motion } from "motion/react"
 import { Plus, TrendingUp, MoreVertical, Users } from "lucide-react"
 import { useCurrentUser } from "@/app/lib/auth-client"
+import UploadModal from "@/app/components/studio/UploadModal"
 
 interface EarningsStats {
   gateway_balance: number
@@ -40,6 +41,7 @@ export default function StudioPage() {
   const [externalSuccess, setExternalSuccess] = useState(false)
   const [externalTxHash, setExternalTxHash] = useState<string | null>(null)
   const [circleWalletBalance, setCircleWalletBalance] = useState<number | null>(null)
+  const [showUploadModal, setShowUploadModal] = useState(false)
 
   const { userId, walletAddress } = useCurrentUser()
 
@@ -194,8 +196,13 @@ export default function StudioPage() {
           <h1 className="text-3xl font-bold tracking-tight">Studio Dashboard</h1>
           <p className="mt-2 text-sm text-sa-text-3">{shortAddress} · {new Date().toLocaleString("default", { month: "long", year: "numeric" })}</p>
         </div>
-        <button type="button" className="btn btn-primary flex gap-2">
-          <Plus size={20} /> Upload Video
+        <button
+          type="button"
+          onClick={() => setShowUploadModal(true)}
+          className="btn btn-primary flex gap-2"
+        >
+          <Plus size={20} />
+          Upload Video
         </button>
       </div>
 
@@ -239,10 +246,12 @@ export default function StudioPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
             >
-              <div className="glass p-6 rounded-sa-card flex flex-col gap-2">
+              <div className="glass p-6 rounded-sa-card flex flex-col gap-2 border-t border-white/[0.06]"
+                style={{ boxShadow: "0 8px 32px -8px rgba(0,0,0,0.4)" }}
+              >
                 <span className="text-sm text-sa-text-3 font-medium">{m.label}</span>
                 <div className="flex items-end justify-between">
-                  <span className="text-3xl font-bold tracking-tight">{m.value}</span>
+                  <span className={index === 0 ? "text-4xl font-bold text-white" : "text-3xl font-bold tracking-tight"}>{m.value}</span>
                   {m.change && (
                     <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg ${
                       m.isPositive ? "bg-sa-green/10 text-sa-green" : "bg-sa-red/10 text-sa-red"
@@ -278,8 +287,14 @@ export default function StudioPage() {
             <tbody className="divide-y divide-sa-border">
               {videos.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-sa-text-3">
-                    No videos yet. Upload your first video to start earning.
+                  <td colSpan={5} className="px-6 py-16 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-14 h-14 rounded-2xl bg-sa-surface-2 flex items-center justify-center">
+                        <Plus size={28} className="text-sa-text-3" />
+                      </div>
+                      <p className="text-sm text-sa-text-3">No videos yet</p>
+                      <p className="text-xs text-sa-text-3/70">Upload your first demo to start earning per second</p>
+                    </div>
                   </td>
                 </tr>
               ) : videos.map((v) => (
@@ -330,7 +345,7 @@ export default function StudioPage() {
               placeholder={`Min $0.10 · Max $${(stats?.gateway_balance ?? 0).toFixed(4)}`}
               value={withdrawAmount}
               onChange={e => setWithdrawAmount(e.target.value)}
-              className="w-full rounded-xl border border-sa-border bg-sa-surface px-4 py-3 text-sm text-foreground outline-none focus:border-sa-accent/50 transition-all placeholder:text-sa-text-3"
+              className="w-full rounded-xl border border-white/[0.08] bg-sa-surface-2 px-4 py-3 text-sm text-foreground outline-none focus:border-sa-accent/50 transition-all placeholder:text-sa-text-3"
             />
             {withdrawError && <p className="text-xs text-sa-red">{withdrawError}</p>}
             {withdrawSuccess && (
@@ -357,7 +372,7 @@ export default function StudioPage() {
                 parseFloat(withdrawAmount) < 0.10 ||
                 (stats?.gateway_balance ?? 0) <= 0
               }
-              className="btn btn-accent w-full disabled:opacity-40"
+              className="btn btn-accent w-full disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {withdrawing ? (
                 <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Withdrawing...</>
@@ -388,7 +403,7 @@ export default function StudioPage() {
               placeholder="Destination address (0x...)"
               value={externalAddress}
               onChange={e => setExternalAddress(e.target.value)}
-              className="w-full rounded-xl border border-sa-border bg-sa-surface px-4 py-3 text-sm text-foreground outline-none focus:border-sa-accent/50 transition-all placeholder:text-sa-text-3"
+              className="w-full rounded-xl border border-white/[0.08] bg-sa-surface-2 px-4 py-3 text-sm text-foreground outline-none focus:border-sa-accent/50 transition-all placeholder:text-sa-text-3"
             />
             <input
               type="number"
@@ -397,7 +412,7 @@ export default function StudioPage() {
               placeholder="Amount USDC"
               value={externalAmount}
               onChange={e => setExternalAmount(e.target.value)}
-              className="w-full rounded-xl border border-sa-border bg-sa-surface px-4 py-3 text-sm text-foreground outline-none focus:border-sa-accent/50 transition-all placeholder:text-sa-text-3"
+              className="w-full rounded-xl border border-white/[0.08] bg-sa-surface-2 px-4 py-3 text-sm text-foreground outline-none focus:border-sa-accent/50 transition-all placeholder:text-sa-text-3"
             />
           </div>
           {externalError && <p className="text-xs text-sa-red">{externalError}</p>}
@@ -420,7 +435,7 @@ export default function StudioPage() {
             type="button"
             onClick={handleSendExternal}
             disabled={sendingExternal || !externalAddress || !externalAmount || (circleWalletBalance ?? 0) <= 0}
-            className="btn btn-primary w-full disabled:opacity-40"
+            className="btn btn-primary w-full disabled:opacity-30 disabled:cursor-not-allowed"
           >
             {sendingExternal ? (
               <><span className="h-3 w-3 animate-spin rounded-full border-2 border-black/40 border-t-transparent" /> Sending...</>
@@ -444,10 +459,28 @@ export default function StudioPage() {
               </div>
             </div>
           )) : (
-            <p className="text-xs text-sa-text-3">No recent activity</p>
+            <div className="flex flex-col items-center gap-3 py-8">
+              <div className="w-12 h-12 rounded-2xl bg-sa-surface-2 flex items-center justify-center">
+                <Users size={24} className="text-sa-text-3" />
+              </div>
+              <p className="text-sm text-sa-text-3">No activity yet</p>
+              <p className="text-xs text-sa-text-3/70">Viewer watch sessions and earnings will appear here</p>
+            </div>
           )}
         </div>
       </div>
+
+      {showUploadModal && userId && (
+        <UploadModal
+          userId={userId}
+          onClose={() => setShowUploadModal(false)}
+          onSuccess={() => {
+            setShowUploadModal(false)
+            fetchStats()
+            fetchVideos()
+          }}
+        />
+      )}
     </div>
   )
 }

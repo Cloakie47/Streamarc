@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "motion/react";
+import { Stream } from "@cloudflare/stream-react";
 import { Settings, Maximize } from "lucide-react";
 import { createWatchSession, endWatchSession, settleWatchSession } from "@/app/lib/payments";
 import { PAYMENT_CONFIG } from "@/app/lib/constants";
@@ -18,6 +19,9 @@ const upNext = [
 
 const { intervalSeconds, freePreviewSeconds } = PAYMENT_CONFIG;
 
+const REAL_CREATOR_ID = "bef48cbd-e0cf-4a0c-819b-06e66bc6fa09";
+const LEGACY_CREATOR_ID = "9a2c81f5-8fa1-4b4c-8029-bd89e3f5c941";
+
 function formatSubCentsShows(rate: number) {
   if (rate >= 0.01) return rate.toFixed(2);
   return rate.toFixed(5);
@@ -28,6 +32,7 @@ export interface WatchPageProps {
   creatorId: string;
   title: string;
   description: string;
+  cloudflareUid?: string;
   ratePerSecond: number;
   durationSecs: number;
   onBalanceChange?: (bal: number) => void;
@@ -38,6 +43,7 @@ export default function WatchPage({
   creatorId,
   title,
   description,
+  cloudflareUid,
   ratePerSecond,
   durationSecs,
   onBalanceChange,
@@ -50,7 +56,9 @@ export default function WatchPage({
 
   const { userId, balance: userBalance } = useCurrentUser();
   const VIEWER_ID = userId || "";
-  const isOwnVideo = VIEWER_ID === creatorId;
+  const isOwnVideo =
+    VIEWER_ID === creatorId ||
+    (VIEWER_ID === REAL_CREATOR_ID && creatorId === LEGACY_CREATOR_ID);
 
   const [balance, setBalance] = useState(userBalance || 0);
 
@@ -58,6 +66,7 @@ export default function WatchPage({
   const secsRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const sessionSettledRef = useRef(false);
+  const lastSettledSecsRef = useRef(0);
   const initialBalanceRef = useRef(userBalance ?? 0);
   const prevPlayingRef = useRef(false);
   const creatingSessionRef = useRef(false);
@@ -107,11 +116,11 @@ export default function WatchPage({
       if (!VIEWER_ID || !sid || sessionSettledRef.current) return;
 
       const totalSecsWatched = secsRef.current;
-      const paidSeconds = Math.max(0, totalSecsWatched - freePreviewSeconds);
-
-      sessionSettledRef.current = true;
+      const alreadyPaid = lastSettledSecsRef.current;
+      const paidSeconds = Math.max(0, totalSecsWatched - Math.max(alreadyPaid, freePreviewSeconds));
 
       if (paidSeconds > 0 && !isOwnVideo) {
+        sessionSettledRef.current = true;
         const result = await settleWatchSession(
           sid,
           VIEWER_ID,
@@ -121,15 +130,19 @@ export default function WatchPage({
           { keepalive: reason === "unload" },
         );
         if (result.success) {
-          console.log("Session settled:", result.amount);
+          lastSettledSecsRef.current = totalSecsWatched;
+          sessionSettledRef.current = false;
           window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
         } else {
+          sessionSettledRef.current = false;
           console.error("Settlement failed:", result.error);
         }
       }
 
-      await endWatchSession(sid, totalSecsWatched);
-      setSessionId(null);
+      if (reason === "unload") {
+        await endWatchSession(sid, totalSecsWatched);
+        setSessionId(null);
+      }
     },
     [VIEWER_ID, isOwnVideo, creatorId, videoId],
   );
@@ -145,6 +158,10 @@ export default function WatchPage({
       creatingSessionRef.current = false;
       if (id) {
         sessionSettledRef.current = false;
+        lastSettledSecsRef.current = 0;
+        setSecs(0);
+        secsRef.current = 0;
+        setFree(true);
         setSessionId(id);
       }
     });
@@ -281,68 +298,84 @@ export default function WatchPage({
           transition={{ duration: 0.4 }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
+            role={cloudflareUid ? undefined : "button"}
+            tabIndex={cloudflareUid ? undefined : 0}
+            onKeyDown={cloudflareUid ? undefined : (e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 handlePlay();
               }
             }}
-            onClick={handlePlay}
-            className="player-container aspect-video w-full rounded-2xl overflow-hidden relative group cursor-pointer bg-black"
+            onClick={cloudflareUid ? undefined : handlePlay}
+            className={`player-container aspect-video w-full rounded-2xl overflow-hidden relative group bg-black ${!cloudflareUid ? "cursor-pointer" : ""}`}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-[#0c0c0e] to-black" />
+            {!cloudflareUid && (
+              <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-[#0c0c0e] to-black" />
+            )}
+            {cloudflareUid && (
+              <Stream
+                src={cloudflareUid}
+                className="absolute inset-0 w-full h-full z-[1]"
+                controls
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onEnded={() => setPlaying(false)}
+              />
+            )}
 
-            <div className={`absolute inset-0 z-[5] flex items-center justify-center transition-opacity duration-200 ${
-              playing ? "opacity-0 group-hover:opacity-100" : "opacity-100"
-            }`}>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); handlePlay(); }}
-                aria-label={playing ? "Pause" : "Play"}
-                className={`${FROSTED_PLAY_CLASSES} h-16 w-16 cursor-pointer border-none p-0`}
-              >
-                {playing ? (
-                  <FrostedPauseSvg className="h-6 w-6 fill-current text-white drop-shadow-md" />
-                ) : (
-                  <FrostedPlaySvg className="ml-1 h-6 w-6 fill-current text-white drop-shadow-md" />
-                )}
-              </button>
-            </div>
-
-            <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-              <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden cursor-pointer">
-                <div className="h-full rounded-full transition-all duration-300" style={{ background: "var(--sa-accent)", width: `${progress}%` }} />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handlePlay(); }}
-                    aria-label={playing ? "Pause" : "Play"}
-                    className={`h-8 w-8 cursor-pointer border-none p-0 ${FROSTED_PLAY_CLASSES}`}
-                  >
-                    {playing ? <FrostedPauseSvg className="h-[38%] w-[38%] fill-current drop-shadow-md" /> : <FrostedPlaySvg className="ml-0.5 h-[38%] w-[38%] fill-current drop-shadow-md" />}
-                  </button>
-                  <span className="font-mono text-xs font-medium text-white/70">{currentTime} / {totalTime}</span>
-                  {!free && playing && !isOwnVideo && (
-                    <div className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 backdrop-blur-md">
-                      <span className="h-1.5 w-1.5 rounded-full animate-pulse bg-sa-red" />
-                      <span className="text-[11px] font-semibold tabular-nums text-white/90">${cost.toFixed(4)}</span>
-                    </div>
+            {!cloudflareUid && (
+              <div className={`absolute inset-0 z-[5] flex items-center justify-center transition-opacity duration-200 ${
+                playing ? "opacity-0 group-hover:opacity-100" : "opacity-100"
+              }`}>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handlePlay(); }}
+                  aria-label={playing ? "Pause" : "Play"}
+                  className={`${FROSTED_PLAY_CLASSES} h-16 w-16 cursor-pointer border-none p-0`}
+                >
+                  {playing ? (
+                    <FrostedPauseSvg className="h-6 w-6 fill-current text-white drop-shadow-md" />
+                  ) : (
+                    <FrostedPlaySvg className="ml-1 h-6 w-6 fill-current text-white drop-shadow-md" />
                   )}
+                </button>
+              </div>
+            )}
+
+            {!cloudflareUid && (
+              <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden cursor-pointer">
+                  <div className="h-full rounded-full transition-all duration-300" style={{ background: "var(--sa-accent)", width: `${progress}%` }} />
                 </div>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={(e) => e.stopPropagation()} className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer bg-transparent border-none">
-                    <Settings size={16} />
-                  </button>
-                  <button type="button" onClick={handleEnlarge} aria-label="Fullscreen" className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer bg-transparent border-none">
-                    <Maximize size={16} />
-                  </button>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handlePlay(); }}
+                      aria-label={playing ? "Pause" : "Play"}
+                      className={`h-8 w-8 cursor-pointer border-none p-0 ${FROSTED_PLAY_CLASSES}`}
+                    >
+                      {playing ? <FrostedPauseSvg className="h-[38%] w-[38%] fill-current drop-shadow-md" /> : <FrostedPlaySvg className="ml-0.5 h-[38%] w-[38%] fill-current drop-shadow-md" />}
+                    </button>
+                    <span className="font-mono text-xs font-medium text-white/70">{currentTime} / {totalTime}</span>
+                    {!free && playing && !isOwnVideo && (
+                      <div className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 backdrop-blur-md">
+                        <span className="h-1.5 w-1.5 rounded-full animate-pulse bg-sa-red" />
+                        <span className="text-[11px] font-semibold tabular-nums text-white/90">${cost.toFixed(4)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={(e) => e.stopPropagation()} className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer bg-transparent border-none">
+                      <Settings size={16} />
+                    </button>
+                    <button type="button" onClick={handleEnlarge} aria-label="Fullscreen" className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer bg-transparent border-none">
+                      <Maximize size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </motion.div>
 

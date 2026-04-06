@@ -11,7 +11,7 @@ export default async function WatchVideoPage({ params }: Props) {
 
   const { data: video } = await supabaseAdmin
     .from("videos")
-    .select("id, creator_id, title, description, status, rate_per_sec, duration_secs")
+    .select("id, creator_id, title, description, status, rate_per_sec, duration_secs, cloudflare_uid")
     .eq("id", videoId)
     .eq("status", "live")
     .single()
@@ -24,6 +24,7 @@ export default async function WatchVideoPage({ params }: Props) {
       creatorId={video.creator_id}
       title={video.title}
       description={video.description ?? ""}
+      cloudflareUid={video.cloudflare_uid ?? undefined}
       ratePerSecond={Number(video.rate_per_sec ?? 0.00003)}
       durationSecs={video.duration_secs ?? 272}
     />

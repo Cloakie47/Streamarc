@@ -187,6 +187,8 @@ function isPlaceholderId(id: string) {
   return id.startsWith("placeholder");
 }
 
+const NOISE_SVG = `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")`;
+
 function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) => void }) {
   const placeholder = isPlaceholderId(video.id);
 
@@ -195,22 +197,30 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
       layout
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col gap-3 group cursor-pointer"
+      className={`flex flex-col gap-3 group cursor-pointer ${placeholder ? "opacity-60" : ""}`}
       onClick={() => {
         if (placeholder) return;
         onPlay(video.id);
       }}
     >
-      <div className="relative aspect-video rounded-sa-card overflow-hidden glass card-hover">
+      <div className={`relative aspect-video rounded-sa-card overflow-hidden border border-white/[0.06] transition-all duration-300
+        ${placeholder ? "" : "group-hover:border-sa-accent/30 group-hover:shadow-[0_0_48px_-12px_hsl(12_85%_58%/0.2)]"}
+      `}
+        style={{ boxShadow: "0 8px 32px -8px rgba(0,0,0,0.5)" }}
+      >
         <div className="absolute inset-0 bg-gradient-to-br from-[#0c0d14] via-[#131528] to-[#090a10]" />
         <div
           className={`absolute inset-0 bg-gradient-to-br opacity-[0.28] mix-blend-screen ${video.thumbnail}`}
           aria-hidden
         />
+        {/* Noise texture */}
+        <div className="absolute inset-0 z-[1] mix-blend-overlay pointer-events-none" style={{ backgroundImage: NOISE_SVG, backgroundRepeat: "repeat" }} />
+        {/* Top inner glow */}
+        <div className="absolute inset-x-0 top-0 h-24 z-[1] pointer-events-none" style={{ background: "linear-gradient(to bottom, rgba(255,255,255,0.04), transparent)" }} />
 
         <div className="absolute top-3 left-3 flex gap-2 z-10">
           {placeholder ? (
-            <span className="bg-sa-blue text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">Soon</span>
+            <span className="bg-sa-blue/80 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">Soon</span>
           ) : (
             <>
               {video.isLive && <span className="bg-sa-accent text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">Live</span>}
@@ -223,21 +233,23 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
           {formatDuration(video.duration)}
         </div>
 
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
+        <div className={`absolute inset-0 flex items-center justify-center transition-all duration-300 z-10
+          ${placeholder ? "opacity-0 group-hover:opacity-100" : "opacity-0 group-hover:opacity-100 group-hover:scale-100 scale-90"}
+        `}>
           {placeholder ? (
-            <div className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center border border-white/20">
-              <Lock className="h-6 w-6 text-white/50" strokeWidth={1.5} />
+            <div className="w-14 h-14 rounded-full bg-black/50 backdrop-blur-xl flex items-center justify-center border border-white/10">
+              <Lock className="h-6 w-6 text-white/40" strokeWidth={1.5} />
             </div>
           ) : (
-            <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30">
-              <PlayCircle size={32} className="text-white fill-white/20" />
+            <div className="w-14 h-14 rounded-full bg-white/15 backdrop-blur-xl flex items-center justify-center border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+              <PlayCircle size={32} className="text-white fill-white/10" />
             </div>
           )}
         </div>
       </div>
 
       <div className="flex gap-3 px-1">
-        <div className="w-8 h-8 rounded-full bg-sa-surface-2 flex-shrink-0 flex items-center justify-center text-[10px] font-bold border border-sa-border">
+        <div className="w-8 h-8 rounded-full bg-sa-surface-2 flex-shrink-0 flex items-center justify-center text-[10px] font-bold border border-white/[0.06]">
           {video.projectAvatar}
         </div>
         <div className="flex flex-col gap-1 overflow-hidden">

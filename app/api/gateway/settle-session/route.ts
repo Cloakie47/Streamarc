@@ -39,10 +39,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid session" }, { status: 403 })
     }
 
-    if (session.settled) {
-      return NextResponse.json({ success: true, amount: 0, already_settled: true })
-    }
-
     if (!seconds_watched || seconds_watched <= 0) {
       await supabaseAdmin.from("watch_sessions").update({ settled: true }).eq("id", session_id)
       return NextResponse.json({ success: true, amount: 0 })
@@ -61,7 +57,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Viewer wallet not found" }, { status: 400 })
     }
 
-    const viewerWalletId = viewer.circle_wallet_id ?? await getWalletIdByAddress(viewer.wallet_address)
+    const viewerWalletId =
+      viewer.circle_wallet_id ?? (await getWalletIdByAddress(viewer.wallet_address))
     if (!viewerWalletId) {
       return NextResponse.json({ error: "Viewer Circle wallet not found" }, { status: 400 })
     }
@@ -116,6 +113,12 @@ export async function POST(req: NextRequest) {
       ],
     }
 
+    console.log("Signing with:", {
+      viewerWalletId,
+      circleWalletId: viewer.circle_wallet_id,
+      from: viewer.wallet_address, // EOA address — owns Gateway balance
+    })
+
     // Sign for creator (80%)
     const creatorSignature = await signTypedDataWithWallet(
       viewerWalletId,
@@ -123,7 +126,7 @@ export async function POST(req: NextRequest) {
       types,
       "TransferWithAuthorization",
       {
-        from: viewer.wallet_address,
+        from: viewer.wallet_address, // EOA address — owns Gateway balance
         to: creatorWallet,
         value: creatorAmountIn6Dec,
         validAfter: "0",
@@ -139,7 +142,7 @@ export async function POST(req: NextRequest) {
       types,
       "TransferWithAuthorization",
       {
-        from: viewer.wallet_address,
+        from: viewer.wallet_address, // EOA address — owns Gateway balance
         to: platformWallet,
         value: platformAmountIn6Dec,
         validAfter: "0",
@@ -172,7 +175,7 @@ export async function POST(req: NextRequest) {
       payload: {
         signature: sig,
         authorization: {
-          from: viewer.wallet_address,
+          from: viewer.wallet_address, // EOA address — owns Gateway balance
           to,
           value: amount,
           validAfter: "0",
@@ -233,7 +236,6 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin
       .from("watch_sessions")
       .update({
-        settled: true,
         actual_amount: actualAmount,
         authorized_amount: actualAmount,
         seconds_paid: seconds_watched,

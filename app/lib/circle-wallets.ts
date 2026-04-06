@@ -10,6 +10,8 @@ function getClient() {
 export interface CircleWallet {
   id: string
   address: string
+  eoaId?: string
+  eoaAddress?: string
 }
 
 export async function createGatewayWallet(userId: string): Promise<CircleWallet | null> {
@@ -20,17 +22,39 @@ export async function createGatewayWallet(userId: string): Promise<CircleWallet 
     }
 
     const client = getClient()
+
+    // Check if wallet already exists for this userId via refId
+    const existing = await client.listWallets({ refId: userId })
+    const existingWallet = existing.data?.wallets?.[0]
+    if (existingWallet?.id && existingWallet?.address) {
+      console.log("Existing Circle wallet found:", { id: existingWallet.id, address: existingWallet.address, userId })
+      return {
+        id: existingWallet.id,
+        address: existingWallet.address,
+        eoaId: undefined,
+        eoaAddress: undefined,
+      }
+    }
+
+    // Create EOA wallet
     const response = await client.createWallets({
       walletSetId: process.env.CIRCLE_WALLET_SET_ID!,
       blockchains: ["ARC-TESTNET"],
       count: 1,
+      accountType: "EOA",
+      metadata: [{ name: `streamarc-${userId}`, refId: userId }],
     })
 
     const wallet = response.data?.wallets?.[0]
     if (!wallet?.address || !wallet?.id) return null
 
-    console.log("Circle wallet created:", { id: wallet.id, address: wallet.address, userId })
-    return { id: wallet.id, address: wallet.address }
+    console.log("Circle EOA wallet created:", { id: wallet.id, address: wallet.address, userId })
+    return {
+      id: wallet.id,
+      address: wallet.address,
+      eoaId: undefined,
+      eoaAddress: undefined,
+    }
   } catch (err: any) {
     console.error("Failed to create Circle wallet:", err?.message, err?.response?.data)
     return null

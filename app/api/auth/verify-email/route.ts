@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
         .update({
           wallet_address: wallet.address,
           circle_wallet_id: wallet.id,
+          eoa_wallet_id: wallet.eoaId,
+          eoa_wallet_address: wallet.eoaAddress,
         })
         .eq("id", user_id)
     }
