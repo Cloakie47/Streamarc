@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
-import { getSupabaseAdmin } from "./supabase-server"
+import { getSupabaseAdmin } from "./supabase-server";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -43,7 +43,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           if (!user.password_hash) throw new Error("Please sign in with Google");
 
           const bcryptMod = await import("bcryptjs");
-          const valid = await bcryptMod.default.compare(password, user.password_hash);
+          const valid = await bcryptMod.compare(password, user.password_hash);
           if (!valid) throw new Error("Invalid email or password");
 
           if (user.totp_enabled) {

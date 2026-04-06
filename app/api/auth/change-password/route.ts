@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 import bcrypt from "bcryptjs";
 import { auth } from "@/app/lib/auth";
 
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (!user?.password_hash) {
-      return NextResponse.json({ error: "No password set â€” sign in with Google" }, { status: 400 });
+      return NextResponse.json({ error: "No password set - sign in with Google" }, { status: 400 });
     }
 
     const valid = await bcrypt.compare(current_password, user.password_hash);

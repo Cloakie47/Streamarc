@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GatewayClient } from "@circle-fin/x402-batching/client";
 import { getWalletBalance } from "@/app/lib/circle-wallets";
-import { getSupabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 
 const gatewayClient = new GatewayClient({
   chain: "arcTestnet",

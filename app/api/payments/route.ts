@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/app/lib/supabase-server"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 import { PAYMENT_CONFIG } from "@/app/lib/constants";
 
 export async function POST(req: NextRequest) {
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: earnError.message }, { status: 400 });
     }
 
-    // PostgREST .update() cannot embed rpc() â€” read current row then add deltas
+    // PostgREST .update() cannot embed rpc() - read current row then add deltas
     const { data: ws, error: wsErr } = await getSupabaseAdmin()
       .from("watch_sessions")
       .select("seconds_paid, total_cost")
