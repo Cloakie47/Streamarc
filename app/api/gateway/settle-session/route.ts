@@ -44,14 +44,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, amount: 0 })
     }
 
-    const ratePerSecond = 0.00003
-    const actualAmount = seconds_watched * ratePerSecond
-
     const { data: viewer } = await getSupabaseAdmin()
       .from("users")
       .select("wallet_address, circle_wallet_id")
       .eq("id", viewer_id)
       .single()
+
+    const supabase = getSupabaseAdmin()
+    const { data: video } = await supabase
+      .from("videos")
+      .select("rate_per_sec")
+      .eq("id", video_id)
+      .single()
+
+    const ratePerSecond = video?.rate_per_sec ?? 0.00005
+    const actualAmount = seconds_watched * ratePerSecond
 
     if (!viewer?.wallet_address) {
       return NextResponse.json({ error: "Viewer wallet not found" }, { status: 400 })
