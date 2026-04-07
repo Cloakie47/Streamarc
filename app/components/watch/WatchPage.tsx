@@ -19,9 +19,6 @@ const upNext = [
 
 const { intervalSeconds, freePreviewSeconds } = PAYMENT_CONFIG;
 
-const REAL_CREATOR_ID = "bef48cbd-e0cf-4a0c-819b-06e66bc6fa09";
-const LEGACY_CREATOR_ID = "9a2c81f5-8fa1-4b4c-8029-bd89e3f5c941";
-
 function formatSubCentsShows(rate: number) {
   if (rate >= 0.01) return rate.toFixed(2);
   return rate.toFixed(5);
@@ -35,6 +32,13 @@ export interface WatchPageProps {
   cloudflareUid?: string;
   ratePerSecond: number;
   durationSecs: number;
+  creator?: {
+    id: string;
+    display_name: string | null;
+    channel_name: string | null;
+    avatar_url: string | null;
+    is_verified: boolean | null;
+  } | null;
   onBalanceChange?: (bal: number) => void;
 }
 
@@ -46,6 +50,7 @@ export default function WatchPage({
   cloudflareUid,
   ratePerSecond,
   durationSecs,
+  creator,
   onBalanceChange,
 }: WatchPageProps) {
   const [playing, setPlaying] = useState(false);
@@ -56,9 +61,7 @@ export default function WatchPage({
 
   const { userId, balance: userBalance } = useCurrentUser();
   const VIEWER_ID = userId || "";
-  const isOwnVideo =
-    VIEWER_ID === creatorId ||
-    (VIEWER_ID === REAL_CREATOR_ID && creatorId === LEGACY_CREATOR_ID);
+  const isOwnVideo = VIEWER_ID === creatorId;
 
   const [balance, setBalance] = useState(userBalance || 0);
 
@@ -253,8 +256,6 @@ export default function WatchPage({
   const progress = Math.min((secs / Math.max(durationSecs, 1)) * 100, 100);
   const currentTime = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
   const totalTime = `${Math.floor(durationSecs / 60)}:${String(durationSecs % 60).padStart(2, "0")}`;
-  const creatorShort = creatorId.slice(0, 2).toUpperCase();
-
   const rateStatusLabel = `$${formatSubCentsShows(ratePerSecond)}/sec`;
 
   const handleEnlarge = (e: React.MouseEvent) => {
@@ -387,14 +388,30 @@ export default function WatchPage({
         >
           <h1 className="text-xl font-bold tracking-tight leading-snug">{title}</h1>
           <div className="flex items-center gap-3 mt-2 text-sa-text-3">
-            <div className="flex items-center gap-2">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
-                style={{ background: "linear-gradient(135deg, #5eb0ff, #3b82f6)" }}
-              >
-                {creatorShort}
+            <div
+              className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => window.location.href = `/profile/${creatorId}`}
+            >
+              <div className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 border border-white/10">
+                {creator?.avatar_url ? (
+                  <img src={creator.avatar_url} alt="Creator" className="w-full h-full object-cover" />
+                ) : (
+                  <div
+                    className="w-full h-full flex items-center justify-center text-[10px] font-bold text-white"
+                    style={{ background: "linear-gradient(135deg, #5eb0ff, #3b82f6)" }}
+                  >
+                    {(creator?.channel_name || creator?.display_name || creatorId).slice(0, 1).toUpperCase()}
+                  </div>
+                )}
               </div>
-              <span className="text-sm font-medium text-foreground">Creator</span>
+              <span className="text-sm font-medium text-foreground hover:text-sa-accent transition-colors">
+                {creator?.channel_name || creator?.display_name || "Creator"}
+              </span>
+              {creator?.is_verified && (
+                <svg className="w-4 h-4 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
             </div>
             <span className="w-1 h-1 rounded-full bg-sa-text-3" />
             <span className="text-sm">{totalTime}</span>

@@ -8,8 +8,9 @@ interface Props {
 
 export default async function WatchVideoPage({ params }: Props) {
   const { videoId } = await params
+  const supabase = getSupabaseAdmin()
 
-  const { data: video } = await getSupabaseAdmin()
+  const { data: video } = await supabase
     .from("videos")
     .select("id, creator_id, title, description, status, rate_per_sec, duration_secs, cloudflare_uid")
     .eq("id", videoId)
@@ -17,6 +18,12 @@ export default async function WatchVideoPage({ params }: Props) {
     .single()
 
   if (!video) notFound()
+
+  const { data: creator } = await supabase
+    .from("users")
+    .select("id, display_name, channel_name, avatar_url, is_verified")
+    .eq("id", video.creator_id)
+    .single()
 
   return (
     <WatchPage
@@ -27,6 +34,7 @@ export default async function WatchVideoPage({ params }: Props) {
       cloudflareUid={video.cloudflare_uid ?? undefined}
       ratePerSecond={Number(video.rate_per_sec ?? 0.00003)}
       durationSecs={video.duration_secs ?? 272}
+      creator={creator}
     />
   )
 }
