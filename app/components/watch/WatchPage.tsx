@@ -39,6 +39,7 @@ export interface WatchPageProps {
     avatar_url: string | null;
     is_verified: boolean | null;
   } | null;
+  chapters?: { time: number; title: string }[] | null;
   onBalanceChange?: (bal: number) => void;
 }
 
@@ -51,6 +52,7 @@ export default function WatchPage({
   ratePerSecond,
   durationSecs,
   creator,
+  chapters,
   onBalanceChange,
 }: WatchPageProps) {
   const [playing, setPlaying] = useState(false);
@@ -77,6 +79,8 @@ export default function WatchPage({
   const initialBalanceRef = useRef(userBalance ?? 0);
   const prevPlayingRef = useRef(false);
   const creatingSessionRef = useRef(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const streamRef = useRef<any>(null);
 
   const handlePlay = () => {
     if (!playing && !isOwnVideo && balance < 0.001) {
@@ -277,6 +281,13 @@ export default function WatchPage({
     }
   };
 
+  const handleChapterClick = (time: number) => {
+    if (streamRef.current) {
+      streamRef.current.currentTime = time;
+      void streamRef.current.play();
+    }
+  };
+
   const handleTip = async () => {
     if (!VIEWER_ID || !tipAmount || isOwnVideo) return;
     setTipping(true);
@@ -354,6 +365,7 @@ export default function WatchPage({
             )}
             {cloudflareUid && (
               <Stream
+                streamRef={streamRef}
                 src={cloudflareUid}
                 className="absolute inset-0 w-full h-full z-[1]"
                 controls
@@ -387,7 +399,7 @@ export default function WatchPage({
 
             {!cloudflareUid && (
               <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                  <div className="h-1 w-full cursor-pointer overflow-hidden rounded-full bg-white/20">
+                <div className="relative h-1 w-full cursor-pointer overflow-hidden rounded-full bg-white/20">
                   <div className="h-full rounded-full transition-all duration-300" style={{ background: "linear-gradient(90deg, hsl(214 58% 69%), hsl(193 42% 67%))", width: `${progress}%` }} />
                 </div>
                 <div className="flex items-center justify-between">
@@ -421,6 +433,40 @@ export default function WatchPage({
             )}
           </div>
         </motion.div>
+
+        {/* ── Chapter list — shown below player for any video with chapters ── */}
+        {chapters && chapters.length > 0 && (
+          <div className="mt-3 panel p-4 flex flex-col gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3 mb-1">Chapters</p>
+            <div className="flex flex-col gap-0.5">
+              {chapters.map((chapter, i) => {
+                const mm = Math.floor(chapter.time / 60);
+                const ss = String(chapter.time % 60).padStart(2, "0");
+                const isActive = secs >= chapter.time && (i === chapters.length - 1 || secs < chapters[i + 1].time);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => handleChapterClick(chapter.time)}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors text-left w-full border-none bg-transparent cursor-pointer ${
+                      isActive
+                        ? "bg-sa-surface-2 text-foreground"
+                        : "text-sa-text-3 hover:bg-sa-surface-2/50 hover:text-foreground"
+                    }`}
+                  >
+                    <span className="font-mono text-[11px] tabular-nums w-9 flex-shrink-0 text-sa-accent">
+                      {mm}:{ss}
+                    </span>
+                    <span className="font-medium leading-snug">{chapter.title}</span>
+                    {isActive && (
+                      <span className="ml-auto flex-shrink-0 h-1.5 w-1.5 rounded-full bg-sa-accent animate-pulse" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}

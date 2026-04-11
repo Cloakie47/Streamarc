@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef } from "react"
 import { motion } from "motion/react"
-import { Plus, TrendingUp, Users, Camera, Twitter, MessageCircle, Save, Trash2 } from "lucide-react"
+import { Plus, TrendingUp, Users, Camera, Twitter, MessageCircle, Save, Trash2, Sparkles } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCurrentUser } from "@/app/lib/auth-client"
 import UploadModal from "@/app/components/studio/UploadModal"
+import ChapterEditor from "@/app/components/studio/ChapterEditor"
 
 interface EarningsStats {
   gateway_balance: number
@@ -23,6 +24,9 @@ interface VideoRow {
   avg_watch_seconds: number
   earned: number
   status: string
+  cloudflare_uid?: string | null
+  chapters?: unknown
+  duration_secs?: number | null
 }
 
 export default function StudioPage() {
@@ -56,6 +60,7 @@ export default function StudioPage() {
   const [profileError, setProfileError] = useState<string | null>(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null)
+  const [chapterEditorVideo, setChapterEditorVideo] = useState<VideoRow | null>(null)
   const avatarInputRef = useRef<HTMLInputElement>(null)
 
   const router = useRouter()
@@ -438,18 +443,28 @@ export default function StudioPage() {
                       <td className="px-6 py-4 text-sm tabular-nums">{v.views.toLocaleString()}</td>
                       <td className="px-6 py-4 text-sm font-bold tabular-nums text-emerald-400">${v.earned.toFixed(4)}</td>
                       <td className="px-6 py-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteVideo(v.id)}
-                          disabled={deletingVideoId === v.id}
-                          className="p-2 rounded-lg hover:bg-red-500/10 text-sa-text-3 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none disabled:opacity-50"
-                        >
-                          {deletingVideoId === v.id ? (
-                            <span className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin block" />
-                          ) : (
-                            <Trash2 size={16} />
-                          )}
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setChapterEditorVideo(v)}
+                            title="Edit chapters"
+                            className="p-2 rounded-lg hover:bg-primary/10 text-sa-text-3 hover:text-primary opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none"
+                          >
+                            <Sparkles size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteVideo(v.id)}
+                            disabled={deletingVideoId === v.id}
+                            className="p-2 rounded-lg hover:bg-red-500/10 text-sa-text-3 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none disabled:opacity-50"
+                          >
+                            {deletingVideoId === v.id ? (
+                              <span className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin block" />
+                            ) : (
+                              <Trash2 size={16} />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -681,6 +696,24 @@ export default function StudioPage() {
             fetchStats()
             fetchVideos()
           }}
+        />
+      )}
+
+      {chapterEditorVideo && userId && (
+        <ChapterEditor
+          videoId={chapterEditorVideo.id}
+          videoTitle={chapterEditorVideo.title}
+          durationSecs={chapterEditorVideo.duration_secs ?? 0}
+          userId={userId}
+          existingChapters={
+            chapterEditorVideo.chapters
+              ? (typeof chapterEditorVideo.chapters === "string"
+                  ? (JSON.parse(chapterEditorVideo.chapters) as { time: number; title: string }[])
+                  : (chapterEditorVideo.chapters as { time: number; title: string }[]))
+              : null
+          }
+          onClose={() => setChapterEditorVideo(null)}
+          onSave={() => void fetchVideos()}
         />
       )}
     </div>

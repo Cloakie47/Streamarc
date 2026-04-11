@@ -18,16 +18,27 @@ export async function POST(req: NextRequest) {
 
     if (readyToStream) {
       const supabase = getSupabaseAdmin();
-      await supabase
+      const { data: video } = await supabase
         .from("videos")
         .update({
           status: "live",
           duration_secs: Math.round(duration ?? 0),
           thumbnail_url: thumbnail ?? null,
         })
-        .eq("cloudflare_uid", uid);
+        .eq("cloudflare_uid", uid)
+        .select("id")
+        .single();
 
       console.log("Video marked live:", uid);
+
+      // Trigger chapter generation
+      fetch(`${process.env.NEXTAUTH_URL}/api/stream/generate-chapters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: video?.id, cloudflare_uid: uid }),
+      }).catch((err: unknown) =>
+        console.error("Chapter generation failed:", err instanceof Error ? err.message : err),
+      );
     }
 
     return NextResponse.json({ success: true });

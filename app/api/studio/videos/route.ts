@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
 
     const { data: dbVideos } = await getSupabaseAdmin()
       .from("videos")
-      .select("id, title, created_at, status, views, total_earned")
+      .select("id, title, created_at, status, views, total_earned, cloudflare_uid, chapters, duration_secs")
       .eq("creator_id", creator_id)
       .order("created_at", { ascending: false })
 
@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
         avg_watch_seconds,
         earned,
         status: v.status ?? "live",
+        cloudflare_uid: v.cloudflare_uid ?? null,
+        chapters: v.chapters ?? null,
+        duration_secs: v.duration_secs ?? null,
       }
     })
 
