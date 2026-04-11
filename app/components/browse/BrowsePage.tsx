@@ -16,7 +16,7 @@ export default function BrowsePage({
     <div className="flex flex-col h-full overflow-hidden">
       <FilterBar />
       <div className="flex-1 overflow-y-auto scrollbar-none">
-        <div className="space-y-6 pb-8">
+        <div className="space-y-5 pb-8">
           <Hero onWatch={() => onWatch()} onSignup={onSignup} />
           <AdBanner />
           <VideoShelf onPlay={(videoId) => onWatch(videoId)} />

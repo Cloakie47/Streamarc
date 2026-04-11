@@ -64,6 +64,10 @@ export default function WatchPage({
   const isOwnVideo = VIEWER_ID === creatorId;
 
   const [balance, setBalance] = useState(userBalance || 0);
+  const [tipAmount, setTipAmount] = useState("");
+  const [tipping, setTipping] = useState(false);
+  const [tipSuccess, setTipSuccess] = useState(false);
+  const [tipError, setTipError] = useState<string | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secsRef = useRef(0);
@@ -180,16 +184,18 @@ export default function WatchPage({
 
   useEffect(() => {
     return () => {
+      window.dispatchEvent(new CustomEvent("gateway-balance-live", { detail: { balance: initialBalanceRef.current } }));
       void settleIfNeeded("unload");
     };
   }, [settleIfNeeded]);
 
   useEffect(() => {
     if (prevPlayingRef.current && !playing) {
+      window.dispatchEvent(new CustomEvent("gateway-balance-live", { detail: { balance } }));
       void settleIfNeeded("pause");
     }
     prevPlayingRef.current = playing;
-  }, [playing, settleIfNeeded]);
+  }, [playing, settleIfNeeded, balance]);
 
   const fireBatch = useCallback(async (secondsCovered: number) => {
     void secondsCovered;
@@ -220,6 +226,7 @@ export default function WatchPage({
             const costAccrued = (next - freePreviewSeconds) * ratePerSecond;
             const newBal = Math.max(0, initialBalanceRef.current - costAccrued);
             setBalance(newBal);
+            window.dispatchEvent(new CustomEvent("gateway-balance-live", { detail: { balance: newBal } }));
             setTimeout(() => onBalanceChange?.(newBal), 0);
           }
 
@@ -270,12 +277,44 @@ export default function WatchPage({
     }
   };
 
+  const handleTip = async () => {
+    if (!VIEWER_ID || !tipAmount || isOwnVideo) return;
+    setTipping(true);
+    setTipError(null);
+    setTipSuccess(false);
+    try {
+      const res = await fetch("/api/gateway/tip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          viewer_id: VIEWER_ID,
+          creator_id: creatorId,
+          video_id: videoId,
+          amount: tipAmount,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setTipError(data.error ?? "Tip failed");
+      } else {
+        setTipSuccess(true);
+        setTipAmount("");
+        window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
+        setTimeout(() => setTipSuccess(false), 5000);
+      }
+    } catch {
+      setTipError("Tip failed");
+    } finally {
+      setTipping(false);
+    }
+  };
+
   return (
-    <div className="flex gap-6 pb-12">
+    <div className="flex flex-col gap-8 pb-12 xl:flex-row">
       {/* ── Left: video + metadata + stats ── */}
       <div className="flex-1 min-w-0 flex flex-col">
         {showTopUpPrompt && (
-          <div className="mb-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-5 py-3 text-sm text-yellow-400">
+          <div className="mb-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-5 py-3 text-sm text-yellow-200">
             Your Gateway balance is too low to watch.
             <button
               type="button"
@@ -288,7 +327,7 @@ export default function WatchPage({
         )}
 
         {isOwnVideo && (
-          <div className="mb-3 rounded-xl border border-sa-blue/30 bg-sa-blue/10 px-5 py-3 text-sm text-sa-blue">
+          <div className="mb-3 rounded-xl border border-sa-blue/30 bg-sa-blue/10 px-5 py-3 text-sm text-foreground">
             You&apos;re watching your own video — no charges apply
           </div>
         )}
@@ -308,19 +347,22 @@ export default function WatchPage({
               }
             }}
             onClick={cloudflareUid ? undefined : handlePlay}
-            className={`player-container aspect-video w-full rounded-2xl overflow-hidden relative group bg-black ${!cloudflareUid ? "cursor-pointer" : ""}`}
+            className={`player-container panel aspect-video w-full overflow-hidden relative group bg-black ${!cloudflareUid ? "cursor-pointer" : ""}`}
           >
             {!cloudflareUid && (
-              <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-[#0c0c0e] to-black" />
+              <div className="absolute inset-0 bg-gradient-to-br from-[#1a2333] via-[#111827] to-black" />
             )}
             {cloudflareUid && (
               <Stream
                 src={cloudflareUid}
                 className="absolute inset-0 w-full h-full z-[1]"
                 controls
-                onPlay={() => setPlaying(true)}
+                onPlaying={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
+                onWaiting={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
+                onSeeking={() => setPlaying(false)}
+                onSeeked={() => setPlaying(true)}
               />
             )}
 
@@ -345,8 +387,8 @@ export default function WatchPage({
 
             {!cloudflareUid && (
               <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden cursor-pointer">
-                  <div className="h-full rounded-full transition-all duration-300" style={{ background: "var(--sa-accent)", width: `${progress}%` }} />
+                  <div className="h-1 w-full cursor-pointer overflow-hidden rounded-full bg-white/20">
+                  <div className="h-full rounded-full transition-all duration-300" style={{ background: "linear-gradient(90deg, hsl(214 58% 69%), hsl(193 42% 67%))", width: `${progress}%` }} />
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -384,80 +426,134 @@ export default function WatchPage({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="mt-4"
+          className="mt-5 flex flex-col gap-4"
         >
-          <h1 className="text-xl font-bold tracking-tight leading-snug">{title}</h1>
-          <div className="flex items-center gap-3 mt-2 text-sa-text-3">
+          {/* Title */}
+          <h1 className="text-2xl font-semibold tracking-tight leading-snug">{title}</h1>
+
+          {/* Creator row — inline, compact */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div
-              className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+              className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity min-w-0"
               onClick={() => window.location.href = `/profile/${creatorId}`}
             >
-              <div className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 border border-white/10">
+              <div className="h-9 w-9 rounded-full overflow-hidden flex-shrink-0 border border-sa-border">
                 {creator?.avatar_url ? (
                   <img src={creator.avatar_url} alt="Creator" className="w-full h-full object-cover" />
                 ) : (
                   <div
-                    className="w-full h-full flex items-center justify-center text-[10px] font-bold text-white"
-                    style={{ background: "linear-gradient(135deg, #5eb0ff, #3b82f6)" }}
+                    className="w-full h-full flex items-center justify-center text-sm font-bold text-[hsl(var(--primary-foreground))]"
+                    style={{ background: "linear-gradient(135deg, #9ab7dc, #c8d9ef)" }}
                   >
                     {(creator?.channel_name || creator?.display_name || creatorId).slice(0, 1).toUpperCase()}
                   </div>
                 )}
               </div>
-              <span className="text-sm font-medium text-foreground hover:text-sa-accent transition-colors">
-                {creator?.channel_name || creator?.display_name || "Creator"}
-              </span>
-              {creator?.is_verified && (
-                <svg className="w-4 h-4 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              )}
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-semibold text-foreground">
+                  {creator?.channel_name || creator?.display_name || "Creator"}
+                </span>
+                {creator?.is_verified && (
+                  <svg className="h-4 w-4 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+                <span className="text-sa-text-3">·</span>
+                <span className="text-sa-text-3">{totalTime}</span>
+                <span className="text-sa-text-3">·</span>
+                <span className="rounded-full bg-sa-surface-2 px-2.5 py-0.5 font-mono text-xs tabular-nums text-foreground border border-sa-border">
+                  {rateStatusLabel}
+                </span>
+              </div>
             </div>
-            <span className="w-1 h-1 rounded-full bg-sa-text-3" />
-            <span className="text-sm">{totalTime}</span>
-            <span className="inline-flex rounded-md bg-white/10 px-2 py-0.5 font-mono text-xs tabular-nums text-white/80">
-              {rateStatusLabel}
-            </span>
+
+            {!isOwnVideo && VIEWER_ID && (
+              <div className="flex flex-wrap items-center gap-2">
+                {["0.01", "0.05", "0.10"].map((amount) => (
+                  <button
+                    key={amount}
+                    type="button"
+                    onClick={() => setTipAmount(amount)}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors ${
+                      tipAmount === amount
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-sa-border text-sa-text-3 hover:text-foreground hover:border-sa-border-hover"
+                    }`}
+                  >
+                    ${amount}
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  value={tipAmount}
+                  onChange={(e) => setTipAmount(e.target.value)}
+                  placeholder="Amount"
+                  min="0.001"
+                  step="0.001"
+                  className="h-9 w-24 rounded-lg border border-sa-border bg-background px-3 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <button
+                  type="button"
+                  onClick={handleTip}
+                  disabled={tipping || !tipAmount || Number.parseFloat(tipAmount) < 0.001}
+                  className="btn btn-primary btn-sm disabled:opacity-50"
+                >
+                  {tipping ? "Sending..." : "Tip"}
+                </button>
+              </div>
+            )}
           </div>
+
+          {(!isOwnVideo && VIEWER_ID) && (tipError || tipSuccess) && (
+            <div className="flex items-center gap-2 text-xs">
+              {tipError && <p className="text-destructive">{tipError}</p>}
+              {tipSuccess && <p className="text-green-400">Tip sent!</p>}
+            </div>
+          )}
+
+          {/* Description */}
+          {description && (
+            <div className="panel p-4">
+              <p className="text-sm text-sa-text-3 leading-relaxed">{description}</p>
+            </div>
+          )}
+
+          {/* Disclaimer */}
+          <p className="text-xs text-sa-text-3">
+            {free
+              ? `First ${freePreviewSeconds}s free. Payments fire every ${intervalSeconds}s after preview ends.`
+              : playing
+                ? isOwnVideo
+                  ? "You're the creator — playback is free."
+                  : `Paying $${formatSubCentsShows(ratePerSecond)}/sec · batch every ${intervalSeconds}s via Circle x402 · pause anytime`
+                : "Paused — charges stopped instantly."}
+          </p>
+
+          {/* Stats — full-width horizontal row */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { label: "Session Cost", value: `$${cost.toFixed(4)}`, color: "text-sa-accent" },
+              { label: "Seconds Paid", value: `${paidSecs}s`, color: "text-foreground" },
+              { label: "Balance", value: `$${balance.toFixed(4)}`, color: "text-sa-green" },
+              { label: "Current Rate", value: rateStatusLabel, color: "text-foreground" },
+            ].map((stat) => (
+              <div key={stat.label} className="panel-muted px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">{stat.label}</p>
+                <p className={`mt-1.5 text-base font-bold tabular-nums ${stat.color}`}>{stat.value}</p>
+              </div>
+            ))}
+          </div>
+
         </motion.div>
 
-        {description && (
-          <div className="mt-4 rounded-xl bg-sa-surface/60 border border-sa-border/40 p-4">
-            <p className="text-sm text-sa-text-3 leading-relaxed">{description}</p>
-          </div>
-        )}
-
-        <p className="mt-3 text-xs leading-relaxed text-sa-text-3">
-          {free
-            ? `First ${freePreviewSeconds}s free. Payments fire every ${intervalSeconds}s after preview ends.`
-            : playing
-              ? isOwnVideo
-                ? "You're the creator — playback is free."
-                : `Paying $${formatSubCentsShows(ratePerSecond)}/sec · batch every ${intervalSeconds}s via Circle x402 · pause anytime`
-              : "Paused — charges stopped instantly."}
-        </p>
-
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 rounded-xl overflow-hidden border border-sa-border/40">
-          {[
-            { label: "Session Cost", value: `$${cost.toFixed(4)}`, color: "text-sa-accent" },
-            { label: "Seconds Paid", value: `${paidSecs}s`, color: "text-foreground" },
-            { label: "Balance", value: `$${balance.toFixed(4)}`, color: "text-sa-green" },
-            { label: "Current Rate", value: rateStatusLabel, color: "text-foreground" },
-          ].map((stat, i) => (
-            <div key={stat.label} className={`px-4 py-3 bg-sa-surface/40 ${i > 0 ? "border-l border-sa-border/30" : ""}`}>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-sa-text-3 mb-0.5">{stat.label}</p>
-              <p className={`text-sm font-bold tabular-nums ${stat.color}`}>{stat.value}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* ── Right: single Up next column ── */}
-      <div className="w-[300px] flex-shrink-0 flex flex-col gap-1">
-        <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-sa-text-3 mb-3">Up next</h3>
+      <div className="w-full flex-shrink-0 flex flex-col gap-3 xl:w-[340px]">
+        <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-sa-text-3">Up next</h3>
         {upNext.map((v) => (
-          <div key={v.id} className="flex gap-3 group cursor-pointer rounded-xl p-2 -mx-2 hover:bg-white/[0.03] transition-colors">
-            <div className="w-[120px] aspect-video rounded-lg overflow-hidden flex-shrink-0 relative">
+          <div key={v.id} className="panel flex gap-3 group cursor-pointer p-3 transition-colors hover:border-sa-border-hover">
+            <div className="w-[136px] aspect-video rounded-xl overflow-hidden flex-shrink-0 relative">
               <div className={`absolute inset-0 bg-gradient-to-br ${v.bg}`} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="absolute inset-0 flex items-center justify-center">
@@ -469,9 +565,10 @@ export default function WatchPage({
                 {v.duration}
               </span>
             </div>
-            <div className="flex flex-col gap-1 min-w-0 py-0.5">
-              <h4 className="text-[13px] font-semibold leading-snug line-clamp-2 group-hover:text-sa-accent transition-colors">{v.title}</h4>
+            <div className="flex min-w-0 flex-col justify-center gap-1 py-0.5">
+              <h4 className="line-clamp-2 text-[13px] font-semibold leading-snug transition-colors group-hover:text-foreground">{v.title}</h4>
               <span className="text-[11px] text-sa-text-3">{v.project}</span>
+              <span className="text-[11px] text-sa-text-3">Suggested next</span>
             </div>
           </div>
         ))}

@@ -1,6 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const user_id = searchParams.get("user_id");
+
+    if (!user_id) {
+      return NextResponse.json({ error: "user_id required" }, { status: 400 });
+    }
+
+    const supabase = getSupabaseAdmin();
+    const { data } = await supabase
+      .from("users")
+      .select("display_name, channel_name, bio, avatar_url, x_handle, reddit_handle, telegram_handle")
+      .eq("id", user_id)
+      .single();
+
+    return NextResponse.json(data ?? {});
+  } catch (err: any) {
+    console.error("Profile fetch failed:", err?.message);
+    return NextResponse.json({ error: "Failed to fetch profile" }, { status: 500 });
+  }
+}
+
 export async function PATCH(req: NextRequest) {
   try {
     const {

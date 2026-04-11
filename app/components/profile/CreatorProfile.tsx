@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "motion/react";
-import { Twitter, MessageCircle, PlayCircle, Eye } from "lucide-react";
+import { Twitter, MessageCircle, Eye, Film, Calendar, Zap, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { FrostedPlayMark } from "@/app/components/ui/FrostedPlayMark";
 
 export interface Creator {
   id: string;
@@ -41,7 +43,8 @@ function formatDuration(secs: number | null): string {
 
 function formatViews(n: number | null): string {
   if (!n) return "0";
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toString();
 }
 
@@ -66,138 +69,311 @@ export default function CreatorProfile({
   videos: Video[];
 }) {
   const router = useRouter();
+  const [tab, setTab] = useState<"videos" | "about">("videos");
+  const [hoveredVideoId, setHoveredVideoId] = useState<string | null>(null);
+
   const displayName = creator.channel_name || creator.display_name || "Creator";
   const joinedYear = new Date(creator.created_at).getFullYear();
+  const totalViews = videos.reduce((sum, v) => sum + (v.views ?? 0), 0);
+  const avgRate =
+    videos.length > 0
+      ? videos.reduce((sum, v) => sum + (v.rate_per_sec ?? 0), 0) / videos.length
+      : 0;
+
+  const hasSocials = creator.x_handle || creator.reddit_handle || creator.telegram_handle;
+
+  const statPills: { icon: React.ComponentType<{ size?: number; className?: string }>; label: string; value: string; pulse?: boolean }[] = [
+    { icon: Eye, label: "Views", value: formatViews(totalViews) },
+    { icon: Film, label: "Videos", value: String(videos.length) },
+    { icon: Calendar, label: "Joined", value: String(joinedYear) },
+    { icon: Zap, label: "Earning", value: `$${formatRate(avgRate)}/s`, pulse: true },
+  ];
 
   return (
-    <div className="flex flex-col min-h-screen">
-      {/* Banner */}
-      <div className="relative w-full h-48 bg-gradient-to-br from-primary/30 to-transparent overflow-hidden">
+    <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-6 pb-12">
+      {/* ── Hero Banner ── */}
+      <div className="panel relative h-56 w-full overflow-hidden lg:h-64">
         {creator.banner_url ? (
-          <img src={creator.banner_url} alt="Banner" className="w-full h-full object-cover" />
+          <>
+            <img src={creator.banner_url} alt="Banner" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#101826]/70 via-[#101826]/20 to-transparent" />
+          </>
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-transparent to-sa-blue/10" />
+          <div className="absolute inset-0 bg-gradient-to-br from-[#1c2639] via-[#223047] to-[#182233]" />
         )}
+        <div className="absolute inset-y-0 right-0 hidden w-1/3 bg-gradient-to-l from-sa-blue/10 to-transparent md:block" />
       </div>
 
-      {/* Profile info */}
-      <div className="px-6 pb-8">
-        <div className="flex items-end gap-4 -mt-12 mb-6">
-          <div className="w-24 h-24 rounded-full border-4 border-background overflow-hidden bg-sa-surface flex-shrink-0">
+      {/* ── Profile Info ── */}
+      <div className="px-4 lg:px-8 pb-8">
+        {/* Avatar — overlaps the banner */}
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.4 }}
+          className="-mt-14 mb-4"
+        >
+          <div className="h-28 w-28 overflow-hidden rounded-full border-4 border-background bg-sa-surface shadow-[0_10px_22px_rgba(9,18,32,0.18)]">
             {creator.avatar_url ? (
               <img src={creator.avatar_url} alt={displayName} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-primary bg-primary/10">
+              <div className="w-full h-full flex items-center justify-center text-4xl font-bold text-primary bg-primary/10">
                 {displayName.slice(0, 1).toUpperCase()}
               </div>
             )}
           </div>
-          <div className="mb-2 flex flex-col gap-1">
+        </motion.div>
+
+        {/* Identity — name, follow, bio, social icons */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="mb-6"
+        >
+          {/* Name + verified + follow button */}
+          <div className="mb-2 flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl font-semibold">{displayName}</h1>
+            {creator.is_verified && (
+              <svg className="w-5 h-5 text-sa-blue flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+            <button type="button" className="btn btn-primary btn-sm flex items-center gap-2 ml-auto sm:ml-0">
+              <UserPlus size={14} />
+              Follow
+            </button>
+          </div>
+
+          {/* Bio snippet */}
+          {creator.bio && (
+            <p className="text-sm text-sa-text-3 line-clamp-2 max-w-xl mb-3">{creator.bio}</p>
+          )}
+
+          {/* Social icon pills */}
+          {hasSocials && (
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold">{displayName}</h1>
-              {creator.is_verified && (
-                <svg className="w-5 h-5 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+              {creator.x_handle && (
+                <a
+                  href={`https://x.com/${creator.x_handle}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`@${creator.x_handle}`}
+                    className="panel-muted flex h-8 w-8 items-center justify-center rounded-full text-sa-text-3 transition-colors hover:text-foreground"
+                  >
+                    <Twitter size={14} />
+                </a>
+              )}
+              {creator.reddit_handle && (
+                <a
+                  href={`https://reddit.com/u/${creator.reddit_handle}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`u/${creator.reddit_handle}`}
+                    className="panel-muted flex h-8 w-8 items-center justify-center rounded-full text-sa-text-3 transition-colors hover:text-foreground"
+                  >
+                    <span className="text-[10px] font-bold leading-none">r/</span>
+                </a>
+              )}
+              {creator.telegram_handle && (
+                <a
+                  href={`https://t.me/${creator.telegram_handle}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={creator.telegram_handle}
+                    className="panel-muted flex h-8 w-8 items-center justify-center rounded-full text-sa-text-3 transition-colors hover:text-foreground"
+                  >
+                    <MessageCircle size={14} />
+                </a>
               )}
             </div>
-            <p className="text-sm text-muted-foreground">
-              Joined {joinedYear} · {videos.length} videos
-            </p>
-          </div>
+          )}
+        </motion.div>
+
+        {/* ── Stat Bar ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="flex items-center gap-3 flex-wrap mb-6"
+        >
+          {statPills.map((pill) => (
+            <div
+              key={pill.label}
+              className={`panel-muted flex items-center gap-2 rounded-full px-4 py-2 text-xs ${
+                pill.pulse ? "payment-ticker" : "text-sa-text-3"
+              }`}
+            >
+              <pill.icon size={13} className={pill.pulse ? "text-sa-accent" : ""} />
+              <span className="text-sa-text-3 font-medium">{pill.label}</span>
+              <span className={pill.pulse ? "text-sa-accent font-bold" : "text-foreground font-bold"}>{pill.value}</span>
+            </div>
+          ))}
+        </motion.div>
+
+        {/* ── Tab Navigation ── */}
+        <div className="flex items-center gap-1 mb-8">
+          <button
+            type="button"
+            onClick={() => setTab("videos")}
+            className={`nav-tab ${tab === "videos" ? "nav-tab-active" : "nav-tab-inactive"}`}
+          >
+            Videos
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("about")}
+            className={`nav-tab ${tab === "about" ? "nav-tab-active" : "nav-tab-inactive"}`}
+          >
+            About
+          </button>
         </div>
 
-        {/* Bio */}
-        {creator.bio && (
-          <p className="text-sm text-muted-foreground max-w-2xl mb-4 leading-relaxed">{creator.bio}</p>
+        {/* ── Videos Tab ── */}
+        {tab === "videos" && (
+          <>
+            {videos.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-16">
+                <div className="panel-muted flex h-14 w-14 items-center justify-center rounded-2xl">
+                  <Film size={28} className="text-sa-text-3" />
+                </div>
+                <p className="text-sm text-sa-text-3">No videos yet</p>
+                <p className="text-xs text-sa-text-3/70">This creator hasn&apos;t published any content</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {videos.map((video, i) => (
+                  <motion.div
+                    key={video.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    onClick={() => router.push(`/watch/${video.id}`)}
+                    className="video-card hover-lift flex flex-col cursor-pointer group"
+                    onHoverStart={() => setHoveredVideoId(video.id)}
+                    onHoverEnd={() => setHoveredVideoId((current) => (current === video.id ? null : current))}
+                  >
+                    <div className="relative aspect-video overflow-hidden rounded-t-2xl">
+                      <div
+                        className={`absolute inset-0 bg-gradient-to-br ${THUMB_GRADIENTS[i % THUMB_GRADIENTS.length]} opacity-30`}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-br from-[#182233] via-[#223047] to-[#131c2c]" />
+                      {video.thumbnail_url && (
+                        <img
+                          src={video.thumbnail_url}
+                          alt={video.title}
+                          className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 ${hoveredVideoId === video.id ? "preview-kenburns" : ""}`}
+                        />
+                      )}
+                      {!video.thumbnail_url && (
+                        <div className={`absolute inset-0 bg-gradient-to-br ${THUMB_GRADIENTS[i % THUMB_GRADIENTS.length]} opacity-40 ${hoveredVideoId === video.id ? "preview-kenburns" : ""}`} />
+                      )}
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <FrostedPlayMark sizeClass="w-12 h-12" />
+                      </div>
+                      <span className="absolute bottom-2 right-2 text-[10px] font-mono font-bold text-white bg-black/70 backdrop-blur-sm px-1.5 py-0.5 rounded">
+                        {formatDuration(video.duration_secs)}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1 p-4">
+                      <h3 className="text-sm font-semibold line-clamp-2 group-hover:text-sa-accent transition-colors">
+                        {video.title}
+                      </h3>
+                      <div className="flex items-center gap-2 text-xs text-sa-text-3">
+                        <span className="flex items-center gap-1">
+                          <Eye size={11} />
+                          {formatViews(video.views)}
+                        </span>
+                        <span className="w-1 h-1 rounded-full bg-sa-text-3" />
+                        <span className="payment-ticker text-sa-accent font-bold">
+                          ${formatRate(video.rate_per_sec)}/s
+                        </span>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        {/* Social links */}
-        <div className="flex items-center gap-3 mb-8 flex-wrap">
-          {creator.x_handle && (
-            <a
-              href={`https://x.com/${creator.x_handle}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Twitter size={14} />@{creator.x_handle}
-            </a>
-          )}
-          {creator.reddit_handle && (
-            <a
-              href={`https://reddit.com/u/${creator.reddit_handle}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <span className="text-xs font-bold">r/</span>
-              {creator.reddit_handle}
-            </a>
-          )}
-          {creator.telegram_handle && (
-            <a
-              href={`https://t.me/${creator.telegram_handle}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <MessageCircle size={14} />
-              {creator.telegram_handle}
-            </a>
-          )}
-        </div>
+        {/* ── About Tab ── */}
+        {tab === "about" && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="max-w-2xl flex flex-col gap-6"
+          >
+            {creator.bio ? (
+              <div className="panel p-6">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-sa-text-3 mb-3">Bio</h3>
+                <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{creator.bio}</p>
+              </div>
+            ) : (
+              <div className="panel p-6">
+                <p className="text-sm text-sa-text-3">This creator hasn&apos;t added a bio yet.</p>
+              </div>
+            )}
 
-        {/* Videos grid */}
-        <h2 className="text-lg font-bold mb-4">Videos</h2>
-        {videos.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No videos yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {videos.map((video, i) => (
-              <motion.div
-                key={video.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                onClick={() => router.push(`/watch/${video.id}`)}
-                className="flex flex-col gap-3 cursor-pointer group"
-              >
-                <div className="relative aspect-video rounded-xl overflow-hidden border border-white/[0.06]">
-                  <div
-                    className={`absolute inset-0 bg-gradient-to-br ${THUMB_GRADIENTS[i % THUMB_GRADIENTS.length]} opacity-30`}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#0c0d14] via-[#131528] to-[#090a10]" />
-                  {video.thumbnail_url && (
-                    <img
-                      src={video.thumbnail_url}
-                      alt={video.title}
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
+            {hasSocials && (
+              <div className="panel p-6">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-sa-text-3 mb-3">Social Links</h3>
+                <div className="flex flex-col gap-3">
+                  {creator.x_handle && (
+                    <a
+                      href={`https://x.com/${creator.x_handle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 text-sm text-sa-text-3 hover:text-foreground transition-colors"
+                    >
+                      <Twitter size={16} />
+                      <span>@{creator.x_handle}</span>
+                    </a>
                   )}
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <PlayCircle size={40} className="text-white fill-white/10" />
-                  </div>
-                  <span className="absolute bottom-2 right-2 text-[10px] font-mono font-bold text-white bg-black/60 px-1.5 py-0.5 rounded">
-                    {formatDuration(video.duration_secs)}
-                  </span>
+                  {creator.reddit_handle && (
+                    <a
+                      href={`https://reddit.com/u/${creator.reddit_handle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 text-sm text-sa-text-3 hover:text-foreground transition-colors"
+                    >
+                      <span className="text-sm font-bold w-4 text-center">r/</span>
+                      <span>u/{creator.reddit_handle}</span>
+                    </a>
+                  )}
+                  {creator.telegram_handle && (
+                    <a
+                      href={`https://t.me/${creator.telegram_handle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 text-sm text-sa-text-3 hover:text-foreground transition-colors"
+                    >
+                      <MessageCircle size={16} />
+                      <span>{creator.telegram_handle}</span>
+                    </a>
+                  )}
                 </div>
-                <div className="flex flex-col gap-1 px-1">
-                  <h3 className="text-sm font-medium line-clamp-2 group-hover:text-sa-accent transition-colors">
-                    {video.title}
-                  </h3>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Eye size={11} />
-                      {formatViews(video.views)}
-                    </span>
-                    <span>·</span>
-                    <span className="text-sa-accent">${formatRate(video.rate_per_sec)}/s</span>
-                  </div>
+              </div>
+            )}
+
+            <div className="panel p-6">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-sa-text-3 mb-3">Details</h3>
+              <div className="flex flex-col gap-2 text-sm">
+                <div className="flex items-center gap-3 text-sa-text-3">
+                  <Calendar size={16} />
+                  <span>Joined {joinedYear}</span>
                 </div>
-              </motion.div>
-            ))}
-          </div>
+                <div className="flex items-center gap-3 text-sa-text-3">
+                  <Film size={16} />
+                  <span>{videos.length} video{videos.length !== 1 ? "s" : ""} published</span>
+                </div>
+                <div className="flex items-center gap-3 text-sa-text-3">
+                  <Eye size={16} />
+                  <span>{formatViews(totalViews)} total views</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         )}
       </div>
     </div>

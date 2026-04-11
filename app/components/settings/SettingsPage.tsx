@@ -85,15 +85,18 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
   const emailLabel = user.email ?? "";
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-4 flex flex-col gap-8">
-      <h1 className="text-2xl font-bold tracking-tight">Profile Settings</h1>
+    <div className="mx-auto flex max-w-3xl flex-col gap-8 py-8 px-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Profile Settings</h1>
+        <p className="mt-2 text-sm text-sa-text-3">Manage your public creator details and social links.</p>
+      </div>
 
       {/* Banner */}
       <div className="flex flex-col gap-2">
         <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Banner Image
         </label>
-        <div className="relative w-full h-32 rounded-2xl overflow-hidden border border-border bg-gradient-to-br from-primary/20 to-transparent flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity">
+        <div className="panel relative flex h-32 w-full cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-primary/15 to-transparent transition-opacity hover:opacity-90">
           {user.banner_url ? (
             <img src={user.banner_url} alt="Banner" className="w-full h-full object-cover" />
           ) : (
@@ -108,7 +111,7 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
       {/* Avatar */}
       <div className="flex items-center gap-4">
         <div className="relative" onClick={() => avatarInputRef.current?.click()}>
-          <div className="relative w-20 h-20 rounded-full bg-primary/20 border border-border flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity">
+          <div className="relative flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border bg-primary/20 transition-opacity hover:opacity-80">
             {avatarUrl ? (
               <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
             ) : (
@@ -150,7 +153,7 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="Your name"
-            className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="field-surface w-full px-4 py-2.5 text-sm"
           />
         </div>
 
@@ -163,7 +166,7 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
             value={channelName}
             onChange={(e) => setChannelName(e.target.value)}
             placeholder="Your channel name"
-            className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="field-surface w-full px-4 py-2.5 text-sm"
           />
           <p className="text-xs text-muted-foreground">This is your public creator name shown on videos</p>
         </div>
@@ -175,7 +178,7 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
             onChange={(e) => setBio(e.target.value)}
             placeholder="Tell viewers about yourself..."
             rows={4}
-            className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+            className="field-surface w-full resize-none px-4 py-2.5 text-sm"
           />
         </div>
 
@@ -185,7 +188,7 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
           </label>
 
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+            <div className="panel-muted flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
               <Twitter size={16} />
             </div>
             <input
@@ -193,12 +196,12 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
               value={xHandle}
               onChange={(e) => setXHandle(e.target.value)}
               placeholder="X (Twitter) handle"
-              className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="field-surface flex-1 px-4 py-2.5 text-sm"
             />
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+            <div className="panel-muted flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
               <span className="text-xs font-bold">r/</span>
             </div>
             <input
@@ -206,12 +209,12 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
               value={redditHandle}
               onChange={(e) => setRedditHandle(e.target.value)}
               placeholder="Reddit username"
-              className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="field-surface flex-1 px-4 py-2.5 text-sm"
             />
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+            <div className="panel-muted flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
               <MessageCircle size={16} />
             </div>
             <input
@@ -219,7 +222,7 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
               value={telegramHandle}
               onChange={(e) => setTelegramHandle(e.target.value)}
               placeholder="Telegram username"
-              className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="field-surface flex-1 px-4 py-2.5 text-sm"
             />
           </div>
         </div>

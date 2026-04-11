@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
 
     const { data: dbVideos } = await getSupabaseAdmin()
       .from("videos")
-      .select("id, title, created_at, status, total_views, total_earned")
+      .select("id, title, created_at, status, views, total_earned")
       .eq("creator_id", creator_id)
       .order("created_at", { ascending: false })
 
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         id: v.id,
         title: v.title,
         created_at: v.created_at,
-        views: v.total_views ?? videoSessions.length,
+        views: v.views ?? videoSessions.length,
         avg_watch_seconds,
         earned,
         status: v.status ?? "live",

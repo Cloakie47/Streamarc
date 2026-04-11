@@ -12,16 +12,16 @@ const config: Config = {
     extend: {
       colors: {
         sa: {
-          bg: "#080809",
-          surface: "#0f0f11",
-          "surface-2": "#16161a",
-          blue: "#0a84ff",
-          "blue-bright": "#60b0ff",
-          green: "#30d158",
-          red: "#ff453a",
-          navy: "#050d1a",
-          yellow: "#ffd60a",
-          purple: "#bf5af2",
+          bg: "#131c2c",
+          surface: "#1c2639",
+          "surface-2": "#243047",
+          blue: "#9ab7dc",
+          "blue-bright": "#c8d9ef",
+          green: "#76b896",
+          red: "#ea7676",
+          navy: "#0f1827",
+          yellow: "#e5d3ad",
+          purple: "#9fabc8",
         },
       },
     },
@@ -33,21 +33,21 @@ const config: Config = {
         dark: {
           colors: {
             primary: {
-              DEFAULT: "#0a84ff",
-              foreground: "#ffffff",
+              DEFAULT: "#9ab7dc",
+              foreground: "#1a2434",
             },
-            background: "#080809",
-            foreground: "#f0f0f5",
+            background: "#131c2c",
+            foreground: "#f2f5fa",
           },
         },
         light: {
           colors: {
             primary: {
-              DEFAULT: "#0a84ff",
-              foreground: "#ffffff",
+              DEFAULT: "#9ab7dc",
+              foreground: "#1a2434",
             },
-            background: "#f2f2f7",
-            foreground: "#1c1c1e",
+            background: "#f5f2ea",
+            foreground: "#1c2433",
           },
         },
       },

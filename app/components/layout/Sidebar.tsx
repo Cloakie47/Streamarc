@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import {
   Home, Compass, PlayCircle, LayoutDashboard, Shield,
@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
 import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
-
+import { GlitchLogo } from "@/app/components/ui/GlitchLogo";
 function WalletBalances({ userId, walletAddress, onDeposited, open }: {
   userId: string | null;
   walletAddress: string | null;
@@ -85,13 +85,13 @@ function WalletBalances({ userId, walletAddress, onDeposited, open }: {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl p-3 space-y-1 bg-sa-surface">
+        <div className="panel-muted p-3 space-y-1">
           <p className="text-[10px] text-sa-text-3 uppercase tracking-wider">Wallet USDC</p>
           <p className="text-lg font-bold font-mono text-foreground">
             ${walletBalance ?? "..."}
           </p>
         </div>
-        <div className="rounded-xl p-3 space-y-1 bg-sa-surface">
+        <div className="panel-muted p-3 space-y-1">
           <p className="text-[10px] text-sa-green uppercase tracking-wider">Gateway balance</p>
           <p className="text-lg font-bold font-mono text-sa-green">
             ${gatewayBalance ?? "..."}
@@ -111,7 +111,7 @@ function WalletBalances({ userId, walletAddress, onDeposited, open }: {
             placeholder="Amount (leave blank for all)"
             value={depositAmount}
             onChange={e => setDepositAmount(e.target.value)}
-            className="flex-1 h-9 rounded-xl px-3 text-sm bg-sa-surface border border-sa-border text-foreground"
+            className="field-surface flex-1 h-9 px-3 text-sm"
           />
           <button
             type="button"
@@ -153,7 +153,7 @@ function WalletBalances({ userId, walletAddress, onDeposited, open }: {
             type="button"
             onClick={handleCopyAddress}
             disabled={!walletAddress}
-            className="inline-flex items-center gap-1 rounded-lg border border-sa-border px-2 py-1 text-[11px] text-sa-text-2 transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-lg border border-sa-border px-2 py-1 text-[11px] text-sa-text-3 transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Copy Circle wallet address"
           >
             {copiedAddress ? <Check size={12} /> : <Copy size={12} />}
@@ -174,14 +174,23 @@ const SidebarItem = ({ icon: Icon, label, active = false, onClick }: {
   <button
     type="button"
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group cursor-pointer ${
+    className={`w-full relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group cursor-pointer ${
       active
-        ? "bg-white/[0.05] text-white border-l-2 border-sa-accent border-t-0 border-r-0 border-b-0"
-        : "text-sa-text-3 hover:bg-white/[0.03] hover:text-white bg-transparent border-l-2 border-transparent border-t-0 border-r-0 border-b-0"
+        ? "text-foreground"
+        : "text-sa-text-3 hover:bg-white/[0.04] hover:text-foreground bg-transparent"
     }`}
   >
-    <Icon size={20} className={active ? "" : "group-hover:scale-110 transition-transform"} />
-    <span className="font-medium text-sm whitespace-nowrap">{label}</span>
+    <AnimatePresence>
+      {active && (
+        <motion.span
+          layoutId="sidebar-active-pill"
+          className="absolute inset-0 rounded-xl sidebar-active-glow"
+          transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        />
+      )}
+    </AnimatePresence>
+    <Icon size={18} className={`relative z-10 transition-all duration-200 ${active ? "text-sa-blue" : "group-hover:scale-110"}`} />
+    <span className="relative z-10 font-medium text-sm whitespace-nowrap">{label}</span>
   </button>
 );
 
@@ -194,6 +203,8 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   const router = useRouter();
   const [activeItem, setActiveItem] = useState("history");
   const [balance, setBalance] = useState(initialBalance);
+  const [liveBalance, setLiveBalance] = useState<number | null>(null);
+  const [liveBalanceActive, setLiveBalanceActive] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
   const { userId } = useCurrentUser();
@@ -248,6 +259,34 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
     return () => window.removeEventListener("open-top-up", handleOpenTopUp);
   }, []);
 
+  useEffect(() => {
+    let timeoutId: number | null = null;
+
+    const handleLiveBalance = (event: Event) => {
+      const detail = (event as CustomEvent<{ balance?: number }>).detail;
+      if (typeof detail?.balance !== "number") return;
+
+      setLiveBalance(detail.balance);
+      setLiveBalanceActive(true);
+
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+
+      timeoutId = window.setTimeout(() => {
+        setLiveBalanceActive(false);
+      }, 1800);
+    };
+
+    window.addEventListener("gateway-balance-live", handleLiveBalance as EventListener);
+    return () => {
+      window.removeEventListener("gateway-balance-live", handleLiveBalance as EventListener);
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
+
   const navigateTo = (page: string) => {
     setActiveItem("");
     if (page === "watch") {
@@ -258,6 +297,10 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   };
 
   const isOnPageRoute = ["studio", "admin", "watch", "explore"].includes(currentPage ?? "");
+  const displayedBalance =
+    liveBalanceActive && typeof liveBalance === "number"
+      ? liveBalance.toFixed(4)
+      : balance.toFixed(2);
 
   return (
     <>
@@ -265,29 +308,48 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.5 }}
-        className="fixed left-0 top-0 bottom-0 z-50 m-4"
-        style={{ width: "calc(var(--sidebar-width) - 2rem)" }}
+        className="fixed left-0 top-0 bottom-0 z-40 hidden lg:block"
+        style={{ width: "var(--sidebar-width)" }}
       >
-        <aside className="glass border-r-0 rounded-[2.5rem] flex h-full flex-col p-4 gap-6 overflow-y-auto no-scrollbar">
-
-          <div className="flex items-center gap-3 px-4 py-2">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg"
-              style={{ background: "var(--sa-accent)", boxShadow: "0 8px 24px -4px var(--sa-accent)" }}
-            >
-              <PlayCircle size={24} className="text-white fill-white" />
-            </div>
-            <span className="text-xl font-bold tracking-tight text-foreground">StreamArc</span>
+        <aside className="flex h-full flex-col border-r px-4 py-6 gap-6 overflow-y-auto no-scrollbar relative" style={{ background: "hsl(220 45% 10% / 0.85)", borderColor: "hsl(220 35% 30% / 0.22)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}>
+          <div className="flex items-center gap-3 px-2 py-1 relative z-10">
+            <GlitchLogo className="h-10 w-10" period={7} circle />
+            <span className="text-sm font-semibold tracking-tight text-foreground">StreamArc</span>
           </div>
 
           <nav className="flex-1 flex flex-col gap-2 overflow-y-auto no-scrollbar">
+            <div className="panel mx-1 mb-3 p-4 space-y-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sa-text-3 inline-flex items-center gap-2">
+                  USDC Balance
+                  {liveBalanceActive && <span className="record-dot h-1.5 w-1.5 rounded-full bg-sa-green" />}
+                </p>
+                <motion.p
+                  key={`${liveBalanceActive}-${displayedBalance}`}
+                  initial={{ opacity: 0.5, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.22 }}
+                  className={`mt-1 text-2xl font-semibold tabular-nums ${liveBalanceActive ? "text-sa-green" : "text-foreground"}`}
+                >
+                  ${displayedBalance}
+                </motion.p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTopUp(true)}
+                className="btn btn-primary btn-sm w-full"
+              >
+                Top up
+              </button>
+            </div>
+
             <div className="flex flex-col gap-1">
               <SidebarItem icon={Home} label="Browse" active={currentPage === "browse"} onClick={() => navigateTo("browse")} />
               <SidebarItem icon={Compass} label="Explore" active={currentPage === "explore"} onClick={() => navigateTo("explore")} />
               <SidebarItem icon={PlayCircle} label="Watch" active={currentPage === "watch"} onClick={() => navigateTo("watch")} />
             </div>
 
-            <div className="h-px bg-sa-border my-2 mx-4" />
+            <div className="h-px bg-sa-border my-2 mx-3" />
 
             <div className="flex flex-col gap-1">
               <span className="px-4 text-[10px] font-bold text-sa-text-3 uppercase tracking-widest mb-2">Your Activity</span>
@@ -296,7 +358,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               <SidebarItem icon={Clock} label="Watch later" active={activeItem === "watchlater" && !isOnPageRoute} onClick={() => setActiveItem("watchlater")} />
             </div>
 
-            <div className="h-px bg-sa-border my-2 mx-4" />
+            <div className="h-px bg-sa-border my-2 mx-3" />
 
             <div className="flex flex-col gap-1">
               <span className="px-4 text-[10px] font-bold text-sa-text-3 uppercase tracking-widest mb-2">Creator</span>
@@ -306,7 +368,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
           </nav>
 
           <div className="flex flex-col gap-1">
-            <SidebarItem icon={Settings} label="Settings" onClick={() => {}} />
+            <SidebarItem icon={Settings} label="Settings" onClick={() => router.push("/settings")} />
             <SidebarItem icon={LogOut} label="Sign Out" onClick={() => signOut()} />
           </div>
         </aside>
@@ -319,7 +381,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
           onClick={() => setShowTopUp(false)}
         >
           <div
-            className="glass rounded-[2rem] p-6 w-[440px] space-y-4 max-h-[90vh] overflow-y-auto"
+            className="panel p-6 w-[440px] space-y-4 max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-bold text-foreground">Top up balance</h3>

@@ -31,6 +31,18 @@ export default function WatchLayout({
   }, [userId])
 
   useEffect(() => {
+    const handleLiveBalance = (event: Event) => {
+      const detail = (event as CustomEvent<{ balance?: number }>).detail
+      if (typeof detail?.balance === "number") {
+        setBalance(detail.balance)
+      }
+    }
+
+    window.addEventListener("gateway-balance-live", handleLiveBalance as EventListener)
+    return () => window.removeEventListener("gateway-balance-live", handleLiveBalance as EventListener)
+  }, [])
+
+  useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20)
     window.addEventListener("scroll", handleScroll)
     return () => window.removeEventListener("scroll", handleScroll)
@@ -49,13 +61,13 @@ export default function WatchLayout({
         onPageChange={handlePageChange}
         currentPage="watch"
       />
-      <main className="ml-[260px] px-8">
+      <main className="lg:ml-[236px]">
         <Navbar
           onPageChange={handlePageChange}
           balance={balance}
           scrolled={scrolled}
         />
-        <div className="h-[calc(100vh-120px)]">
+        <div className="px-4 pb-8 lg:px-8 min-h-[calc(100vh-76px)]">
           {children}
         </div>
       </main>

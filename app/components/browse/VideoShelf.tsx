@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Eye, Lock, PlayCircle } from "lucide-react";
+import { Eye, Lock } from "lucide-react";
 import { FrostedPlayMark } from "@/app/components/ui/FrostedPlayMark";
-import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
 
 interface Video {
   id: string;
@@ -12,6 +11,8 @@ interface Video {
   project: string;
   projectAvatar: string;
   thumbnail: string;
+  thumbnailUrl?: string | null;
+  cloudflareUid?: string | null;
   duration: number;
   views: number;
   pricePerSecond: number;
@@ -24,8 +25,10 @@ interface ApiVideoRow {
   id: string;
   title: string;
   duration_secs: number | null;
-  total_views: number | null;
+  views: number | null;
   rate_per_sec: number | null;
+  thumbnail_url?: string | null;
+  cloudflare_uid?: string | null;
   created_at: string;
 }
 
@@ -38,113 +41,6 @@ const THUMB_GRADIENTS = [
   "from-lime-600 to-green-500",
   "from-violet-600 to-indigo-500",
   "from-cyan-600 to-blue-400",
-];
-
-const FALLBACK_VIDEOS: Video[] = [
-  {
-    id: DEFAULT_WATCH_VIDEO_ID,
-    title: "ArcSwap v3 — Concentrated Liquidity Demo",
-    project: "ArcSwap",
-    projectAvatar: "AS",
-    thumbnail: "from-rose-600 to-orange-500",
-    duration: 847,
-    views: 14283,
-    pricePerSecond: 0.00003,
-    isLive: true,
-    isNew: false,
-    category: "DeFi",
-  },
-  {
-    id: "placeholder-2",
-    title: "Cross-chain bridge live demo",
-    project: "BridgeARC",
-    projectAvatar: "BA",
-    thumbnail: "from-emerald-600 to-teal-500",
-    duration: 434,
-    views: 8921,
-    pricePerSecond: 0.00003,
-    isLive: true,
-    isNew: true,
-    category: "Bridges",
-  },
-  {
-    id: "placeholder-3",
-    title: "Smart contract deployment walkthrough",
-    project: "ArcDev",
-    projectAvatar: "AD",
-    thumbnail: "from-sky-600 to-blue-500",
-    duration: 541,
-    views: 5432,
-    pricePerSecond: 0.00003,
-    isLive: true,
-    isNew: false,
-    category: "Infrastructure",
-  },
-  {
-    id: "placeholder-4",
-    title: "NFT marketplace — full product demo",
-    project: "ArcMarket",
-    projectAvatar: "AM",
-    thumbnail: "from-violet-600 to-indigo-500",
-    duration: 235,
-    views: 3201,
-    pricePerSecond: 0.00003,
-    isLive: true,
-    isNew: true,
-    category: "NFT",
-  },
-  {
-    id: "placeholder-5",
-    title: "Governance voting system explained",
-    project: "ArcGov",
-    projectAvatar: "AG",
-    thumbnail: "from-amber-600 to-yellow-500",
-    duration: 372,
-    views: 2891,
-    pricePerSecond: 0.00003,
-    isLive: false,
-    isNew: false,
-    category: "Governance",
-  },
-  {
-    id: "placeholder-6",
-    title: "Staking mechanism — ArcStake v2",
-    project: "ArcStake",
-    projectAvatar: "AK",
-    thumbnail: "from-fuchsia-600 to-pink-500",
-    duration: 328,
-    views: 1654,
-    pricePerSecond: 0.00003,
-    isLive: true,
-    isNew: false,
-    category: "DeFi",
-  },
-  {
-    id: "placeholder-7",
-    title: "Token launchpad — fair launch walkthrough",
-    project: "ArcPad",
-    projectAvatar: "AP",
-    thumbnail: "from-lime-600 to-green-500",
-    duration: 612,
-    views: 4710,
-    pricePerSecond: 0.00003,
-    isLive: false,
-    isNew: true,
-    category: "DeFi",
-  },
-  {
-    id: "placeholder-8",
-    title: "On-chain analytics dashboard demo",
-    project: "ArcScan",
-    projectAvatar: "AC",
-    thumbnail: "from-cyan-600 to-blue-400",
-    duration: 495,
-    views: 3842,
-    pricePerSecond: 0.00003,
-    isLive: false,
-    isNew: false,
-    category: "Infrastructure",
-  },
 ];
 
 function formatDuration(seconds: number): string {
@@ -174,8 +70,10 @@ function mapRowToVideo(row: ApiVideoRow, i: number): Video {
     project,
     projectAvatar: avatar,
     thumbnail: THUMB_GRADIENTS[i % THUMB_GRADIENTS.length],
+    thumbnailUrl: row.thumbnail_url ?? null,
+    cloudflareUid: row.cloudflare_uid ?? null,
     duration: row.duration_secs ?? 0,
-    views: row.total_views ?? 0,
+    views: row.views ?? 0,
     pricePerSecond: Number(row.rate_per_sec ?? 0.00003),
     isLive: true,
     isNew: isNewVideo(row.created_at),
@@ -191,6 +89,10 @@ const NOISE_SVG = `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='h
 
 function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) => void }) {
   const placeholder = isPlaceholderId(video.id);
+  const [hovered, setHovered] = useState(false);
+  const previewUrl = video.cloudflareUid
+    ? `https://videodelivery.net/${video.cloudflareUid}/manifest/video.m3u8`
+    : null;
 
   return (
     <motion.div
@@ -202,29 +104,45 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
         if (placeholder) return;
         onPlay(video.id);
       }}
+      onHoverStart={() => setHovered(true)}
+      onHoverEnd={() => setHovered(false)}
     >
-      <div className={`relative aspect-video rounded-sa-card overflow-hidden border border-white/[0.06] transition-all duration-300
-        ${placeholder ? "" : "group-hover:border-sa-accent/30 group-hover:shadow-[0_0_48px_-12px_hsl(12_85%_58%/0.2)]"}
-      `}
-        style={{ boxShadow: "0 8px 32px -8px rgba(0,0,0,0.5)" }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0c0d14] via-[#131528] to-[#090a10]" />
+      <div className={`video-card relative aspect-video hover-lift ${placeholder ? "" : "group-hover:border-sa-border-hover"}`}>
+        <div className="absolute inset-0 bg-gradient-to-br from-[#182233] via-[#202b40] to-[#131c2c]" />
         <div
-          className={`absolute inset-0 bg-gradient-to-br opacity-[0.28] mix-blend-screen ${video.thumbnail}`}
+          className={`absolute inset-0 bg-gradient-to-br opacity-[0.2] ${video.thumbnail}`}
           aria-hidden
         />
+        {previewUrl && hovered && !placeholder ? (
+          <video
+            className="absolute inset-0 h-full w-full object-cover z-[1]"
+            src={previewUrl}
+            muted
+            autoPlay
+            loop
+            playsInline
+          />
+        ) : video.thumbnailUrl ? (
+          <img
+            src={video.thumbnailUrl}
+            alt={video.title}
+            className={`absolute inset-0 h-full w-full object-cover z-[1] ${hovered && !placeholder ? "preview-kenburns" : ""}`}
+          />
+        ) : (
+          <div className={`absolute inset-0 z-[1] bg-gradient-to-br ${video.thumbnail} opacity-35 ${hovered && !placeholder ? "preview-kenburns" : ""}`} />
+        )}
         {/* Noise texture */}
-        <div className="absolute inset-0 z-[1] mix-blend-overlay pointer-events-none" style={{ backgroundImage: NOISE_SVG, backgroundRepeat: "repeat" }} />
+        <div className="absolute inset-0 z-[2] mix-blend-overlay pointer-events-none opacity-40" style={{ backgroundImage: NOISE_SVG, backgroundRepeat: "repeat" }} />
         {/* Top inner glow */}
-        <div className="absolute inset-x-0 top-0 h-24 z-[1] pointer-events-none" style={{ background: "linear-gradient(to bottom, rgba(255,255,255,0.04), transparent)" }} />
+        <div className="absolute inset-x-0 top-0 h-24 z-[2] pointer-events-none" style={{ background: "linear-gradient(to bottom, rgba(255,255,255,0.04), transparent)" }} />
 
         <div className="absolute top-3 left-3 flex gap-2 z-10">
           {placeholder ? (
-            <span className="bg-sa-blue/80 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">Soon</span>
+            <span className="rounded-md bg-sa-blue/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--primary-foreground))]">Soon</span>
           ) : (
             <>
-              {video.isLive && <span className="bg-sa-accent text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">Live</span>}
-              {video.isNew && <span className="bg-white/20 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">New</span>}
+              {video.isLive && <span className="rounded-md bg-sa-red px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">Live</span>}
+              {video.isNew && <span className="rounded-md bg-[hsl(216_24%_24%/0.92)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">New</span>}
             </>
           )}
         </div>
@@ -241,19 +159,17 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
               <Lock className="h-6 w-6 text-white/40" strokeWidth={1.5} />
             </div>
           ) : (
-            <div className="w-14 h-14 rounded-full bg-white/15 backdrop-blur-xl flex items-center justify-center border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-              <PlayCircle size={32} className="text-white fill-white/10" />
-            </div>
+            <FrostedPlayMark sizeClass="w-14 h-14" />
           )}
         </div>
       </div>
 
       <div className="flex gap-3 px-1">
-        <div className="w-8 h-8 rounded-full bg-sa-surface-2 flex-shrink-0 flex items-center justify-center text-[10px] font-bold border border-white/[0.06]">
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-sa-border bg-sa-surface-2 text-[10px] font-bold">
           {video.projectAvatar}
         </div>
         <div className="flex flex-col gap-1 overflow-hidden">
-          <h3 className="font-medium text-sm leading-tight line-clamp-2 group-hover:text-sa-accent transition-colors">{video.title}</h3>
+          <h3 className="line-clamp-2 text-sm font-medium leading-tight transition-colors group-hover:text-foreground">{video.title}</h3>
           <div className="flex items-center gap-2 text-xs text-sa-text-3">
             <span>{video.project}</span>
             {!placeholder && (
@@ -266,7 +182,7 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
               </>
             )}
             <span className="w-1 h-1 rounded-full bg-sa-text-3" />
-            <span className="text-sa-accent font-medium">${video.pricePerSecond}/s</span>
+            <span className="font-medium text-sa-accent">${video.pricePerSecond}/s</span>
           </div>
         </div>
       </div>
@@ -275,10 +191,21 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
 }
 
 function FeaturedSection({ videos, onPlay }: { videos: Video[]; onPlay: (videoId: string) => void }) {
+  if (videos.length === 0) {
+    return (
+      <section className="flex flex-col gap-6 px-6">
+        <h2 className="text-2xl font-bold tracking-tight">Featured demos</h2>
+        <p className="text-sm text-sa-text-3">No videos yet — be the first to upload.</p>
+      </section>
+    );
+  }
   return (
-    <section className="flex flex-col gap-6 px-6">
-      <h2 className="text-2xl font-bold tracking-tight">Featured demos</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+    <section className="flex flex-col gap-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold tracking-tight">Featured demos</h2>
+        <span className="text-sm text-sa-text-3">Trending and newly uploaded</span>
+      </div>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {videos.map((v) => (
           <VideoCard key={v.id} video={v} onPlay={onPlay} />
         ))}
@@ -288,10 +215,21 @@ function FeaturedSection({ videos, onPlay }: { videos: Video[]; onPlay: (videoId
 }
 
 function AllDemos({ videos, onPlay }: { videos: Video[]; onPlay: (videoId: string) => void }) {
+  if (videos.length === 0) {
+    return (
+      <section className="flex flex-col gap-6 px-6">
+        <h2 className="text-2xl font-bold tracking-tight">All demos</h2>
+        <p className="text-sm text-sa-text-3">No videos yet — be the first to upload.</p>
+      </section>
+    );
+  }
   return (
-    <section className="flex flex-col gap-6 px-6">
-      <h2 className="text-2xl font-bold tracking-tight">All demos</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+    <section className="flex flex-col gap-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold tracking-tight">All demos</h2>
+        <span className="text-sm text-sa-text-3">{videos.length} videos</span>
+      </div>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {videos.map((v) => (
           <VideoCard key={v.id} video={v} onPlay={onPlay} />
         ))}
@@ -301,33 +239,34 @@ function AllDemos({ videos, onPlay }: { videos: Video[]; onPlay: (videoId: strin
 }
 
 export default function VideoShelf({ onPlay }: { onPlay: (videoId: string) => void }) {
-  const [videos, setVideos] = useState<Video[]>(FALLBACK_VIDEOS);
+  const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    async function load() {
       try {
+        setLoading(true);
         const res = await fetch("/api/videos?status=live");
         const data = await res.json();
         const rows = (data.videos ?? []) as ApiVideoRow[];
         if (cancelled) return;
         if (Array.isArray(rows) && rows.length > 0) {
-          const realVideos = rows.map(mapRowToVideo);
-          const realIds = new Set(realVideos.map((v) => v.id));
-          const extras = FALLBACK_VIDEOS.filter((v) => !realIds.has(v.id));
-          setVideos([...realVideos, ...extras]);
+          setVideos(rows.map((r, i) => mapRowToVideo(r, i)));
         } else {
-          setVideos(FALLBACK_VIDEOS);
+          setVideos([]);
         }
       } catch {
-        if (!cancelled) setVideos(FALLBACK_VIDEOS);
+        if (!cancelled) setVideos([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    }
+    void load();
+    window.addEventListener("streamarc-videos-updated", load);
     return () => {
       cancelled = true;
+      window.removeEventListener("streamarc-videos-updated", load);
     };
   }, []);
 
@@ -336,14 +275,14 @@ export default function VideoShelf({ onPlay }: { onPlay: (videoId: string) => vo
 
   if (loading) {
     return (
-      <div className="px-6 py-12 text-center text-sm text-sa-text-3">
+      <div className="py-12 text-center text-sm text-sa-text-3">
         Loading demos...
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 pb-8">
+    <div className="space-y-10 pb-8">
       <FeaturedSection videos={featuredList} onPlay={onPlay} />
       <AllDemos videos={videos} onPlay={onPlay} />
     </div>

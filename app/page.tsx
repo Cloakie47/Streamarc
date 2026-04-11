@@ -43,7 +43,7 @@ function HomeContent() {
         />
       )}
 
-      <main className={`transition-all duration-500 ${showSidebar ? "ml-[260px]" : ""} px-8`}>
+      <main className={`transition-all duration-300 ${showSidebar ? "lg:ml-[236px]" : ""}`}>
         {showSidebar && (
           <Navbar
             onPageChange={setCurrentPage}
@@ -52,7 +52,7 @@ function HomeContent() {
           />
         )}
 
-        <div className="pt-4">
+        <div className={`${showSidebar ? "px-4 pb-8 lg:px-8" : ""}`}>
           {currentPage === "landing" && (
             <LandingPage
               onEnter={() => setCurrentPage("browse")}
@@ -76,7 +76,7 @@ function HomeContent() {
         </div>
 
         {currentPage === "landing" && (
-          <div className="fixed top-8 right-8 z-50 flex gap-4">
+          <div className="fixed right-6 top-6 z-50 flex gap-3">
             <button
               type="button"
               onClick={() => setCurrentPage("browse")}

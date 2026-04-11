@@ -36,6 +36,18 @@ export async function POST(req: NextRequest) {
         )
       }
 
+      // Check for recent session BEFORE inserting new one
+      const { data: recentSession } = await getSupabaseAdmin()
+        .from("watch_sessions")
+        .select("id")
+        .eq("viewer_id", viewer_id)
+        .eq("video_id", video_id)
+        .gt("started_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle()
+
+      const isFirstViewToday = !recentSession
+
       const { data: inserted, error } = await getSupabaseAdmin()
         .from("watch_sessions")
         .insert({
@@ -64,16 +76,14 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      const { error: rpcErr } = await getSupabaseAdmin().rpc("increment_video_views", {
-        video_id,
-      })
-      if (rpcErr) {
-        console.error(
-          "increment_video_views error:",
-          rpcErr.message,
-          rpcErr.code,
-        )
-        return NextResponse.json({ error: rpcErr.message }, { status: 400 })
+      // Only increment views if this viewer had no session for this video in the last 24h
+      if (isFirstViewToday) {
+        const { error: rpcErr } = await getSupabaseAdmin().rpc("increment_video_views", {
+          video_id,
+        })
+        if (rpcErr) {
+          console.error("increment_video_views error:", rpcErr.message, rpcErr.code)
+        }
       }
 
       return NextResponse.json({ session_id: inserted?.id })

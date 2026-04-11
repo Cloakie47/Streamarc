@@ -8,10 +8,8 @@ export default function AdBanner() {
   if (!visible) return null;
 
   return (
-    <div className="glass rounded-sa-card p-5 flex items-center gap-5 mx-6 mt-4 relative border border-white/[0.06]"
-      style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.3)" }}
-    >
-      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
+    <div className="panel relative flex items-center gap-4 px-5 py-4 hover-lift">
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600">
         <span className="text-lg font-bold text-white">PR</span>
       </div>
 
@@ -38,7 +36,7 @@ export default function AdBanner() {
       <button
         type="button"
         onClick={() => setVisible(false)}
-        className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded text-sa-text-3 hover:text-foreground transition-colors bg-transparent border-none cursor-pointer text-xs"
+        className="absolute top-2 right-2 flex h-6 w-6 items-center justify-center rounded text-xs text-sa-text-3 transition-colors hover:text-foreground"
       >
         x
       </button>

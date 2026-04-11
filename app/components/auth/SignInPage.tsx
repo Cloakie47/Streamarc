@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { motion } from "motion/react";
 import { signIn } from "next-auth/react";
-import { PlayCircle, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
+import { GlitchLogo } from "@/app/components/ui/GlitchLogo";
 
 type Tab = "signin" | "signup";
 type Step = "auth" | "verify" | "2fa" | "forgot" | "reset_code" | "reset_password";
@@ -235,22 +236,20 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
     </svg>
   );
 
-  const inputClass = "w-full bg-sa-surface border border-sa-border rounded-xl px-4 py-3 text-sm text-foreground focus:outline-none focus:border-sa-accent transition-colors";
+  const inputClass = "field-surface w-full px-4 py-3 text-sm";
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md glass p-10 rounded-[2.5rem] flex flex-col gap-8"
+        className="panel w-full max-w-md p-10 flex flex-col gap-8 relative overflow-hidden"
       >
-        <div className="flex flex-col items-center gap-4 text-center">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-2xl" style={{ background: "var(--sa-accent)", boxShadow: "0 8px 32px -4px var(--sa-accent)" }}>
-            <PlayCircle size={40} className="text-white fill-white" />
-          </div>
+        <div className="flex flex-col items-center gap-4 text-center relative z-10">
+          <GlitchLogo className="h-20 w-auto sm:h-24" period={6} />
           <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-bold tracking-tight">StreamArc</h1>
-            <p className="text-sa-text-3">The future of decentralized streaming</p>
+            <h1 className="text-3xl font-semibold tracking-tight">StreamArc</h1>
+            <p className="text-sa-text-3">Sign in to browse and publish streaming demos.</p>
           </div>
         </div>
 
@@ -267,7 +266,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                 placeholder="000000"
                 value={verifyCode}
                 onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ""))}
-                className="w-full h-14 bg-sa-surface border border-sa-border rounded-xl text-center text-xl font-bold text-foreground focus:outline-none focus:border-sa-accent transition-colors"
+                className="field-surface w-full h-14 text-center text-xl font-bold"
               />
             </div>
             {error && <p className="text-xs text-sa-red text-center">{error}</p>}
@@ -277,7 +276,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
             <button type="button" onClick={handleResendCode} className="text-sm text-sa-text-3 hover:text-white transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
               Resend code
             </button>
-            <button type="button" onClick={resetForm} className="text-sm text-sa-text-3 hover:text-white transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
+            <button type="button" onClick={resetForm} className="text-sm text-sa-text-3 hover:text-foreground transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
               ← Back
             </button>
           </div>
@@ -295,13 +294,13 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
               placeholder="000000"
               value={totpCode}
               onChange={e => setTotpCode(e.target.value.replace(/\D/g, ""))}
-              className="w-full h-14 bg-sa-surface border border-sa-border rounded-xl text-center text-xl font-bold text-foreground focus:outline-none focus:border-sa-accent transition-colors"
+              className="field-surface w-full h-14 text-center text-xl font-bold"
             />
             {error && <p className="text-xs text-sa-red text-center">{error}</p>}
             <button type="button" onClick={handle2FA} disabled={loading === "email"} className="btn btn-accent w-full">
               {loading === "email" ? <Spinner /> : "Verify"}
             </button>
-            <button type="button" onClick={resetForm} className="text-sm text-sa-text-3 hover:text-white transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
+            <button type="button" onClick={resetForm} className="text-sm text-sa-text-3 hover:text-foreground transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
               ← Back
             </button>
           </div>
@@ -324,7 +323,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
             <button type="button" onClick={handleForgotPassword} disabled={loading === "email"} className="btn btn-accent w-full">
               {loading === "email" ? <Spinner /> : "Send reset code"}
             </button>
-            <button type="button" onClick={resetForm} className="text-sm text-sa-text-3 hover:text-white transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
+            <button type="button" onClick={resetForm} className="text-sm text-sa-text-3 hover:text-foreground transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
               ← Back to sign in
             </button>
           </div>
@@ -342,7 +341,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
               placeholder="000000"
               value={resetCode}
               onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ""))}
-              className="w-full h-14 bg-sa-surface border border-sa-border rounded-xl text-center text-xl font-bold text-foreground focus:outline-none focus:border-sa-accent transition-colors"
+              className="field-surface w-full h-14 text-center text-xl font-bold"
             />
             <input
               type="password"
@@ -362,7 +361,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
             <button type="button" onClick={handleResetPassword} disabled={loading === "email"} className="btn btn-accent w-full">
               {loading === "email" ? <Spinner /> : "Reset password"}
             </button>
-            <button type="button" onClick={resetForm} className="text-sm text-sa-text-3 hover:text-white transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
+            <button type="button" onClick={resetForm} className="text-sm text-sa-text-3 hover:text-foreground transition-colors text-center font-medium cursor-pointer bg-transparent border-none">
               ← Back
             </button>
           </div>
@@ -370,12 +369,12 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
 
         {step === "auth" && (
           <>
-            <div className="flex p-1 bg-sa-surface-2 rounded-2xl">
+            <div className="flex rounded-2xl bg-sa-surface-2 p-1">
               <button
                 type="button"
                 onClick={() => { setTab("signin"); setError(null); }}
                 className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all cursor-pointer border-none ${
-                  tab === "signin" ? "bg-white text-black shadow-lg" : "text-sa-text-3 hover:text-white bg-transparent"
+                  tab === "signin" ? "bg-primary text-primary-foreground shadow-sm" : "text-sa-text-3 hover:text-foreground bg-transparent"
                 }`}
               >
                 Sign In
@@ -384,7 +383,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                 type="button"
                 onClick={() => { setTab("signup"); setError(null); }}
                 className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all cursor-pointer border-none ${
-                  tab === "signup" ? "bg-white text-black shadow-lg" : "text-sa-text-3 hover:text-white bg-transparent"
+                  tab === "signup" ? "bg-primary text-primary-foreground shadow-sm" : "text-sa-text-3 hover:text-foreground bg-transparent"
                 }`}
               >
                 Sign Up
@@ -421,7 +420,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                 <button
                   type="button"
                   onClick={() => setStep("forgot")}
-                  className="text-xs text-sa-text-3 hover:text-white bg-transparent border-none cursor-pointer text-right"
+                  className="text-xs text-sa-text-3 hover:text-foreground bg-transparent border-none cursor-pointer text-right"
                 >
                   Forgot password?
                 </button>
@@ -446,7 +445,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-sa-border"></div></div>
-              <div className="relative flex justify-center text-xs uppercase"><span className="bg-sa-bg px-2 text-sa-text-3">Or continue with</span></div>
+              <div className="relative flex justify-center text-xs uppercase"><span className="bg-[hsl(216_28%_16%)] px-2 text-sa-text-3">Or continue with</span></div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
