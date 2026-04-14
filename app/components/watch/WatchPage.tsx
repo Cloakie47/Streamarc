@@ -3,7 +3,18 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "motion/react";
 import { Stream } from "@cloudflare/stream-react";
-import { Settings, Maximize, Bookmark, Heart } from "lucide-react";
+import {
+  Settings,
+  Maximize,
+  Bookmark,
+  Heart,
+  UserPlus,
+  MessageSquare,
+  Send,
+  MoreVertical,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { createWatchSession, endWatchSession, settleWatchSession } from "@/app/lib/payments";
 import { PAYMENT_CONFIG } from "@/app/lib/constants";
 import { useCurrentUser } from "@/app/lib/auth-client";
@@ -18,6 +29,25 @@ const upNext = [
 ];
 
 const { intervalSeconds, freePreviewSeconds } = PAYMENT_CONFIG;
+
+interface CommentUser {
+  channel_name?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
+}
+
+interface CommentItem {
+  id: string;
+  content: string;
+  created_at: string;
+  user_id: string;
+  users?: CommentUser | CommentUser[] | null;
+}
+
+function commentUser(u: CommentItem["users"]): CommentUser | null {
+  if (!u) return null;
+  return Array.isArray(u) ? u[0] ?? null : u;
+}
 
 function formatSubCentsShows(rate: number) {
   if (rate >= 0.01) return rate.toFixed(2);
@@ -74,6 +104,17 @@ export default function WatchPage({
   const [savingWatchlist, setSavingWatchlist] = useState(false);
   const [favorited, setFavorited] = useState(false);
   const [togglingFavorite, setTogglingFavorite] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [togglingFollow, setTogglingFollow] = useState(false);
+  const [comments, setComments] = useState<CommentItem[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [openMenuCommentId, setOpenMenuCommentId] = useState<string | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editCommentText, setEditCommentText] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const commentMenuRef = useRef<HTMLDivElement | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secsRef = useRef(0);
@@ -313,6 +354,41 @@ export default function WatchPage({
       .catch(() => {});
   }, [VIEWER_ID, videoId]);
 
+  useEffect(() => {
+    if (!VIEWER_ID || !creatorId || VIEWER_ID === creatorId) return;
+    fetch("/api/follows", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: VIEWER_ID, target_id: creatorId, action: "check" }),
+    })
+      .then((r) => r.json())
+      .then((data: { following?: boolean }) => setFollowing(data.following ?? false))
+      .catch(() => {});
+  }, [VIEWER_ID, creatorId]);
+
+  useEffect(() => {
+    if (!videoId) return;
+    setLoadingComments(true);
+    fetch("/api/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_id: videoId, action: "list" }),
+    })
+      .then((r) => r.json())
+      .then((data: { comments?: CommentItem[] }) => setComments(data.comments ?? []))
+      .finally(() => setLoadingComments(false));
+  }, [videoId]);
+
+  useEffect(() => {
+    if (!openMenuCommentId) return;
+    const onDoc = (e: MouseEvent) => {
+      if (commentMenuRef.current?.contains(e.target as Node)) return;
+      setOpenMenuCommentId(null);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [openMenuCommentId]);
+
   const cost = isOwnVideo || free ? 0 : (secs - freePreviewSeconds) * ratePerSecond;
   const paidSecs = isOwnVideo || free ? 0 : secs - freePreviewSeconds;
   const progress = Math.min((secs / Math.max(durationSecs, 1)) * 100, 100);
@@ -371,6 +447,91 @@ export default function WatchPage({
     } finally {
       setTogglingFavorite(false);
     }
+  };
+
+  const handleFollow = async () => {
+    if (!VIEWER_ID || VIEWER_ID === creatorId) return;
+    setTogglingFollow(true);
+    try {
+      const action = following ? "unfollow" : "follow";
+      const res = await fetch("/api/follows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: VIEWER_ID, target_id: creatorId, action }),
+      });
+      const data = (await res.json()) as { following?: boolean };
+      setFollowing(!!data.following);
+    } finally {
+      setTogglingFollow(false);
+    }
+  };
+
+  const handleComment = async () => {
+    if (!VIEWER_ID || !commentText.trim()) return;
+    setSubmittingComment(true);
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_id: videoId,
+          user_id: VIEWER_ID,
+          content: commentText,
+          action: "add",
+        }),
+      });
+      const data = (await res.json()) as { comment?: CommentItem };
+      const added = data.comment;
+      if (added) {
+        setComments((prev) => [added, ...prev]);
+        setCommentText("");
+      }
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!VIEWER_ID) return;
+    if (!window.confirm("Delete this comment?")) return;
+    setOpenMenuCommentId(null);
+    await fetch("/api/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comment_id: commentId, user_id: VIEWER_ID, action: "delete" }),
+    });
+    setComments((prev) => prev.filter((c) => c.id !== commentId));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!VIEWER_ID || !editingCommentId || !editCommentText.trim()) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          comment_id: editingCommentId,
+          user_id: VIEWER_ID,
+          content: editCommentText,
+          action: "update",
+        }),
+      });
+      const data = (await res.json()) as { comment?: CommentItem };
+      const updated = data.comment;
+      if (updated) {
+        setComments((prev) => prev.map((c) => (c.id === editingCommentId ? updated : c)));
+        setEditingCommentId(null);
+        setEditCommentText("");
+      }
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingCommentId(null);
+    setEditCommentText("");
   };
 
   const handleTip = async () => {
@@ -519,40 +680,6 @@ export default function WatchPage({
           </div>
         </motion.div>
 
-        {/* ── Chapter list — shown below player for any video with chapters ── */}
-        {chapters && chapters.length > 0 && (
-          <div className="mt-3 panel p-4 flex flex-col gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3 mb-1">Chapters</p>
-            <div className="flex flex-col gap-0.5">
-              {chapters.map((chapter, i) => {
-                const mm = Math.floor(chapter.time / 60);
-                const ss = String(chapter.time % 60).padStart(2, "0");
-                const isActive = secs >= chapter.time && (i === chapters.length - 1 || secs < chapters[i + 1].time);
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => handleChapterClick(chapter.time)}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors text-left w-full border-none bg-transparent cursor-pointer ${
-                      isActive
-                        ? "bg-sa-surface-2 text-foreground"
-                        : "text-sa-text-3 hover:bg-sa-surface-2/50 hover:text-foreground"
-                    }`}
-                  >
-                    <span className="font-mono text-[11px] tabular-nums w-9 flex-shrink-0 text-sa-accent">
-                      {mm}:{ss}
-                    </span>
-                    <span className="font-medium leading-snug">{chapter.title}</span>
-                    {isActive && (
-                      <span className="ml-auto flex-shrink-0 h-1.5 w-1.5 rounded-full bg-sa-accent animate-pulse" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -585,9 +712,27 @@ export default function WatchPage({
                   {creator?.channel_name || creator?.display_name || "Creator"}
                 </span>
                 {creator?.is_verified && (
-                  <svg className="h-4 w-4 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
+                  <svg className="h-4 w-4 shrink-0 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
+                )}
+                {VIEWER_ID && !isOwnVideo && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleFollow();
+                    }}
+                    disabled={togglingFollow}
+                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      following
+                        ? "border-primary/30 bg-primary/10 text-primary"
+                        : "border-sa-border text-sa-text-3 hover:border-sa-border-hover hover:text-foreground"
+                    }`}
+                  >
+                    <UserPlus size={14} />
+                    {following ? "Following" : "Follow"}
+                  </button>
                 )}
                 {VIEWER_ID && (
                   <span className="inline-flex flex-wrap items-center gap-2">
@@ -598,9 +743,9 @@ export default function WatchPage({
                         void handleWatchLater();
                       }}
                       disabled={savingWatchlist}
-                      className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                      className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
                         savedToWatchlist
-                          ? "bg-primary/10 text-primary border-primary/30"
+                          ? "border-primary/30 bg-primary/10 text-primary"
                           : "border-sa-border text-sa-text-3 hover:text-foreground hover:border-sa-border-hover"
                       }`}
                     >
@@ -614,9 +759,9 @@ export default function WatchPage({
                         void handleFavorite();
                       }}
                       disabled={togglingFavorite}
-                      className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                      className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
                         favorited
-                          ? "bg-red-500/10 text-red-400 border-red-500/30"
+                          ? "border-red-500/30 bg-red-500/10 text-red-400"
                           : "border-sa-border text-sa-text-3 hover:text-foreground hover:border-sa-border-hover"
                       }`}
                     >
@@ -711,12 +856,200 @@ export default function WatchPage({
             ))}
           </div>
 
+          <div className="panel mt-6 flex flex-col gap-4 rounded-2xl px-4 py-5">
+            <h3 className="mb-1 flex items-center gap-2 text-lg font-bold">
+              <MessageSquare size={20} className="shrink-0 text-sa-text-3" />
+              <span>Comments</span>
+              {comments.length > 0 && (
+                <span className="text-sm font-normal text-muted-foreground">({comments.length})</span>
+              )}
+            </h3>
+
+            {VIEWER_ID && (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <textarea
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="Add a comment..."
+                  rows={2}
+                  className="min-h-[72px] flex-1 resize-none rounded-xl border border-sa-border bg-sa-surface-2 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleComment()}
+                  disabled={submittingComment || !commentText.trim()}
+                  className="btn btn-primary inline-flex shrink-0 items-center justify-center gap-2 disabled:opacity-50 sm:min-w-[100px]"
+                  aria-label="Post comment"
+                >
+                  <Send size={16} />
+                  <span>Post</span>
+                </button>
+              </div>
+            )}
+
+            {loadingComments ? (
+              <div className="flex flex-col gap-3">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-16 animate-pulse rounded-xl bg-sa-surface" />
+                ))}
+              </div>
+            ) : comments.length === 0 ? (
+              <p className="py-2 text-sm text-muted-foreground">No comments yet. Be the first to comment!</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {comments.map((comment) => {
+                  const u = commentUser(comment.users);
+                  const name = u?.channel_name || u?.display_name || "User";
+                  const initial = name.slice(0, 1).toUpperCase();
+                  const isOwn = comment.user_id === VIEWER_ID;
+                  const date = new Date(comment.created_at);
+                  const ago = Math.floor((Date.now() - date.getTime()) / 60000);
+                  const timeAgo =
+                    ago < 1
+                      ? "just now"
+                      : ago < 60
+                        ? `${ago}m ago`
+                        : ago < 1440
+                          ? `${Math.floor(ago / 60)}h ago`
+                          : `${Math.floor(ago / 1440)}d ago`;
+                  const isEditing = editingCommentId === comment.id;
+                  return (
+                    <div key={comment.id} className="flex gap-3 rounded-xl border border-transparent py-1 transition-colors hover:border-sa-border/60 hover:bg-white/[0.02]">
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-xs font-bold text-primary">
+                        {u?.avatar_url ? (
+                          <img src={u.avatar_url} alt={name} className="h-full w-full object-cover" />
+                        ) : (
+                          initial
+                        )}
+                      </div>
+                      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-foreground">{name}</span>
+                          <span className="text-xs text-muted-foreground">{timeAgo}</span>
+                          {isOwn && (
+                            <div
+                              className="relative ml-auto shrink-0"
+                              ref={openMenuCommentId === comment.id ? commentMenuRef : undefined}
+                            >
+                              <button
+                                type="button"
+                                aria-label="Comment actions"
+                                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuCommentId((id) => (id === comment.id ? null : comment.id));
+                                }}
+                              >
+                                <MoreVertical size={16} />
+                              </button>
+                              {openMenuCommentId === comment.id && (
+                                <div className="absolute right-0 top-9 z-20 min-w-[140px] rounded-lg border border-sa-border bg-sa-surface py-1 shadow-lg">
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-white/[0.06]"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenMenuCommentId(null);
+                                      setEditingCommentId(comment.id);
+                                      setEditCommentText(comment.content);
+                                    }}
+                                  >
+                                    <Pencil size={14} className="text-muted-foreground" />
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-white/[0.06]"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenMenuCommentId(null);
+                                      void handleDeleteComment(comment.id);
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {isEditing ? (
+                          <div className="flex flex-col gap-2">
+                            <textarea
+                              value={editCommentText}
+                              onChange={(e) => setEditCommentText(e.target.value)}
+                              rows={3}
+                              className="w-full resize-none rounded-lg border border-sa-border bg-sa-surface-2 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                            />
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={savingEdit || !editCommentText.trim()}
+                                onClick={() => void handleSaveEdit()}
+                                className="btn btn-primary btn-sm disabled:opacity-50"
+                              >
+                                {savingEdit ? "Saving…" : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                disabled={savingEdit}
+                                className="btn btn-sm border border-sa-border bg-transparent text-foreground hover:bg-white/[0.06]"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm leading-relaxed text-foreground">{comment.content}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
         </motion.div>
 
       </div>
 
-      {/* ── Right: single Up next column ── */}
-      <div className="w-full flex-shrink-0 flex flex-col gap-3 xl:w-[340px]">
+      {/* ── Right: Chapters + Up next ── */}
+      <div className="flex w-full flex-shrink-0 flex-col gap-3 xl:w-[340px]">
+        {chapters && chapters.length > 0 && (
+          <div className="panel flex max-h-[min(50vh,320px)] flex-col gap-2 overflow-y-auto p-4">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">Chapters</p>
+            <div className="flex flex-col gap-0.5">
+              {chapters.map((chapter, i) => {
+                const mm = Math.floor(chapter.time / 60);
+                const ss = String(chapter.time % 60).padStart(2, "0");
+                const isActive = secs >= chapter.time && (i === chapters.length - 1 || secs < chapters[i + 1].time);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => handleChapterClick(chapter.time)}
+                    className={`flex w-full cursor-pointer items-center gap-3 rounded-lg border-none bg-transparent px-3 py-2 text-left text-sm transition-colors ${
+                      isActive
+                        ? "bg-sa-surface-2 text-foreground"
+                        : "text-sa-text-3 hover:bg-sa-surface-2/50 hover:text-foreground"
+                    }`}
+                  >
+                    <span className="w-9 flex-shrink-0 font-mono text-[11px] tabular-nums text-sa-accent">
+                      {mm}:{ss}
+                    </span>
+                    <span className="font-medium leading-snug">{chapter.title}</span>
+                    {isActive && (
+                      <span className="ml-auto h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-sa-accent" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-sa-text-3">Up next</h3>
         {upNext.map((v) => (
           <div key={v.id} className="panel flex gap-3 group cursor-pointer p-3 transition-colors hover:border-sa-border-hover">

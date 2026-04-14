@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Twitter, MessageCircle, Eye, Film, Calendar, Zap, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useCurrentUser } from "@/app/lib/auth-client";
 import { FrostedPlayMark } from "@/app/components/ui/FrostedPlayMark";
 
 export interface Creator {
@@ -69,8 +70,52 @@ export default function CreatorProfile({
   videos: Video[];
 }) {
   const router = useRouter();
+  const { userId } = useCurrentUser();
   const [tab, setTab] = useState<"videos" | "about">("videos");
   const [hoveredVideoId, setHoveredVideoId] = useState<string | null>(null);
+  const [following, setFollowing] = useState(false);
+  const [togglingFollow, setTogglingFollow] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+
+  useEffect(() => {
+    fetch("/api/follows", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: creator.id, target_id: creator.id, action: "counts" }),
+    })
+      .then((r) => r.json())
+      .then((data: { followers?: number }) => setFollowerCount(data.followers ?? 0))
+      .catch(() => {});
+
+    if (!userId || userId === creator.id) return;
+    fetch("/api/follows", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, target_id: creator.id, action: "check" }),
+    })
+      .then((r) => r.json())
+      .then((data: { following?: boolean }) => setFollowing(data.following ?? false))
+      .catch(() => {});
+  }, [userId, creator.id]);
+
+  const handleFollow = async () => {
+    if (!userId || userId === creator.id) return;
+    setTogglingFollow(true);
+    try {
+      const action = following ? "unfollow" : "follow";
+      const res = await fetch("/api/follows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, target_id: creator.id, action }),
+      });
+      const data = (await res.json()) as { following?: boolean };
+      const nowFollowing = !!data.following;
+      setFollowing(nowFollowing);
+      setFollowerCount((prev) => (nowFollowing ? prev + 1 : prev - 1));
+    } finally {
+      setTogglingFollow(false);
+    }
+  };
 
   const displayName = creator.channel_name || creator.display_name || "Creator";
   const joinedYear = new Date(creator.created_at).getFullYear();
@@ -139,16 +184,39 @@ export default function CreatorProfile({
                 <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             )}
-            <button type="button" className="btn btn-primary btn-sm flex items-center gap-2 ml-auto sm:ml-0">
-              <UserPlus size={14} />
-              Follow
-            </button>
           </div>
 
           {/* Bio snippet */}
           {creator.bio && (
             <p className="text-sm text-sa-text-3 line-clamp-2 max-w-xl mb-3">{creator.bio}</p>
           )}
+
+          <div className="mb-6 flex items-center gap-4">
+            <div className="flex flex-col">
+              <span className="text-xl font-bold">{videos.length}</span>
+              <span className="text-xs text-muted-foreground">Videos</span>
+            </div>
+            <div className="h-8 w-px bg-border" />
+            <div className="flex flex-col">
+              <span className="text-xl font-bold">{followerCount}</span>
+              <span className="text-xs text-muted-foreground">Followers</span>
+            </div>
+            {userId && userId !== creator.id && (
+              <button
+                type="button"
+                onClick={() => void handleFollow()}
+                disabled={togglingFollow}
+                className={`ml-auto flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
+                  following
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-primary bg-primary text-primary-foreground hover:opacity-90"
+                }`}
+              >
+                <UserPlus size={16} />
+                {following ? "Following" : "Follow"}
+              </button>
+            )}
+          </div>
 
           {/* Social icon pills */}
           {hasSocials && (
