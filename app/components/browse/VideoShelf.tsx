@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Eye, Lock } from "lucide-react";
+import { Eye, Lock, Bookmark } from "lucide-react";
 import { FrostedPlayMark } from "@/app/components/ui/FrostedPlayMark";
+import { useCurrentUser } from "@/app/lib/auth-client";
 
 interface Video {
   id: string;
@@ -88,11 +89,25 @@ function isPlaceholderId(id: string) {
 const NOISE_SVG = `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")`;
 
 function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) => void }) {
+  const { userId } = useCurrentUser();
+  const [saved, setSaved] = useState(false);
   const placeholder = isPlaceholderId(video.id);
   const [hovered, setHovered] = useState(false);
   const previewUrl = video.cloudflareUid
     ? `https://videodelivery.net/${video.cloudflareUid}/manifest/video.m3u8`
     : null;
+
+  useEffect(() => {
+    if (!userId || placeholder) return;
+    fetch("/api/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, video_id: video.id, action: "check" }),
+    })
+      .then((r) => r.json())
+      .then((data: { saved?: boolean }) => setSaved(data.saved ?? false))
+      .catch(() => {});
+  }, [userId, video.id, placeholder]);
 
   return (
     <motion.div
@@ -162,6 +177,30 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
             <FrostedPlayMark sizeClass="w-14 h-14" />
           )}
         </div>
+
+        {userId && (
+          <button
+            type="button"
+            onClick={async (e) => {
+              e.stopPropagation();
+              const action = saved ? "remove" : "add";
+              const res = await fetch("/api/watchlist", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: userId, video_id: video.id, action }),
+              });
+              const data = (await res.json()) as { saved?: boolean };
+              setSaved(!!data.saved);
+            }}
+            className={`absolute top-3 right-3 z-10 p-1.5 rounded-lg backdrop-blur-sm border transition-colors ${
+              saved
+                ? "bg-primary/20 border-primary/40 text-primary"
+                : "bg-black/40 border-white/10 text-white/60 hover:text-white"
+            }`}
+          >
+            <Bookmark size={14} className={saved ? "fill-current" : ""} />
+          </button>
+        )}
       </div>
 
       <div className="flex gap-3 px-1">

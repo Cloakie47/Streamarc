@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "motion/react";
 import { Stream } from "@cloudflare/stream-react";
-import { Settings, Maximize } from "lucide-react";
+import { Settings, Maximize, Bookmark, Heart } from "lucide-react";
 import { createWatchSession, endWatchSession, settleWatchSession } from "@/app/lib/payments";
 import { PAYMENT_CONFIG } from "@/app/lib/constants";
 import { useCurrentUser } from "@/app/lib/auth-client";
@@ -70,6 +70,10 @@ export default function WatchPage({
   const [tipping, setTipping] = useState(false);
   const [tipSuccess, setTipSuccess] = useState(false);
   const [tipError, setTipError] = useState<string | null>(null);
+  const [savedToWatchlist, setSavedToWatchlist] = useState(false);
+  const [savingWatchlist, setSavingWatchlist] = useState(false);
+  const [favorited, setFavorited] = useState(false);
+  const [togglingFavorite, setTogglingFavorite] = useState(false);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secsRef = useRef(0);
@@ -121,32 +125,53 @@ export default function WatchPage({
     sessionIdRef.current = sessionId;
   }, [sessionId]);
 
+  const recordHistory = useCallback(
+    (totalSecs: number) => {
+      if (!VIEWER_ID || totalSecs < 3) return;
+      fetch("/api/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: VIEWER_ID,
+          video_id: videoId,
+          action: "add",
+          seconds_watched: totalSecs,
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    },
+    [VIEWER_ID, videoId],
+  );
+
   const settleIfNeeded = useCallback(
     async (reason: "pause" | "unload") => {
       const sid = sessionIdRef.current;
-      if (!VIEWER_ID || !sid || sessionSettledRef.current) return;
+      if (!VIEWER_ID || !sid) return;
 
       const totalSecsWatched = secsRef.current;
-      const alreadyPaid = lastSettledSecsRef.current;
-      const paidSeconds = Math.max(0, totalSecsWatched - Math.max(alreadyPaid, freePreviewSeconds));
 
-      if (paidSeconds > 0 && !isOwnVideo) {
-        sessionSettledRef.current = true;
-        const result = await settleWatchSession(
-          sid,
-          VIEWER_ID,
-          creatorId,
-          videoId,
-          paidSeconds,
-          { keepalive: reason === "unload" },
-        );
-        if (result.success) {
-          lastSettledSecsRef.current = totalSecsWatched;
-          sessionSettledRef.current = false;
-          window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
-        } else {
-          sessionSettledRef.current = false;
-          console.error("Settlement failed:", result.error);
+      if (!sessionSettledRef.current) {
+        const alreadyPaid = lastSettledSecsRef.current;
+        const paidSeconds = Math.max(0, totalSecsWatched - Math.max(alreadyPaid, freePreviewSeconds));
+
+        if (paidSeconds > 0 && !isOwnVideo) {
+          sessionSettledRef.current = true;
+          const result = await settleWatchSession(
+            sid,
+            VIEWER_ID,
+            creatorId,
+            videoId,
+            paidSeconds,
+            { keepalive: reason === "unload" },
+          );
+          if (result.success) {
+            lastSettledSecsRef.current = totalSecsWatched;
+            sessionSettledRef.current = false;
+            window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
+          } else {
+            sessionSettledRef.current = false;
+            console.error("Settlement failed:", result.error);
+          }
         }
       }
 
@@ -180,11 +205,12 @@ export default function WatchPage({
 
   useEffect(() => {
     const handleUnload = () => {
+      recordHistory(secsRef.current);
       void settleIfNeeded("unload");
     };
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
-  }, [settleIfNeeded]);
+  }, [settleIfNeeded, recordHistory]);
 
   useEffect(() => {
     return () => {
@@ -195,11 +221,12 @@ export default function WatchPage({
 
   useEffect(() => {
     if (prevPlayingRef.current && !playing) {
+      recordHistory(secsRef.current);
       window.dispatchEvent(new CustomEvent("gateway-balance-live", { detail: { balance } }));
       void settleIfNeeded("pause");
     }
     prevPlayingRef.current = playing;
-  }, [playing, settleIfNeeded, balance]);
+  }, [playing, settleIfNeeded, balance, recordHistory]);
 
   const fireBatch = useCallback(async (secondsCovered: number) => {
     void secondsCovered;
@@ -262,6 +289,30 @@ export default function WatchPage({
       .catch(() => {})
   }, [VIEWER_ID])
 
+  useEffect(() => {
+    if (!VIEWER_ID || !videoId) return;
+    fetch("/api/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: VIEWER_ID, video_id: videoId, action: "check" }),
+    })
+      .then((r) => r.json())
+      .then((data: { saved?: boolean }) => setSavedToWatchlist(!!data.saved))
+      .catch(() => {});
+  }, [VIEWER_ID, videoId]);
+
+  useEffect(() => {
+    if (!VIEWER_ID || !videoId) return;
+    fetch("/api/favorites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: VIEWER_ID, video_id: videoId, action: "check" }),
+    })
+      .then((r) => r.json())
+      .then((data: { favorited?: boolean }) => setFavorited(!!data.favorited))
+      .catch(() => {});
+  }, [VIEWER_ID, videoId]);
+
   const cost = isOwnVideo || free ? 0 : (secs - freePreviewSeconds) * ratePerSecond;
   const paidSecs = isOwnVideo || free ? 0 : secs - freePreviewSeconds;
   const progress = Math.min((secs / Math.max(durationSecs, 1)) * 100, 100);
@@ -285,6 +336,40 @@ export default function WatchPage({
     if (streamRef.current) {
       streamRef.current.currentTime = time;
       void streamRef.current.play();
+    }
+  };
+
+  const handleWatchLater = async () => {
+    if (!VIEWER_ID) return;
+    setSavingWatchlist(true);
+    try {
+      const action = savedToWatchlist ? "remove" : "add";
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: VIEWER_ID, video_id: videoId, action }),
+      });
+      const data = (await res.json()) as { saved?: boolean };
+      setSavedToWatchlist(!!data.saved);
+    } finally {
+      setSavingWatchlist(false);
+    }
+  };
+
+  const handleFavorite = async () => {
+    if (!VIEWER_ID) return;
+    setTogglingFavorite(true);
+    try {
+      const action = favorited ? "remove" : "add";
+      const res = await fetch("/api/favorites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: VIEWER_ID, video_id: videoId, action }),
+      });
+      const data = (await res.json()) as { favorited?: boolean };
+      setFavorited(!!data.favorited);
+    } finally {
+      setTogglingFavorite(false);
     }
   };
 
@@ -503,6 +588,42 @@ export default function WatchPage({
                   <svg className="h-4 w-4 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
+                )}
+                {VIEWER_ID && (
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleWatchLater();
+                      }}
+                      disabled={savingWatchlist}
+                      className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                        savedToWatchlist
+                          ? "bg-primary/10 text-primary border-primary/30"
+                          : "border-sa-border text-sa-text-3 hover:text-foreground hover:border-sa-border-hover"
+                      }`}
+                    >
+                      <Bookmark size={14} className={savedToWatchlist ? "fill-current" : ""} />
+                      {savedToWatchlist ? "Saved" : "Watch Later"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleFavorite();
+                      }}
+                      disabled={togglingFavorite}
+                      className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                        favorited
+                          ? "bg-red-500/10 text-red-400 border-red-500/30"
+                          : "border-sa-border text-sa-text-3 hover:text-foreground hover:border-sa-border-hover"
+                      }`}
+                    >
+                      <Heart size={14} className={favorited ? "fill-current" : ""} />
+                      {favorited ? "Favourited" : "Favourite"}
+                    </button>
+                  </span>
                 )}
                 <span className="text-sa-text-3">·</span>
                 <span className="text-sa-text-3">{totalTime}</span>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import {
   Home, Compass, PlayCircle, LayoutDashboard, Shield,
   History, Heart, Clock, Settings, LogOut, Copy, Check,
@@ -201,7 +201,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   currentPage?: string;
 }) {
   const router = useRouter();
-  const [activeItem, setActiveItem] = useState("history");
+  const pathname = usePathname();
   const [balance, setBalance] = useState(initialBalance);
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
   const [liveBalanceActive, setLiveBalanceActive] = useState(false);
@@ -288,7 +288,6 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   }, []);
 
   const navigateTo = (page: string) => {
-    setActiveItem("");
     if (page === "watch") {
       router.push(`/watch/${DEFAULT_WATCH_VIDEO_ID}`);
     } else {
@@ -296,7 +295,6 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
     }
   };
 
-  const isOnPageRoute = ["studio", "admin", "watch", "explore"].includes(currentPage ?? "");
   const displayedBalance =
     liveBalanceActive && typeof liveBalance === "number"
       ? liveBalance.toFixed(4)
@@ -353,9 +351,24 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
 
             <div className="flex flex-col gap-1">
               <span className="px-4 text-[10px] font-bold text-sa-text-3 uppercase tracking-widest mb-2">Your Activity</span>
-              <SidebarItem icon={History} label="History" active={activeItem === "history" && !isOnPageRoute} onClick={() => setActiveItem("history")} />
-              <SidebarItem icon={Heart} label="Favourites" active={activeItem === "favourites" && !isOnPageRoute} onClick={() => setActiveItem("favourites")} />
-              <SidebarItem icon={Clock} label="Watch later" active={activeItem === "watchlater" && !isOnPageRoute} onClick={() => setActiveItem("watchlater")} />
+              <SidebarItem
+                icon={History}
+                label="History"
+                active={currentPage === "history" || pathname === "/history"}
+                onClick={() => router.push("/history")}
+              />
+              <SidebarItem
+                icon={Heart}
+                label="Favourites"
+                active={currentPage === "favourites" || pathname === "/favourites"}
+                onClick={() => router.push("/favourites")}
+              />
+              <SidebarItem
+                icon={Clock}
+                label="Watch later"
+                active={currentPage === "watchlater" || pathname === "/watchlater"}
+                onClick={() => router.push("/watchlater")}
+              />
             </div>
 
             <div className="h-px bg-sa-border my-2 mx-3" />

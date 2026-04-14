@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
           .from("watch_sessions")
           .select("video_id, seconds_watched")
           .in("video_id", videoIds)
-          .eq("settled", true)
+          .gt("seconds_watched", 0)
       : { data: [] }
 
     // Get net earnings per video

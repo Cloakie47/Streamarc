@@ -14,11 +14,22 @@ export async function POST(req: NextRequest) {
       .select("net_amount, gross_amount, created_at")
       .eq("creator_id", creator_id)
 
-    const { data: sessions } = await getSupabaseAdmin()
-      .from("watch_sessions")
-      .select("seconds_watched, viewer_id")
+    // Get video IDs for this creator first
+    const { data: creatorVideos } = await getSupabaseAdmin()
+      .from("videos")
+      .select("id")
       .eq("creator_id", creator_id)
-      .eq("settled", true)
+
+    const videoIds = creatorVideos?.map((v) => v.id) ?? []
+
+    const { data: sessions } =
+      videoIds.length > 0
+        ? await getSupabaseAdmin()
+            .from("watch_sessions")
+            .select("seconds_watched, viewer_id")
+            .in("video_id", videoIds)
+            .gt("seconds_watched", 0)
+        : { data: [] }
 
     const total_earned = earnings?.reduce((sum, e) => sum + parseFloat(e.net_amount ?? 0), 0) ?? 0
     const today_earned = earnings
