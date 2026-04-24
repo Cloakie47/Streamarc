@@ -14,6 +14,8 @@ import {
   MoreVertical,
   Pencil,
   Trash2,
+  Tag,
+  Share2,
 } from "lucide-react";
 import { createWatchSession, endWatchSession, settleWatchSession } from "@/app/lib/payments";
 import { PAYMENT_CONFIG } from "@/app/lib/constants";
@@ -57,6 +59,7 @@ function formatSubCentsShows(rate: number) {
 export interface WatchPageProps {
   videoId: string;
   creatorId: string;
+  ownerId: string;
   title: string;
   description: string;
   cloudflareUid?: string;
@@ -76,6 +79,7 @@ export interface WatchPageProps {
 export default function WatchPage({
   videoId,
   creatorId,
+  ownerId,
   title,
   description,
   cloudflareUid,
@@ -93,7 +97,15 @@ export default function WatchPage({
 
   const { userId, balance: userBalance } = useCurrentUser();
   const VIEWER_ID = userId || "";
-  const isOwnVideo = VIEWER_ID === creatorId;
+  const isOwnVideo = VIEWER_ID === ownerId;
+
+  const handleShare = () => {
+    const url = `${window.location.origin}/watch/${videoId}`;
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const [balance, setBalance] = useState(userBalance || 0);
   const [tipAmount, setTipAmount] = useState("");
@@ -114,6 +126,12 @@ export default function WatchPage({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editCommentText, setEditCommentText] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [acceptsOffers, setAcceptsOffers] = useState(false);
+  const [offerAmount, setOfferAmount] = useState("");
+  const [submittingOffer, setSubmittingOffer] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [offerSuccess, setOfferSuccess] = useState(false);
+  const [offerError, setOfferError] = useState<string | null>(null);
   const commentMenuRef = useRef<HTMLDivElement | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -380,6 +398,17 @@ export default function WatchPage({
   }, [videoId]);
 
   useEffect(() => {
+    if (!videoId) return;
+    fetch("/api/offers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "check_offers", video_id: videoId }),
+    })
+      .then((r) => r.json())
+      .then((data: { accepts_offers?: boolean }) => setAcceptsOffers(data.accepts_offers ?? false));
+  }, [videoId]);
+
+  useEffect(() => {
     if (!openMenuCommentId) return;
     const onDoc = (e: MouseEvent) => {
       if (commentMenuRef.current?.contains(e.target as Node)) return;
@@ -566,6 +595,38 @@ export default function WatchPage({
     }
   };
 
+  const handleMakeOffer = async () => {
+    if (!VIEWER_ID || !offerAmount) return;
+    if (parseFloat(offerAmount) < 1.0) {
+      setOfferError("Minimum offer is $1.00");
+      return;
+    }
+    setSubmittingOffer(true);
+    setOfferError(null);
+    try {
+      const res = await fetch("/api/offers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "make",
+          video_id: videoId,
+          buyer_id: VIEWER_ID,
+          amount: offerAmount,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setOfferError(data.error ?? "Offer failed");
+      } else {
+        setOfferSuccess(true);
+        setOfferAmount("");
+        setTimeout(() => setOfferSuccess(false), 5000);
+      }
+    } finally {
+      setSubmittingOffer(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-8 pb-12 xl:flex-row">
       {/* ── Left: video + metadata + stats ── */}
@@ -585,7 +646,7 @@ export default function WatchPage({
 
         {isOwnVideo && (
           <div className="mb-3 rounded-xl border border-sa-blue/30 bg-sa-blue/10 px-5 py-3 text-sm text-foreground">
-            You&apos;re watching your own video — no charges apply
+            You&apos;re watching your own video. No charges apply
           </div>
         )}
 
@@ -609,7 +670,19 @@ export default function WatchPage({
             {!cloudflareUid && (
               <div className="absolute inset-0 bg-gradient-to-br from-[#1a2333] via-[#111827] to-black" />
             )}
-            {cloudflareUid && (
+            {cloudflareUid && !isOwnVideo && balance < 0.001 && VIEWER_ID ? (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/80 backdrop-blur-sm">
+                <p className="text-lg font-bold text-white">Insufficient balance</p>
+                <p className="text-sm text-white/60">Top up your Gateway balance to watch this video</p>
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent("open-top-up"))}
+                  className="btn btn-primary"
+                >
+                  Top up balance
+                </button>
+              </div>
+            ) : cloudflareUid ? (
               <Stream
                 streamRef={streamRef}
                 src={cloudflareUid}
@@ -622,7 +695,7 @@ export default function WatchPage({
                 onSeeking={() => setPlaying(false)}
                 onSeeked={() => setPlaying(true)}
               />
-            )}
+            ) : null}
 
             {!cloudflareUid && (
               <div className={`absolute inset-0 z-[5] flex items-center justify-center transition-opacity duration-200 ${
@@ -646,7 +719,7 @@ export default function WatchPage({
             {!cloudflareUid && (
               <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                 <div className="relative h-1 w-full cursor-pointer overflow-hidden rounded-full bg-white/20">
-                  <div className="h-full rounded-full transition-all duration-300" style={{ background: "linear-gradient(90deg, hsl(214 58% 69%), hsl(193 42% 67%))", width: `${progress}%` }} />
+                  <div className="h-full rounded-full transition-all duration-300" style={{ background: "linear-gradient(90deg, hsl(188 90% 60%), hsl(180 80% 80%))", boxShadow: "0 0 12px hsla(188, 86%, 55%, 0.55)", width: `${progress}%` }} />
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -689,13 +762,13 @@ export default function WatchPage({
           {/* Title */}
           <h1 className="text-2xl font-semibold tracking-tight leading-snug">{title}</h1>
 
-          {/* Creator row — inline, compact */}
+          {/* Creator identity row: avatar + name + follow, rate pill on the right */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div
               className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity min-w-0"
               onClick={() => window.location.href = `/profile/${creatorId}`}
             >
-              <div className="h-9 w-9 rounded-full overflow-hidden flex-shrink-0 border border-sa-border">
+              <div className="h-10 w-10 rounded-full overflow-hidden flex-shrink-0 border border-sa-border">
                 {creator?.avatar_url ? (
                   <img src={creator.avatar_url} alt="Creator" className="w-full h-full object-cover" />
                 ) : (
@@ -707,114 +780,144 @@ export default function WatchPage({
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-semibold text-foreground">
-                  {creator?.channel_name || creator?.display_name || "Creator"}
-                </span>
-                {creator?.is_verified && (
-                  <svg className="h-4 w-4 shrink-0 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                )}
-                {VIEWER_ID && !isOwnVideo && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleFollow();
-                    }}
-                    disabled={togglingFollow}
-                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                      following
-                        ? "border-primary/30 bg-primary/10 text-primary"
-                        : "border-sa-border text-sa-text-3 hover:border-sa-border-hover hover:text-foreground"
-                    }`}
-                  >
-                    <UserPlus size={14} />
-                    {following ? "Following" : "Follow"}
-                  </button>
-                )}
-                {VIEWER_ID && (
-                  <span className="inline-flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleWatchLater();
-                      }}
-                      disabled={savingWatchlist}
-                      className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                        savedToWatchlist
-                          ? "border-primary/30 bg-primary/10 text-primary"
-                          : "border-sa-border text-sa-text-3 hover:text-foreground hover:border-sa-border-hover"
-                      }`}
-                    >
-                      <Bookmark size={14} className={savedToWatchlist ? "fill-current" : ""} />
-                      {savedToWatchlist ? "Saved" : "Watch Later"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleFavorite();
-                      }}
-                      disabled={togglingFavorite}
-                      className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                        favorited
-                          ? "border-red-500/30 bg-red-500/10 text-red-400"
-                          : "border-sa-border text-sa-text-3 hover:text-foreground hover:border-sa-border-hover"
-                      }`}
-                    >
-                      <Heart size={14} className={favorited ? "fill-current" : ""} />
-                      {favorited ? "Favourited" : "Favourite"}
-                    </button>
+              <div className="flex flex-col min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground leading-tight">
+                  <span className="truncate">
+                    {creator?.channel_name || creator?.display_name || "Creator"}
                   </span>
-                )}
-                <span className="text-sa-text-3">·</span>
-                <span className="text-sa-text-3">{totalTime}</span>
-                <span className="text-sa-text-3">·</span>
-                <span className="rounded-full bg-sa-surface-2 px-2.5 py-0.5 font-mono text-xs tabular-nums text-foreground border border-sa-border">
-                  {rateStatusLabel}
+                  {creator?.is_verified && (
+                    <svg className="h-4 w-4 shrink-0 text-sa-blue" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
                 </span>
+                <span className="text-[11px] text-sa-text-3 mt-0.5">Creator</span>
               </div>
-            </div>
-
-            {!isOwnVideo && VIEWER_ID && (
-              <div className="flex flex-wrap items-center gap-2">
-                {["0.01", "0.05", "0.10"].map((amount) => (
-                  <button
-                    key={amount}
-                    type="button"
-                    onClick={() => setTipAmount(amount)}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors ${
-                      tipAmount === amount
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-sa-border text-sa-text-3 hover:text-foreground hover:border-sa-border-hover"
-                    }`}
-                  >
-                    ${amount}
-                  </button>
-                ))}
-                <input
-                  type="number"
-                  value={tipAmount}
-                  onChange={(e) => setTipAmount(e.target.value)}
-                  placeholder="Amount"
-                  min="0.001"
-                  step="0.001"
-                  className="h-9 w-24 rounded-lg border border-sa-border bg-background px-3 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
+              {VIEWER_ID && !isOwnVideo && (
                 <button
                   type="button"
-                  onClick={handleTip}
-                  disabled={tipping || !tipAmount || Number.parseFloat(tipAmount) < 0.001}
-                  className="btn btn-primary btn-sm disabled:opacity-50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleFollow();
+                  }}
+                  disabled={togglingFollow}
+                  className={`ml-1 flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                    following
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-sa-border bg-sa-surface-2 text-foreground hover:border-sa-border-hover"
+                  }`}
                 >
-                  {tipping ? "Sending..." : "Tip"}
+                  <UserPlus size={14} />
+                  {following ? "Following" : "Follow"}
+                </button>
+              )}
+            </div>
+
+            {/* Live rate indicator — minimal, no heavy container */}
+            <span className="inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-sa-text-3">
+              <span className={`h-1.5 w-1.5 rounded-full ${playing ? "bg-sa-green animate-pulse shadow-[0_0_6px_rgba(60,217,160,0.8)]" : "bg-sa-text-3"}`} />
+              <span className="text-foreground">{rateStatusLabel}</span>
+            </span>
+          </div>
+
+          {/* Action row: lightweight ghost icon-pills + compact tip */}
+          {VIEWER_ID && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-sa-border/60 pt-4">
+              {/* Ghost action pills */}
+              <div className="flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleWatchLater();
+                  }}
+                  disabled={savingWatchlist}
+                  aria-pressed={savedToWatchlist}
+                  title={savedToWatchlist ? "Saved to Watch Later" : "Save to Watch Later"}
+                  className={`inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium transition-all ${
+                    savedToWatchlist
+                      ? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/25"
+                      : "text-sa-text-2 hover:bg-white/[0.05] hover:text-foreground"
+                  } disabled:opacity-60`}
+                >
+                  <Bookmark size={15} className={savedToWatchlist ? "fill-current" : ""} />
+                  <span>{savedToWatchlist ? "Saved" : "Watch Later"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleFavorite();
+                  }}
+                  disabled={togglingFavorite}
+                  aria-pressed={favorited}
+                  title={favorited ? "Remove from favourites" : "Add to favourites"}
+                  className={`inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium transition-all ${
+                    favorited
+                      ? "bg-red-500/10 text-red-400 ring-1 ring-inset ring-red-500/25"
+                      : "text-sa-text-2 hover:bg-white/[0.05] hover:text-foreground"
+                  } disabled:opacity-60`}
+                >
+                  <Heart size={15} className={favorited ? "fill-current" : ""} />
+                  <span>{favorited ? "Favourited" : "Favourite"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleShare();
+                  }}
+                  title="Share link"
+                  className="inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium text-sa-text-2 transition-all hover:bg-white/[0.05] hover:text-foreground"
+                >
+                  <Share2 size={15} />
+                  <span>{copied ? "Copied!" : "Share"}</span>
                 </button>
               </div>
-            )}
-          </div>
+
+              {/* Tip controls — inline minimal */}
+              {!isOwnVideo && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-sa-text-3 pr-1">
+                    Tip
+                  </span>
+                  {["0.01", "0.05", "0.10"].map((amount) => (
+                    <button
+                      key={amount}
+                      type="button"
+                      onClick={() => setTipAmount(amount)}
+                      className={`h-8 rounded-full px-3 text-[12px] font-medium tabular-nums transition-all ${
+                        tipAmount === amount
+                          ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/30"
+                          : "text-sa-text-2 hover:bg-white/[0.05] hover:text-foreground"
+                      }`}
+                    >
+                      ${amount}
+                    </button>
+                  ))}
+                  <div className="flex h-8 items-center rounded-full bg-sa-surface-2/80 ring-1 ring-inset ring-sa-border overflow-hidden">
+                    <input
+                      type="number"
+                      value={tipAmount}
+                      onChange={(e) => setTipAmount(e.target.value)}
+                      placeholder="Custom"
+                      min="0.001"
+                      step="0.001"
+                      className="h-full w-[7.5rem] bg-transparent px-3 text-[12px] tabular-nums placeholder:text-sa-text-3 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTip}
+                      disabled={tipping || !tipAmount || Number.parseFloat(tipAmount) < 0.001}
+                      className="h-full bg-primary px-3.5 text-[12px] font-semibold text-primary-foreground transition hover:bg-sa-cyan disabled:opacity-50"
+                    >
+                      {tipping ? "…" : "Send"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {(!isOwnVideo && VIEWER_ID) && (tipError || tipSuccess) && (
             <div className="flex items-center gap-2 text-xs">
@@ -830,18 +933,18 @@ export default function WatchPage({
             </div>
           )}
 
-          {/* Disclaimer */}
-          <p className="text-xs text-sa-text-3">
-            {free
-              ? `First ${freePreviewSeconds}s free. Payments fire every ${intervalSeconds}s after preview ends.`
-              : playing
+          {/* Disclaimer (hidden during free preview; no “first N seconds free” copy) */}
+          {!free && (
+            <p className="text-xs text-sa-text-3">
+              {playing
                 ? isOwnVideo
-                  ? "You're the creator — playback is free."
+                  ? "You're the creator. Playback is free."
                   : `Paying $${formatSubCentsShows(ratePerSecond)}/sec · batch every ${intervalSeconds}s via Circle x402 · pause anytime`
-                : "Paused — charges stopped instantly."}
-          </p>
+                : "Paused. Charges stopped instantly."}
+            </p>
+          )}
 
-          {/* Stats — full-width horizontal row */}
+          {/* Stats: full-width horizontal row */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: "Session Cost", value: `$${cost.toFixed(4)}`, color: "text-sa-accent" },
@@ -1011,6 +1114,39 @@ export default function WatchPage({
               </div>
             )}
           </div>
+
+          {acceptsOffers && VIEWER_ID && !isOwnVideo && (
+            <div className="glass mt-4 flex flex-col gap-3 rounded-xl border border-sa-border p-4">
+              <div className="flex items-center gap-2">
+                <Tag size={16} className="text-sa-accent" />
+                <h3 className="text-sm font-bold">This video accepts offers</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Make an offer to purchase ownership of this video. If accepted, you will earn all future watch revenue.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  value={offerAmount}
+                  onChange={(e) => setOfferAmount(e.target.value)}
+                  placeholder="Offer amount (min $1.00)"
+                  min={1}
+                  step="0.01"
+                  className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleMakeOffer()}
+                  disabled={submittingOffer || !offerAmount || parseFloat(offerAmount) < 1}
+                  className="btn btn-primary disabled:opacity-50"
+                >
+                  {submittingOffer ? "Sending..." : "Make Offer"}
+                </button>
+              </div>
+              {offerError && <p className="text-xs text-destructive">{offerError}</p>}
+              {offerSuccess && <p className="text-xs text-green-400">Offer sent! The owner will be notified.</p>}
+            </div>
+          )}
 
         </motion.div>
 

@@ -6,6 +6,8 @@ import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
 const facilitator = new BatchFacilitatorClient();
 
 const GATEWAY_WALLET = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9";
+// Platform address; tips still pay the creator. Same as settle-session / offers.
+const PLATFORM_WALLET = "0xfa53779d7cb905489d84f1ab2da309624427cafa";
 const USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
 const CHAIN_ID = 5042002;
 

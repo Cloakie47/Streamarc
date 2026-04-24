@@ -47,7 +47,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
       }
       attempts++
     }
-    setError("Video processing timed out. It may still be processing — check back later.")
+    setError("Video processing timed out. It may still be processing; check back later.")
     setStatus("error")
   }
 
@@ -165,7 +165,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
           {/* Rate */}
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 block">
-              Rate per second (USDC) — $0.00005 to $0.0001
+              Rate per second (USDC): $0.00005 to $0.0001
             </label>
             <input
               type="number"
@@ -194,7 +194,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
               ) : (
                 <p className="text-sm text-muted-foreground">Click to select video file</p>
               )}
-              <p className="text-xs text-muted-foreground">MP4, MOV, WebM — max 200MB</p>
+              <p className="text-xs text-muted-foreground">MP4, MOV, WebM. Max 200MB</p>
             </div>
             <input
               ref={fileInputRef}

@@ -14,7 +14,7 @@ function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentPage, setCurrentPage] = useState(
-    searchParams.get("page") ?? "browse"
+    searchParams.get("page") ?? "landing"
   );
   const [balance, setBalance] = useState(0);
   const [scrolled, setScrolled] = useState(false);
@@ -74,25 +74,6 @@ function HomeContent() {
             <StudioPage />
           )}
         </div>
-
-        {currentPage === "landing" && (
-          <div className="fixed right-6 top-6 z-50 flex gap-3">
-            <button
-              type="button"
-              onClick={() => setCurrentPage("browse")}
-              className="btn btn-glass btn-sm"
-            >
-              Enter App
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentPage("signin")}
-              className="btn btn-primary btn-sm"
-            >
-              Sign In
-            </button>
-          </div>
-        )}
       </main>
     </div>
   );

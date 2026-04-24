@@ -2,7 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Twitter, MessageCircle, Eye, Film, Calendar, Zap, UserPlus } from "lucide-react";
+import {
+  Twitter,
+  MessageCircle,
+  Eye,
+  Film,
+  Calendar,
+  Zap,
+  UserPlus,
+  Users,
+  Share2,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCurrentUser } from "@/app/lib/auth-client";
 import { FrostedPlayMark } from "@/app/components/ui/FrostedPlayMark";
@@ -127,156 +137,196 @@ export default function CreatorProfile({
 
   const hasSocials = creator.x_handle || creator.reddit_handle || creator.telegram_handle;
 
-  const statPills: { icon: React.ComponentType<{ size?: number; className?: string }>; label: string; value: string; pulse?: boolean }[] = [
-    { icon: Eye, label: "Views", value: formatViews(totalViews) },
-    { icon: Film, label: "Videos", value: String(videos.length) },
-    { icon: Calendar, label: "Joined", value: String(joinedYear) },
-    { icon: Zap, label: "Earning", value: `$${formatRate(avgRate)}/s`, pulse: true },
-  ];
+  const featuredTitle = videos[0]?.title;
+  const avgRateDisplay = `$${formatRate(avgRate)}/s`;
+
+  const handleShare = async () => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-6 pb-12">
-      {/* ── Hero Banner ── */}
-      <div className="panel relative h-56 w-full overflow-hidden lg:h-64">
+    <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col pb-12">
+      {/* ── Hero Banner (Kick-style wide header) ── */}
+      <div className="panel relative h-48 w-full overflow-hidden sm:h-56 lg:h-64">
         {creator.banner_url ? (
           <>
-            <img src={creator.banner_url} alt="Banner" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#101826]/70 via-[#101826]/20 to-transparent" />
+            <img src={creator.banner_url} alt="Banner" className="h-full w-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0f18] via-[#0a0f18]/50 to-transparent" />
           </>
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-[#1c2639] via-[#223047] to-[#182233]" />
+          <div className="absolute inset-0 bg-gradient-to-br from-[#0d1520] via-[#152030] to-[#0a1018]" />
         )}
-        <div className="absolute inset-y-0 right-0 hidden w-1/3 bg-gradient-to-l from-sa-blue/10 to-transparent md:block" />
+        <div className="absolute inset-y-0 right-0 hidden w-2/5 bg-gradient-to-l from-primary/5 to-transparent md:block" />
       </div>
 
-      {/* ── Profile Info ── */}
-      <div className="px-4 lg:px-8 pb-8">
-        {/* Avatar — overlaps the banner */}
+      {/* ── Channel header: avatar + identity + actions (Kick-inspired) ── */}
+      <div className="relative z-[1] px-4 lg:px-8">
         <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.4 }}
-          className="-mt-14 mb-4"
-        >
-          <div className="h-28 w-28 overflow-hidden rounded-full border-4 border-background bg-sa-surface shadow-[0_10px_22px_rgba(9,18,32,0.18)]">
-            {creator.avatar_url ? (
-              <img src={creator.avatar_url} alt={displayName} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-4xl font-bold text-primary bg-primary/10">
-                {displayName.slice(0, 1).toUpperCase()}
-              </div>
-            )}
-          </div>
-        </motion.div>
-
-        {/* Identity — name, follow, bio, social icons */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="mb-6"
+          transition={{ duration: 0.35 }}
+          className="-mt-16 flex flex-col gap-6 sm:-mt-20 lg:flex-row lg:items-start lg:gap-10"
         >
-          {/* Name + verified + follow button */}
-          <div className="mb-2 flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-semibold">{displayName}</h1>
-            {creator.is_verified && (
-              <svg className="w-5 h-5 text-sa-blue flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            )}
+          {/* Avatar: accent ring */}
+          <div className="shrink-0">
+            <div className="h-28 w-28 overflow-hidden rounded-full bg-sa-surface shadow-xl ring-4 ring-primary/45 ring-offset-4 ring-offset-background sm:h-32 sm:w-32">
+              {creator.avatar_url ? (
+                <img src={creator.avatar_url} alt={displayName} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-primary/15 text-3xl font-bold text-primary sm:text-4xl">
+                  {displayName.slice(0, 1).toUpperCase()}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Bio snippet */}
-          {creator.bio && (
-            <p className="text-sm text-sa-text-3 line-clamp-2 max-w-xl mb-3">{creator.bio}</p>
-          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{displayName}</h1>
+                  {creator.is_verified && (
+                    <svg className="h-6 w-6 shrink-0 text-primary" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                      <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                </div>
+                {featuredTitle && (
+                  <p className="line-clamp-2 max-w-3xl text-sm font-medium leading-snug text-sa-text-3 sm:text-base">
+                    {featuredTitle}
+                  </p>
+                )}
+                {!featuredTitle && (
+                  <p className="text-sm text-sa-text-3">Creator on StreamArc</p>
+                )}
+                {/* Tag pills */}
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border border-primary/35 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                    {videos.length} video{videos.length === 1 ? "" : "s"}
+                  </span>
+                  <span className="rounded-full border border-sa-border bg-sa-surface-2 px-3 py-1 text-xs font-medium text-sa-text-3">
+                    {formatViews(totalViews)} views
+                  </span>
+                  <span className="rounded-full border border-sa-border bg-sa-surface-2 px-3 py-1 text-xs text-sa-text-3">
+                    Joined {joinedYear}
+                  </span>
+                  {videos.length > 0 && (
+                    <span className="rounded-full border border-sa-border bg-sa-surface-2 px-3 py-1 font-mono text-xs tabular-nums text-sa-accent">
+                      ~{avgRateDisplay} avg
+                    </span>
+                  )}
+                </div>
+              </div>
 
-          <div className="mb-6 flex items-center gap-4">
-            <div className="flex flex-col">
-              <span className="text-xl font-bold">{videos.length}</span>
-              <span className="text-xs text-muted-foreground">Videos</span>
+              {userId && userId !== creator.id && (
+                <button
+                  type="button"
+                  onClick={() => void handleFollow()}
+                  disabled={togglingFollow}
+                  className={`inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold transition-all sm:w-auto lg:min-w-[160px] ${
+                    following
+                      ? "border border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                      : "bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:opacity-95"
+                  }`}
+                >
+                  <UserPlus size={18} />
+                  {following ? "Following" : "Follow"}
+                </button>
+              )}
             </div>
-            <div className="h-8 w-px bg-border" />
-            <div className="flex flex-col">
-              <span className="text-xl font-bold">{followerCount}</span>
-              <span className="text-xs text-muted-foreground">Followers</span>
-            </div>
-            {userId && userId !== creator.id && (
+
+            {/* Stats strip: accent numbers like Kick viewers/followers */}
+            <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-sa-border/60 pt-5 text-sm">
+              <span className="inline-flex items-center gap-2">
+                <Eye size={18} className="text-primary" />
+                <span className="font-semibold text-primary">{formatViews(totalViews)}</span>
+                <span className="text-sa-text-3">total views</span>
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <Users size={18} className="text-primary" />
+                <span className="font-semibold text-primary">{followerCount.toLocaleString()}</span>
+                <span className="text-sa-text-3">followers</span>
+              </span>
               <button
                 type="button"
-                onClick={() => void handleFollow()}
-                disabled={togglingFollow}
-                className={`ml-auto flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
-                  following
-                    ? "border-primary/30 bg-primary/10 text-primary"
-                    : "border-primary bg-primary text-primary-foreground hover:opacity-90"
-                }`}
+                onClick={() => void handleShare()}
+                className="ml-auto inline-flex items-center gap-2 rounded-lg border border-transparent px-2 py-1.5 text-sa-text-3 transition-colors hover:border-sa-border hover:bg-white/[0.04] hover:text-foreground"
+                aria-label="Copy profile link"
               >
-                <UserPlus size={16} />
-                {following ? "Following" : "Follow"}
+                <Share2 size={16} />
+                <span className="hidden sm:inline">Share</span>
               </button>
-            )}
-          </div>
-
-          {/* Social icon pills */}
-          {hasSocials && (
-            <div className="flex items-center gap-2">
-              {creator.x_handle && (
-                <a
-                  href={`https://x.com/${creator.x_handle}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={`@${creator.x_handle}`}
-                    className="panel-muted flex h-8 w-8 items-center justify-center rounded-full text-sa-text-3 transition-colors hover:text-foreground"
-                  >
-                    <Twitter size={14} />
-                </a>
-              )}
-              {creator.reddit_handle && (
-                <a
-                  href={`https://reddit.com/u/${creator.reddit_handle}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={`u/${creator.reddit_handle}`}
-                    className="panel-muted flex h-8 w-8 items-center justify-center rounded-full text-sa-text-3 transition-colors hover:text-foreground"
-                  >
-                    <span className="text-[10px] font-bold leading-none">r/</span>
-                </a>
-              )}
-              {creator.telegram_handle && (
-                <a
-                  href={`https://t.me/${creator.telegram_handle}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={creator.telegram_handle}
-                    className="panel-muted flex h-8 w-8 items-center justify-center rounded-full text-sa-text-3 transition-colors hover:text-foreground"
-                  >
-                    <MessageCircle size={14} />
-                </a>
-              )}
             </div>
-          )}
+          </div>
         </motion.div>
 
-        {/* ── Stat Bar ── */}
+        {/* ── About card (Kick-style large block) ── */}
         <motion.div
-          initial={{ opacity: 0, y: 8 }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="flex items-center gap-3 flex-wrap mb-6"
+          transition={{ delay: 0.1 }}
+          className="panel mt-10 mb-8 rounded-2xl p-6 sm:p-8"
         >
-          {statPills.map((pill) => (
-            <div
-              key={pill.label}
-              className={`panel-muted flex items-center gap-2 rounded-full px-4 py-2 text-xs ${
-                pill.pulse ? "payment-ticker" : "text-sa-text-3"
-              }`}
-            >
-              <pill.icon size={13} className={pill.pulse ? "text-sa-accent" : ""} />
-              <span className="text-sa-text-3 font-medium">{pill.label}</span>
-              <span className={pill.pulse ? "text-sa-accent font-bold" : "text-foreground font-bold"}>{pill.value}</span>
+            <div className="mb-4 flex flex-col gap-1 border-b border-sa-border/80 pb-4 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-bold text-foreground sm:text-xl">About {displayName}</h2>
+                {creator.is_verified && (
+                  <svg className="h-5 w-5 shrink-0 text-primary" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+              </div>
+              <p className="text-sm font-semibold text-primary">{followerCount.toLocaleString()} followers</p>
             </div>
-          ))}
+
+            {hasSocials && (
+              <div className="mb-5 flex flex-wrap gap-3">
+                {creator.x_handle && (
+                  <a
+                    href={`https://x.com/${creator.x_handle}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="panel-muted inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs text-sa-text-3 transition-colors hover:text-foreground"
+                  >
+                    <Twitter size={14} />
+                    <span className="max-w-[200px] truncate">x.com/{creator.x_handle}</span>
+                  </a>
+                )}
+                {creator.reddit_handle && (
+                  <a
+                    href={`https://reddit.com/u/${creator.reddit_handle}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="panel-muted inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs text-sa-text-3 transition-colors hover:text-foreground"
+                  >
+                    <span className="text-[10px] font-bold">r/</span>
+                    <span className="max-w-[200px] truncate">u/{creator.reddit_handle}</span>
+                  </a>
+                )}
+                {creator.telegram_handle && (
+                  <a
+                    href={`https://t.me/${creator.telegram_handle}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="panel-muted inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs text-sa-text-3 transition-colors hover:text-foreground"
+                  >
+                    <MessageCircle size={14} />
+                    <span className="max-w-[200px] truncate">t.me/{creator.telegram_handle}</span>
+                  </a>
+                )}
+              </div>
+            )}
+
+            {creator.bio ? (
+              <p className="text-sm leading-relaxed text-foreground/95 whitespace-pre-line">{creator.bio}</p>
+            ) : (
+              <p className="text-sm text-sa-text-3">No bio yet.</p>
+            )}
         </motion.div>
 
         {/* ── Tab Navigation ── */}
@@ -365,67 +415,15 @@ export default function CreatorProfile({
           </>
         )}
 
-        {/* ── About Tab ── */}
+        {/* ── About Tab (details only; bio/socials live in About card above) ── */}
         {tab === "about" && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="max-w-2xl flex flex-col gap-6"
+            className="max-w-2xl"
           >
-            {creator.bio ? (
-              <div className="panel p-6">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-sa-text-3 mb-3">Bio</h3>
-                <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{creator.bio}</p>
-              </div>
-            ) : (
-              <div className="panel p-6">
-                <p className="text-sm text-sa-text-3">This creator hasn&apos;t added a bio yet.</p>
-              </div>
-            )}
-
-            {hasSocials && (
-              <div className="panel p-6">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-sa-text-3 mb-3">Social Links</h3>
-                <div className="flex flex-col gap-3">
-                  {creator.x_handle && (
-                    <a
-                      href={`https://x.com/${creator.x_handle}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 text-sm text-sa-text-3 hover:text-foreground transition-colors"
-                    >
-                      <Twitter size={16} />
-                      <span>@{creator.x_handle}</span>
-                    </a>
-                  )}
-                  {creator.reddit_handle && (
-                    <a
-                      href={`https://reddit.com/u/${creator.reddit_handle}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 text-sm text-sa-text-3 hover:text-foreground transition-colors"
-                    >
-                      <span className="text-sm font-bold w-4 text-center">r/</span>
-                      <span>u/{creator.reddit_handle}</span>
-                    </a>
-                  )}
-                  {creator.telegram_handle && (
-                    <a
-                      href={`https://t.me/${creator.telegram_handle}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 text-sm text-sa-text-3 hover:text-foreground transition-colors"
-                    >
-                      <MessageCircle size={16} />
-                      <span>{creator.telegram_handle}</span>
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-
             <div className="panel p-6">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-sa-text-3 mb-3">Details</h3>
+              <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-sa-text-3">Channel details</h3>
               <div className="flex flex-col gap-2 text-sm">
                 <div className="flex items-center gap-3 text-sa-text-3">
                   <Calendar size={16} />
@@ -433,12 +431,24 @@ export default function CreatorProfile({
                 </div>
                 <div className="flex items-center gap-3 text-sa-text-3">
                   <Film size={16} />
-                  <span>{videos.length} video{videos.length !== 1 ? "s" : ""} published</span>
+                  <span>
+                    {videos.length} video{videos.length !== 1 ? "s" : ""} published
+                  </span>
                 </div>
                 <div className="flex items-center gap-3 text-sa-text-3">
                   <Eye size={16} />
                   <span>{formatViews(totalViews)} total views</span>
                 </div>
+                <div className="flex items-center gap-3 text-sa-text-3">
+                  <Users size={16} />
+                  <span>{followerCount.toLocaleString()} followers</span>
+                </div>
+                {videos.length > 0 && (
+                  <div className="flex items-center gap-3 text-sa-text-3">
+                    <Zap size={16} className="text-sa-accent" />
+                    <span className="payment-ticker font-medium text-sa-accent">Average rate {avgRateDisplay}</span>
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>

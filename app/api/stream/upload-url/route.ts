@@ -11,12 +11,21 @@ export async function POST(req: NextRequest) {
 
     const { data: user } = await getSupabaseAdmin()
       .from("users")
-      .select("id")
+      .select("id, is_whitelisted")
       .eq("id", user_id)
-      .single()
+      .single();
 
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (!user.is_whitelisted) {
+      return NextResponse.json(
+        {
+          error: "You are not whitelisted to upload videos. Apply to become a creator.",
+        },
+        { status: 403 }
+      );
     }
 
     // Get one-time upload URL from Cloudflare Stream

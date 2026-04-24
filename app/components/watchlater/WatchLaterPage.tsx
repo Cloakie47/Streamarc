@@ -199,8 +199,8 @@ export default function WatchLaterPage({ userId }: { userId: string }) {
               className="panel relative overflow-hidden rounded-2xl border border-sa-border p-0"
               style={{
                 background:
-                  "linear-gradient(145deg, hsl(220 45% 14% / 0.95) 0%, hsl(255 35% 18% / 0.88) 45%, hsl(210 50% 12% / 0.92) 100%)",
-                boxShadow: "0 24px 48px rgba(4, 10, 24, 0.45), inset 0 1px 0 hsl(220 60% 70% / 0.06)",
+                  "linear-gradient(145deg, hsl(188 60% 10% / 0.95) 0%, hsl(195 55% 12% / 0.88) 45%, hsl(210 60% 6% / 0.92) 100%)",
+                boxShadow: "0 24px 48px rgba(4, 10, 24, 0.45), inset 0 1px 0 hsl(188 90% 60% / 0.10)",
               }}
             >
               <div className="relative aspect-video w-full overflow-hidden rounded-t-2xl bg-black/40">

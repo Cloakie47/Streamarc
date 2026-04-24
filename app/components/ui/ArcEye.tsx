@@ -14,7 +14,7 @@ export default function ArcEye({
   size = 40,
   className = "",
   animate = "idle",
-  glowColor = "hsl(214 58% 69%)",
+  glowColor = "hsl(188 90% 60%)",
   rgbCycle = false,
 }: ArcEyeProps) {
   return (
@@ -90,7 +90,7 @@ export default function ArcEye({
         <g filter="url(#bloom)">
           <motion.circle
             cx="32" cy="32" r="11"
-            stroke="hsl(193 42% 67%)"
+            stroke="hsl(180 80% 80%)"
             strokeWidth="1.5"
             fill="none"
             opacity="0.7"

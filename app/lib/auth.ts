@@ -32,9 +32,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const email = (credentials.email as string).toLowerCase();
           const password = credentials.password as string;
 
+          // Sensitive fields (password_hash, totp_secret, totp_enabled) are
+          // intentionally selected here for the credentials verification step
+          // only. They never leave this function — the return object below
+          // strips them before NextAuth persists the session.
           const { data: user } = await getSupabaseAdmin()
             .from("users")
-            .select("*")
+            .select(
+              "id, email, email_verified, role, gateway_balance, wallet_address, display_name, avatar_url, password_hash, totp_enabled, totp_secret",
+            )
             .eq("email", email)
             .maybeSingle();
 
@@ -84,7 +90,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const { data: profile } = await getSupabaseAdmin()
           .from("users")
-          .select("*")
+          .select(
+            "id, email, role, gateway_balance, wallet_address, display_name, avatar_url",
+          )
           .eq("id", signInData.user.id)
           .single();
 
@@ -107,7 +115,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user && account?.provider === "google") {
         const { data: profile } = await getSupabaseAdmin()
           .from("users")
-          .select("*")
+          .select(
+            "id, email, role, gateway_balance, wallet_address, circle_wallet_id, display_name, avatar_url",
+          )
           .eq("email", user.email!)
           .maybeSingle();
 

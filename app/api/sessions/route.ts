@@ -116,10 +116,20 @@ export async function POST(req: NextRequest) {
       .eq("id", viewer_id)
       .single()
 
+    // Check if video has been sold to a new owner
+    const { data: videoOwnership } = await getSupabaseAdmin()
+      .from("videos")
+      .select("owner_id, original_creator_id")
+      .eq("id", video_id)
+      .single()
+
+    // Pay owner if sold, otherwise pay creator
+    const earningsRecipientId = videoOwnership?.owner_id ?? creator_id
+
     const { data: creator } = await getSupabaseAdmin()
       .from("users")
       .select("wallet_address")
-      .eq("id", creator_id)
+      .eq("id", earningsRecipientId)
       .single()
 
     if (!viewer?.wallet_address || !creator?.wallet_address) {

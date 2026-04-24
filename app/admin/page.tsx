@@ -1,13 +1,24 @@
-import { auth } from "@/app/lib/auth"
-import { redirect } from "next/navigation"
-import AdminPage from "@/app/components/admin/AdminPage"
+import { auth } from "@/app/lib/auth";
+import { redirect } from "next/navigation";
+import { getSupabaseAdmin } from "@/app/lib/supabase-server";
+import AdminPage from "@/app/components/admin/AdminPage";
 
-const ADMIN_USER_ID = "56917d75-3471-4d21-8bca-1010de7dbbc2"
+export const dynamic = "force-dynamic";
 
 export default async function Admin() {
-  const session = await auth()
-  if (!session?.user?.id || session.user.id !== ADMIN_USER_ID) {
-    redirect("/")
-  }
-  return <AdminPage />
+  const session = await auth();
+  if (!session?.user?.id) redirect("/signin");
+
+  const supabase = getSupabaseAdmin();
+  const { data: user } = await supabase
+    .from("users")
+    .select("is_admin")
+    .eq("id", session.user.id)
+    .single();
+
+  if (!user?.is_admin) redirect("/");
+
+  console.log("Admin session user:", session.user);
+
+  return <AdminPage userId={session.user.id} />;
 }

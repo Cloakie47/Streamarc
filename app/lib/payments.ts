@@ -95,7 +95,7 @@ export async function settleWatchSession(
   }
 }
 
-// Send beacon on tab close — fire and forget
+// Send beacon on tab close (fire and forget)
 export function sendBeaconBatch(
   sessionId: string,
   viewerId: string,

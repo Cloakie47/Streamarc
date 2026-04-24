@@ -13,7 +13,9 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabaseAdmin();
     const { data } = await supabase
       .from("users")
-      .select("display_name, channel_name, bio, avatar_url, x_handle, reddit_handle, telegram_handle")
+      .select(
+        "display_name, channel_name, bio, avatar_url, x_handle, reddit_handle, telegram_handle, is_whitelisted"
+      )
       .eq("id", user_id)
       .single();
 

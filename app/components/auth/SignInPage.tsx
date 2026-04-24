@@ -246,10 +246,34 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
         className="panel w-full max-w-md p-10 flex flex-col gap-8 relative overflow-hidden"
       >
         <div className="flex flex-col items-center gap-4 text-center relative z-10">
-          <GlitchLogo className="h-20 w-auto sm:h-24" period={6} />
-          <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-semibold tracking-tight">StreamArc</h1>
-            <p className="text-sa-text-3">Sign in to browse and publish streaming demos.</p>
+          <div className="relative">
+            <div
+              aria-hidden
+              className="absolute -inset-3 rounded-full"
+              style={{
+                background:
+                  "radial-gradient(circle, hsla(188, 90%, 60%, 0.45), transparent 65%)",
+                filter: "blur(20px)",
+              }}
+            />
+            <div
+              className="relative rounded-full p-1"
+              style={{
+                background:
+                  "conic-gradient(from 90deg at 50% 50%, hsl(188 90% 65%), hsl(180 80% 80%), hsl(195 90% 55%), hsl(188 90% 65%))",
+                boxShadow: "0 0 36px hsla(188, 90%, 60%, 0.35)",
+              }}
+            >
+              <div className="rounded-full bg-black p-1">
+                <GlitchLogo className="h-20 w-20 sm:h-24 sm:w-24" period={6} circle videoObjectFit="cover" />
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <h1 className="font-display text-3xl font-bold tracking-[-0.025em]">
+              Welcome to <span className="text-grad-brand">StreamArc</span>
+            </h1>
+            <p className="text-sm text-sa-text-3">Sign in to browse and publish streaming demos.</p>
           </div>
         </div>
 
@@ -369,22 +393,48 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
 
         {step === "auth" && (
           <>
-            <div className="flex rounded-2xl bg-sa-surface-2 p-1">
+            <div
+              className="flex rounded-2xl p-1 border"
+              style={{
+                background: "hsla(213, 45%, 8%, 0.6)",
+                borderColor: "hsla(198, 30%, 30%, 0.3)",
+              }}
+            >
               <button
                 type="button"
                 onClick={() => { setTab("signin"); setError(null); }}
-                className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all cursor-pointer border-none ${
-                  tab === "signin" ? "bg-primary text-primary-foreground shadow-sm" : "text-sa-text-3 hover:text-foreground bg-transparent"
+                className={`flex-1 py-2 text-sm font-semibold rounded-xl transition-all duration-300 cursor-pointer border-none ${
+                  tab === "signin"
+                    ? "text-black shadow-md"
+                    : "text-sa-text-3 hover:text-foreground bg-transparent"
                 }`}
+                style={
+                  tab === "signin"
+                    ? {
+                        background: "var(--sa-grad)",
+                        boxShadow: "0 4px 14px hsla(188, 86%, 50%, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
+                      }
+                    : {}
+                }
               >
                 Sign In
               </button>
               <button
                 type="button"
                 onClick={() => { setTab("signup"); setError(null); }}
-                className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all cursor-pointer border-none ${
-                  tab === "signup" ? "bg-primary text-primary-foreground shadow-sm" : "text-sa-text-3 hover:text-foreground bg-transparent"
+                className={`flex-1 py-2 text-sm font-semibold rounded-xl transition-all duration-300 cursor-pointer border-none ${
+                  tab === "signup"
+                    ? "text-black shadow-md"
+                    : "text-sa-text-3 hover:text-foreground bg-transparent"
                 }`}
+                style={
+                  tab === "signup"
+                    ? {
+                        background: "var(--sa-grad)",
+                        boxShadow: "0 4px 14px hsla(188, 86%, 50%, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
+                      }
+                    : {}
+                }
               >
                 Sign Up
               </button>
@@ -438,14 +488,18 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                   />
                 </div>
               )}
-              <button type="submit" disabled={loading !== null} className="btn btn-accent w-full mt-2 disabled:opacity-60">
+              <button type="submit" disabled={loading !== null} className="btn btn-primary w-full mt-2 disabled:opacity-60">
                 {loading === "email" ? <Spinner /> : tab === "signin" ? "Sign In" : "Create Account"}
               </button>
             </form>
 
             <div className="relative">
-              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-sa-border"></div></div>
-              <div className="relative flex justify-center text-xs uppercase"><span className="bg-[hsl(216_28%_16%)] px-2 text-sa-text-3">Or continue with</span></div>
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(188 90% 60% / 0.35), transparent)" }} />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="px-3 text-sa-text-3 bg-sa-bg/80 backdrop-blur-sm rounded-full">Or continue with</span>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

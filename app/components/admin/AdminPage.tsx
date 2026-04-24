@@ -1,225 +1,1032 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import {
+  Shield,
+  Users,
+  PlayCircle,
+  DollarSign,
+  Clock,
+  Trash2,
+  Wallet,
+  TrendingUp,
+  LayoutDashboard,
+  Film,
+  UserCog,
+  Sparkles,
+  CheckCircle2,
+  Copy,
+  Check,
+  Inbox,
+  Search,
+} from "lucide-react";
 
 interface AdminStats {
-  total_users: number
-  total_platform_fees: number
-  total_gross_volume: number
-  total_sessions: number
+  total_users: number;
+  total_videos: number;
+  total_watch_seconds: number;
+  total_platform_fees: number;
+  total_gross: number;
+  total_creator_earnings: number;
+  platform_wallet_balance: number;
 }
 
-interface User {
-  id: string
-  email: string
-  wallet_address: string | null
-  gateway_balance: number
-  created_at: string
+interface VideoRow {
+  id: string;
+  title: string;
+  creator_id: string;
+  views: number;
+  status: string;
+  created_at: string;
+  users: { email: string; display_name: string | null; channel_name: string | null } | null;
 }
 
-interface Earning {
-  id: string
-  creator_id: string
-  gross_amount: number
-  platform_fee: number
-  net_amount: number
-  created_at: string
+interface UserRow {
+  id: string;
+  email: string;
+  display_name: string | null;
+  channel_name: string | null;
+  created_at: string;
+  is_admin: boolean;
+  is_whitelisted: boolean;
 }
 
-interface Session {
-  id: string
-  viewer_id: string
-  creator_id: string
-  seconds_watched: number
-  total_cost: number
-  settled: boolean
-  created_at: string
+interface CreatorRequest {
+  id: string;
+  user_id: string;
+  project_name: string;
+  description: string;
+  twitter: string | null;
+  status: "pending" | "approved" | "rejected" | string;
+  users: {
+    email: string;
+    display_name: string | null;
+    channel_name: string | null;
+  } | null;
 }
 
-export default function AdminPage() {
-  const [stats, setStats] = useState<AdminStats | null>(null)
-  const [users, setUsers] = useState<User[]>([])
-  const [earnings, setEarnings] = useState<Earning[]>([])
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [activeTab, setActiveTab] = useState<"overview" | "users" | "earnings" | "sessions">("overview")
-  const [loading, setLoading] = useState(true)
+function formatSeconds(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+}
+
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+function hashHue(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % 360;
+}
+
+function initials(name: string | null | undefined, fallback: string | null | undefined): string {
+  const src = (name || fallback || "?").trim();
+  const parts = src.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+type Tab = "overview" | "videos" | "users" | "requests";
+
+const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "videos", label: "Videos", icon: Film },
+  { id: "users", label: "Users", icon: UserCog },
+  { id: "requests", label: "Requests", icon: Inbox },
+];
+
+export default function AdminPage({ userId }: { userId: string }) {
+  console.log("AdminPage userId:", userId);
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [videos, setVideos] = useState<VideoRow[]>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [loading, setLoading] = useState(true);
+  const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
+  const [togglingWhitelist, setTogglingWhitelist] = useState<string | null>(null);
+  const [requests, setRequests] = useState<CreatorRequest[]>([]);
+  const [approvingRequest, setApprovingRequest] = useState<string | null>(null);
+  const [walletCopied, setWalletCopied] = useState(false);
+  const [videoQuery, setVideoQuery] = useState("");
+  const [userQuery, setUserQuery] = useState("");
+
+  const fetchStats = useCallback(async () => {
+    console.log("Fetching stats with admin_id:", userId);
+    const res = await fetch("/api/admin/stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ admin_id: userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setStats(null);
+      return;
+    }
+    setStats(data);
+  }, [userId]);
+
+  const fetchVideos = useCallback(async () => {
+    const res = await fetch("/api/admin/videos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ admin_id: userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setVideos([]);
+      return;
+    }
+    setVideos(data.videos ?? []);
+  }, [userId]);
+
+  const fetchUsers = useCallback(async () => {
+    const res = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ admin_id: userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setUsers([]);
+      return;
+    }
+    setUsers(data.users ?? []);
+  }, [userId]);
+
+  const fetchRequests = useCallback(async () => {
+    const res = await fetch("/api/admin/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ admin_id: userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setRequests([]);
+      return;
+    }
+    setRequests(data.requests ?? []);
+  }, [userId]);
 
   useEffect(() => {
-    fetch("/api/admin/stats")
-      .then(r => r.json())
-      .then(data => {
-        setStats(data.stats)
-        setUsers(data.users)
-        setEarnings(data.earnings)
-        setSessions(data.sessions)
-        console.log("Sessions:", data.sessions)
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+    setLoading(true);
+    Promise.all([fetchStats(), fetchVideos(), fetchUsers(), fetchRequests()]).finally(() => setLoading(false));
+  }, [fetchStats, fetchVideos, fetchUsers, fetchRequests]);
 
-  const formatDate = (d: string) => new Date(d).toLocaleString()
-  const shortId = (id: string) => id.slice(0, 8) + "..."
+  const handleToggleWhitelist = async (targetUserId: string, current: boolean) => {
+    setTogglingWhitelist(targetUserId);
+    try {
+      await fetch("/api/admin/whitelist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          admin_id: userId,
+          user_id: targetUserId,
+          is_whitelisted: !current,
+        }),
+      });
+      fetchUsers();
+    } finally {
+      setTogglingWhitelist(null);
+    }
+  };
+
+  const handleApproveRequest = async (requestUserId: string, requestId: string) => {
+    setApprovingRequest(requestId);
+    try {
+      await fetch("/api/admin/whitelist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ admin_id: userId, user_id: requestUserId, is_whitelisted: true }),
+      });
+      await fetch("/api/admin/requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ admin_id: userId, request_id: requestId, status: "approved" }),
+      });
+      void fetchRequests();
+      void fetchUsers();
+    } finally {
+      setApprovingRequest(null);
+    }
+  };
+
+  const handleDeleteVideo = async (videoId: string) => {
+    if (!confirm("Delete this video? This cannot be undone.")) return;
+    setDeletingVideo(videoId);
+    try {
+      await fetch("/api/stream/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: videoId, admin_id: userId }),
+      });
+      fetchVideos();
+    } finally {
+      setDeletingVideo(null);
+    }
+  };
+
+  const copyWallet = async () => {
+    try {
+      await navigator.clipboard.writeText("0xfa53779d7cb905489d84f1ab2da309624427cafa");
+      setWalletCopied(true);
+      setTimeout(() => setWalletCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
+  const pendingCount = useMemo(
+    () => requests.filter((r) => r.status === "pending").length,
+    [requests],
+  );
+
+  const filteredVideos = useMemo(() => {
+    const q = videoQuery.trim().toLowerCase();
+    if (!q) return videos;
+    return videos.filter(
+      (v) =>
+        v.title.toLowerCase().includes(q) ||
+        v.users?.channel_name?.toLowerCase().includes(q) ||
+        v.users?.display_name?.toLowerCase().includes(q) ||
+        v.users?.email?.toLowerCase().includes(q),
+    );
+  }, [videos, videoQuery]);
+
+  const filteredUsers = useMemo(() => {
+    const q = userQuery.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (u) =>
+        u.email.toLowerCase().includes(q) ||
+        u.channel_name?.toLowerCase().includes(q) ||
+        u.display_name?.toLowerCase().includes(q),
+    );
+  }, [users, userQuery]);
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--sa-bg)]">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-white border-t-transparent" />
+      <div className="flex flex-col gap-6 px-6 pb-20 pt-2">
+        <div className="h-36 w-full animate-pulse rounded-3xl bg-white/[0.03]" />
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-28 animate-pulse rounded-2xl bg-white/[0.03]" />
+          ))}
+        </div>
+        <div className="h-64 w-full animate-pulse rounded-3xl bg-white/[0.03]" />
       </div>
-    )
+    );
   }
 
   return (
-    <div className="min-h-screen bg-[var(--sa-bg)] p-8 text-[var(--sa-text)]">
-      <div className="mx-auto max-w-6xl">
+    <div className="flex flex-col gap-8 px-4 pb-20 pt-2 sm:px-6">
+      {/* HERO HEADER */}
+      <div className="relative overflow-hidden rounded-3xl border border-sa-border bg-gradient-to-br from-[hsl(200_55%_10%/0.85)] via-[hsl(200_45%_7%/0.9)] to-[hsl(188_60%_6%/0.9)] p-6 sm:p-8">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-60"
+          style={{
+            background:
+              "radial-gradient(circle, hsla(188, 90%, 55%, 0.35) 0%, transparent 65%)",
+            filter: "blur(30px)",
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-16 -left-10 h-48 w-48 rounded-full opacity-50"
+          style={{
+            background:
+              "radial-gradient(circle, hsla(180, 80%, 70%, 0.22) 0%, transparent 70%)",
+            filter: "blur(36px)",
+          }}
+        />
 
-        {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Admin Panel</h1>
-            <p className="mt-1 text-sm text-[var(--sa-text-3)]">StreamArc platform overview</p>
-          </div>
-          <a href="/" className="text-sm text-[var(--sa-text-3)] hover:text-[var(--sa-text)]">← Back to app</a>
-        </div>
-
-        {/* Stats cards */}
-        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {[
-            { label: "Total users", value: stats?.total_users ?? 0 },
-            { label: "Gross volume", value: `$${(stats?.total_gross_volume ?? 0).toFixed(4)}` },
-            { label: "Platform fees", value: `$${(stats?.total_platform_fees ?? 0).toFixed(4)}` },
-            { label: "Total sessions", value: stats?.total_sessions ?? 0 },
-          ].map(s => (
-            <div key={s.label} className="rounded-xl border border-[var(--sa-border-light)] bg-[var(--sa-surface)] p-5">
-              <p className="mb-2 text-[11px] uppercase tracking-wider text-[var(--sa-text-3)]">{s.label}</p>
-              <p className="text-2xl font-bold">{s.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Tabs */}
-        <div className="mb-6 flex gap-2">
-          {(["overview", "users", "earnings", "sessions"] as const).map(tab => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className="cursor-pointer rounded-lg border-none px-4 py-2 text-sm font-medium capitalize transition-colors"
+        <div className="relative flex flex-wrap items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+              className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
               style={{
-                background: activeTab === tab ? "hsl(var(--primary))" : "hsl(var(--secondary))",
-                color: activeTab === tab ? "white" : "hsl(var(--muted-foreground))",
+                background:
+                  "linear-gradient(135deg, hsl(188 90% 60%), hsl(180 80% 70%))",
+                boxShadow:
+                  "0 10px 28px hsla(188, 90%, 60%, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
               }}
             >
-              {tab}
-            </button>
-          ))}
+              <Shield size={26} className="text-black" strokeWidth={2.5} />
+            </motion.div>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <h1 className="font-display text-3xl font-bold tracking-tight text-foreground">
+                  Admin Panel
+                </h1>
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-sa-blue/25 bg-sa-blue/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-sa-blue"
+                >
+                  <Sparkles size={10} />
+                  Control Center
+                </span>
+              </div>
+              <p className="text-sm text-sa-text-3">
+                Operational metrics, content moderation, and creator access, all in one place.
+              </p>
+            </div>
+          </div>
+
+          {stats && (
+            <div className="flex items-center gap-3">
+              <div className="hidden flex-col items-end gap-0.5 sm:flex">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-sa-text-3">
+                  Platform gross
+                </span>
+                <span className="font-mono text-xl font-bold text-foreground">
+                  ${stats.total_gross.toFixed(2)}
+                </span>
+              </div>
+              <div className="h-10 w-px bg-sa-border hidden sm:block" />
+              <div className="flex flex-col items-end gap-0.5">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-sa-text-3">
+                  Wallet balance
+                </span>
+                <span className="font-mono text-xl font-bold text-sa-green">
+                  ${stats.platform_wallet_balance.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
+      </div>
 
-        {/* Users tab */}
+      {/* TAB BAR */}
+      <div className="flex flex-wrap items-center gap-2">
+        {TABS.map((t) => {
+          const isActive = activeTab === t.id;
+          const showBadge = t.id === "requests" && pendingCount > 0;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setActiveTab(t.id)}
+              className={`group relative inline-flex items-center gap-2 overflow-hidden rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
+                isActive
+                  ? "border-sa-blue/40 text-foreground shadow-[0_8px_24px_hsla(188,90%,60%,0.18)]"
+                  : "border-sa-border text-sa-text-3 hover:border-sa-blue/25 hover:text-foreground"
+              }`}
+              style={
+                isActive
+                  ? {
+                      background:
+                        "linear-gradient(135deg, hsla(188,90%,60%,0.18), hsla(180,80%,70%,0.08))",
+                    }
+                  : undefined
+              }
+            >
+              {isActive && (
+                <motion.span
+                  layoutId="admin-tab-glow"
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 rounded-xl"
+                  style={{
+                    background:
+                      "radial-gradient(120% 100% at 0% 0%, hsla(188,90%,65%,0.2), transparent 60%)",
+                  }}
+                  transition={{ type: "spring", stiffness: 320, damping: 30 }}
+                />
+              )}
+              <t.icon size={15} className={isActive ? "text-sa-blue" : "text-sa-text-3 group-hover:text-sa-blue"} />
+              <span className="relative z-10">{t.label}</span>
+              {showBadge && (
+                <span className="relative z-10 ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sa-red/20 px-1.5 text-[10px] font-bold text-sa-red">
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {activeTab === "overview" && stats && (
+          <motion.div
+            key="overview"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.25 }}
+            className="flex flex-col gap-6"
+          >
+            {/* KPI GRID */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <KpiCard
+                label="Total Users"
+                value={formatNumber(stats.total_users)}
+                icon={Users}
+                tone="blue"
+                hint="Registered accounts"
+              />
+              <KpiCard
+                label="Total Videos"
+                value={formatNumber(stats.total_videos)}
+                icon={PlayCircle}
+                tone="cyan"
+                hint="Published on platform"
+              />
+              <KpiCard
+                label="Watch Time"
+                value={formatSeconds(stats.total_watch_seconds)}
+                icon={Clock}
+                tone="teal"
+                hint="All-time across viewers"
+              />
+              <KpiCard
+                label="Total Gross"
+                value={`$${stats.total_gross.toFixed(4)}`}
+                icon={TrendingUp}
+                tone="cyan"
+                hint="Sum of all payments"
+                mono
+              />
+              <KpiCard
+                label="Creator Earnings"
+                value={`$${stats.total_creator_earnings.toFixed(4)}`}
+                icon={DollarSign}
+                tone="green"
+                hint="Net paid to creators"
+                mono
+              />
+              <KpiCard
+                label="Platform Fees"
+                value={`$${stats.total_platform_fees.toFixed(4)}`}
+                icon={Sparkles}
+                tone="blue"
+                hint="Retained by StreamArc"
+                mono
+              />
+            </div>
+
+            {/* PLATFORM WALLET CARD */}
+            <div className="relative overflow-hidden rounded-2xl border border-sa-border bg-gradient-to-br from-[hsl(195_50%_9%/0.85)] to-[hsl(200_50%_6%/0.9)] p-6">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full"
+                style={{
+                  background:
+                    "radial-gradient(circle, hsla(158, 70%, 55%, 0.3) 0%, transparent 65%)",
+                  filter: "blur(36px)",
+                }}
+              />
+              <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-4">
+                  <div
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, hsl(158 70% 55%), hsl(170 60% 45%))",
+                      boxShadow: "0 8px 24px hsla(158, 70%, 55%, 0.35)",
+                    }}
+                  >
+                    <Wallet size={22} className="text-black" strokeWidth={2.5} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-sa-text-3">
+                      Platform Wallet
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-mono text-sm text-foreground/90 break-all">
+                        0xfa53779d7cb905489d84f1ab2da309624427cafa
+                      </p>
+                      <button
+                        type="button"
+                        onClick={copyWallet}
+                        aria-label="Copy wallet address"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-sa-border text-sa-text-3 transition-colors hover:border-sa-blue/40 hover:text-sa-blue"
+                      >
+                        {walletCopied ? <Check size={13} className="text-sa-green" /> : <Copy size={13} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-baseline gap-2 lg:text-right">
+                  <span className="text-xs font-semibold uppercase tracking-widest text-sa-text-3">Balance</span>
+                  <span className="font-mono text-3xl font-bold text-sa-green">
+                    ${stats.platform_wallet_balance.toFixed(4)}
+                  </span>
+                  <span className="text-xs font-semibold text-sa-text-3">USDC</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {activeTab === "videos" && (
+          <motion.div
+            key="videos"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.25 }}
+            className="flex flex-col gap-4"
+          >
+            <SectionToolbar
+              title="All Videos"
+              count={videos.length}
+              query={videoQuery}
+              setQuery={setVideoQuery}
+              placeholder="Search title or creator..."
+            />
+
+            <div className="overflow-hidden rounded-2xl border border-sa-border bg-[hsl(200_45%_6%/0.6)] backdrop-blur-sm">
+              {filteredVideos.length === 0 ? (
+                <EmptyState
+                  icon={Film}
+                  message={videos.length === 0 ? "No videos uploaded yet" : "No videos match your search"}
+                />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-sa-border bg-white/[0.015]">
+                        <Th>Video</Th>
+                        <Th>Creator</Th>
+                        <Th className="text-right">Views</Th>
+                        <Th>Status</Th>
+                        <Th className="text-right">Action</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredVideos.map((v, idx) => {
+                        const hue = hashHue(v.id);
+                        return (
+                          <tr
+                            key={v.id}
+                            className={`group border-b border-sa-border/40 transition-colors last:border-0 hover:bg-sa-blue/[0.04] ${
+                              idx % 2 === 0 ? "bg-transparent" : "bg-white/[0.01]"
+                            }`}
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="relative flex h-10 w-[70px] shrink-0 items-center justify-center overflow-hidden rounded-lg"
+                                  style={{
+                                    background: `linear-gradient(135deg, hsl(${hue} 65% 25%), hsl(${(hue + 40) % 360} 60% 15%))`,
+                                  }}
+                                >
+                                  <PlayCircle size={18} className="text-white/70" />
+                                </div>
+                                <div className="min-w-0 flex-col">
+                                  <p className="line-clamp-1 text-sm font-semibold text-foreground">
+                                    {v.title}
+                                  </p>
+                                  <p className="text-[11px] text-sa-text-3">
+                                    {new Date(v.created_at).toLocaleDateString(undefined, {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="text-sm text-sa-text-2">
+                                {v.users?.channel_name || v.users?.display_name || v.users?.email || "Unknown"}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="font-mono text-sm tabular-nums text-foreground">
+                                {formatNumber(v.views ?? 0)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <StatusPill status={v.status} />
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteVideo(v.id)}
+                                disabled={deletingVideo === v.id}
+                                aria-label="Delete video"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-sa-text-3 opacity-60 transition-all hover:border-sa-red/30 hover:bg-sa-red/10 hover:text-sa-red hover:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+                              >
+                                {deletingVideo === v.id ? (
+                                  <span className="block h-4 w-4 animate-spin rounded-full border-2 border-sa-red border-t-transparent" />
+                                ) : (
+                                  <Trash2 size={15} />
+                                )}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
         {activeTab === "users" && (
-          <div className="overflow-hidden rounded-xl border border-[var(--sa-border-light)] bg-[var(--sa-surface)]">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[var(--sa-border-light)]">
-                  <th className="px-4 py-3 text-left font-medium text-[var(--sa-text-3)]">Email</th>
-                  <th className="px-4 py-3 text-left font-medium text-[var(--sa-text-3)]">Wallet</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Gateway balance</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Joined</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map(u => (
-                  <tr key={u.id} className="border-b border-white/[0.04] last:border-none hover:bg-white/[0.02]">
-                    <td className="px-4 py-3">{u.email}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--sa-text-3)]">
-                      {u.wallet_address ? `${u.wallet_address.slice(0, 8)}...${u.wallet_address.slice(-4)}` : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">${parseFloat(String(u.gateway_balance ?? "0")).toFixed(4)}</td>
-                    <td className="px-4 py-3 text-right text-xs text-[var(--sa-text-3)]">{formatDate(u.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+          <motion.div
+            key="users"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.25 }}
+            className="flex flex-col gap-4"
+          >
+            <SectionToolbar
+              title="All Users"
+              count={users.length}
+              query={userQuery}
+              setQuery={setUserQuery}
+              placeholder="Search email or name..."
+            />
 
-        {/* Earnings tab */}
-        {activeTab === "earnings" && (
-          <div className="overflow-hidden rounded-xl border border-[var(--sa-border-light)] bg-[var(--sa-surface)]">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[var(--sa-border-light)]">
-                  <th className="px-4 py-3 text-left font-medium text-[var(--sa-text-3)]">Creator</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Gross</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Platform fee</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Net</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {earnings.map(e => (
-                  <tr key={e.id} className="border-b border-white/[0.04] last:border-none hover:bg-white/[0.02]">
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--sa-text-3)]">{shortId(e.creator_id)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">${parseFloat(String(e.gross_amount ?? "0")).toFixed(6)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-red-400">${parseFloat(String(e.platform_fee ?? "0")).toFixed(6)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-green-400">${parseFloat(String(e.net_amount ?? "0")).toFixed(6)}</td>
-                    <td className="px-4 py-3 text-right text-xs text-[var(--sa-text-3)]">{formatDate(e.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Sessions tab */}
-        {activeTab === "sessions" && (
-          <div className="overflow-hidden rounded-xl border border-[var(--sa-border-light)] bg-[var(--sa-surface)]">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[var(--sa-border-light)]">
-                  <th className="px-4 py-3 text-left font-medium text-[var(--sa-text-3)]">Viewer</th>
-                  <th className="px-4 py-3 text-left font-medium text-[var(--sa-text-3)]">Creator</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Seconds</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Cost</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Settled</th>
-                  <th className="px-4 py-3 text-right font-medium text-[var(--sa-text-3)]">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map(s => (
-                  <tr key={s.id} className="border-b border-white/[0.04] last:border-none hover:bg-white/[0.02]">
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--sa-text-3)]">{shortId(s.viewer_id)}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--sa-text-3)]">{shortId(s.creator_id)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{s.seconds_watched}s</td>
-                    <td className="px-4 py-3 text-right tabular-nums">${parseFloat(String(s.total_cost ?? "0")).toFixed(6)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className={`text-xs font-medium ${s.settled ? "text-green-400" : "text-yellow-400"}`}>
-                        {s.settled ? "✓" : "pending"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs text-[var(--sa-text-3)]">{formatDate(s.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Overview tab */}
-        {activeTab === "overview" && (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-[var(--sa-border-light)] bg-[var(--sa-surface)] p-6">
-              <h3 className="mb-4 font-bold">Platform wallet</h3>
-              <p className="font-mono text-sm text-[var(--sa-text-3)]">{process.env.NEXT_PUBLIC_PLATFORM_WALLET ?? "0x32b338509bc2c15420d54105304f4aacf4a85392"}</p>
-              <p className="mt-2 text-xs text-[var(--sa-text-3)]">Withdrawal via Circle transfer endpoint — pending Circle team call</p>
+            <div className="overflow-hidden rounded-2xl border border-sa-border bg-[hsl(200_45%_6%/0.6)] backdrop-blur-sm">
+              {filteredUsers.length === 0 ? (
+                <EmptyState
+                  icon={Users}
+                  message={users.length === 0 ? "No users yet" : "No users match your search"}
+                />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-sa-border bg-white/[0.015]">
+                        <Th>User</Th>
+                        <Th>Email</Th>
+                        <Th>Joined</Th>
+                        <Th>Role</Th>
+                        <Th className="text-right">Access</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredUsers.map((u, idx) => {
+                        const hue = hashHue(u.id);
+                        const displayName = u.channel_name || u.display_name || "Unnamed";
+                        return (
+                          <tr
+                            key={u.id}
+                            className={`border-b border-sa-border/40 transition-colors last:border-0 hover:bg-sa-blue/[0.04] ${
+                              idx % 2 === 0 ? "bg-transparent" : "bg-white/[0.01]"
+                            }`}
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                                  style={{
+                                    background: `linear-gradient(135deg, hsl(${hue} 70% 50%), hsl(${(hue + 30) % 360} 65% 35%))`,
+                                  }}
+                                  aria-hidden
+                                >
+                                  {initials(displayName, u.email)}
+                                </div>
+                                <span className="text-sm font-medium text-foreground">{displayName}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-sa-text-2">{u.email}</td>
+                            <td className="px-4 py-3 text-sm text-sa-text-3">
+                              {new Date(u.created_at).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                                  u.is_admin
+                                    ? "border-sa-blue/30 bg-sa-blue/10 text-sa-blue"
+                                    : "border-sa-border bg-white/[0.02] text-sa-text-3"
+                                }`}
+                              >
+                                {u.is_admin && <Shield size={10} />}
+                                {u.is_admin ? "Admin" : "User"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleWhitelist(u.id, u.is_whitelisted ?? false)}
+                                disabled={togglingWhitelist === u.id}
+                                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-50 ${
+                                  u.is_whitelisted
+                                    ? "border-sa-green/30 bg-sa-green/10 text-sa-green hover:border-sa-red/30 hover:bg-sa-red/10 hover:text-sa-red"
+                                    : "border-sa-border bg-white/[0.02] text-sa-text-3 hover:border-sa-green/30 hover:bg-sa-green/10 hover:text-sa-green"
+                                }`}
+                              >
+                                {togglingWhitelist === u.id ? (
+                                  <span className="block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                ) : u.is_whitelisted ? (
+                                  <CheckCircle2 size={12} />
+                                ) : null}
+                                {togglingWhitelist === u.id
+                                  ? "Updating"
+                                  : u.is_whitelisted
+                                    ? "Whitelisted"
+                                    : "Whitelist"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-            <div className="rounded-xl border border-[var(--sa-border-light)] bg-[var(--sa-surface)] p-6">
-              <h3 className="mb-2 font-bold">Recent activity</h3>
-              <p className="text-sm text-[var(--sa-text-3)]">{stats?.total_sessions} sessions · ${(stats?.total_gross_volume ?? 0).toFixed(4)} total volume · ${(stats?.total_platform_fees ?? 0).toFixed(4)} platform fees collected</p>
-            </div>
-          </div>
+          </motion.div>
         )}
+
+        {activeTab === "requests" && (
+          <motion.div
+            key="requests"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.25 }}
+            className="flex flex-col gap-4"
+          >
+            <div className="flex items-end justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <h2 className="font-display text-lg font-bold text-foreground">Creator Requests</h2>
+                <p className="text-xs text-sa-text-3">
+                  {pendingCount} pending · {requests.length} total
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-sa-border bg-[hsl(200_45%_6%/0.6)] backdrop-blur-sm">
+              {requests.length === 0 ? (
+                <EmptyState icon={Inbox} message="No pending requests" />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-sa-border bg-white/[0.015]">
+                        <Th>Applicant</Th>
+                        <Th>Project</Th>
+                        <Th>Description</Th>
+                        <Th>X Handle</Th>
+                        <Th>Status</Th>
+                        <Th className="text-right">Action</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {requests.map((r, idx) => {
+                        const hue = hashHue(r.id || r.user_id || "req");
+                        const displayName = r.users?.channel_name || r.users?.display_name || "Unknown";
+                        return (
+                          <tr
+                            key={r.id}
+                            className={`border-b border-sa-border/40 transition-colors last:border-0 hover:bg-sa-blue/[0.04] ${
+                              idx % 2 === 0 ? "bg-transparent" : "bg-white/[0.01]"
+                            }`}
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                                  style={{
+                                    background: `linear-gradient(135deg, hsl(${hue} 70% 50%), hsl(${(hue + 30) % 360} 65% 35%))`,
+                                  }}
+                                  aria-hidden
+                                >
+                                  {initials(displayName, r.users?.email)}
+                                </div>
+                                <div className="flex flex-col">
+                                  <p className="text-sm font-medium text-foreground">{displayName}</p>
+                                  <p className="text-[11px] text-sa-text-3">{r.users?.email}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-foreground">{r.project_name}</td>
+                            <td className="px-4 py-3">
+                              <p className="line-clamp-2 max-w-xs text-sm text-sa-text-2">{r.description}</p>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-sa-text-3">{r.twitter || "—"}</td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold capitalize ${
+                                  r.status === "approved"
+                                    ? "border-sa-green/30 bg-sa-green/10 text-sa-green"
+                                    : r.status === "rejected"
+                                      ? "border-sa-red/30 bg-sa-red/10 text-sa-red"
+                                      : "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                                }`}
+                              >
+                                {r.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {r.status === "pending" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleApproveRequest(r.user_id, r.id)}
+                                  disabled={approvingRequest === r.id}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-sa-green/30 bg-sa-green/10 px-3 py-1.5 text-xs font-semibold text-sa-green transition-all hover:bg-sa-green/20 disabled:opacity-50"
+                                >
+                                  {approvingRequest === r.id ? (
+                                    <span className="block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                  ) : (
+                                    <CheckCircle2 size={12} />
+                                  )}
+                                  {approvingRequest === r.id ? "Approving" : "Approve"}
+                                </button>
+                              ) : (
+                                <span className="text-xs text-sa-text-3">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ----------------------------- Subcomponents ---------------------------- */
+
+type Tone = "blue" | "cyan" | "teal" | "green";
+
+const TONE_MAP: Record<Tone, { grad: string; glow: string; text: string; iconBg: string }> = {
+  blue: {
+    grad: "linear-gradient(135deg, hsl(188 90% 60%), hsl(195 80% 50%))",
+    glow: "0 10px 24px hsla(188, 90%, 60%, 0.25)",
+    text: "text-sa-blue",
+    iconBg: "linear-gradient(135deg, hsl(188 90% 60%), hsl(195 80% 50%))",
+  },
+  cyan: {
+    grad: "linear-gradient(135deg, hsl(180 80% 70%), hsl(188 80% 55%))",
+    glow: "0 10px 24px hsla(180, 80%, 70%, 0.25)",
+    text: "text-sa-cyan",
+    iconBg: "linear-gradient(135deg, hsl(180 80% 70%), hsl(188 80% 55%))",
+  },
+  teal: {
+    grad: "linear-gradient(135deg, hsl(195 85% 50%), hsl(200 70% 35%))",
+    glow: "0 10px 24px hsla(195, 85%, 45%, 0.25)",
+    text: "text-[hsl(195_85%_65%)]",
+    iconBg: "linear-gradient(135deg, hsl(195 85% 50%), hsl(200 70% 35%))",
+  },
+  green: {
+    grad: "linear-gradient(135deg, hsl(158 70% 55%), hsl(170 60% 40%))",
+    glow: "0 10px 24px hsla(158, 70%, 55%, 0.25)",
+    text: "text-sa-green",
+    iconBg: "linear-gradient(135deg, hsl(158 70% 55%), hsl(170 60% 40%))",
+  },
+};
+
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  tone,
+  hint,
+  mono,
+}: {
+  label: string;
+  value: string;
+  icon: typeof LayoutDashboard;
+  tone: Tone;
+  hint?: string;
+  mono?: boolean;
+}) {
+  const t = TONE_MAP[tone];
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={{ y: -2 }}
+      className="group relative overflow-hidden rounded-2xl border border-sa-border bg-[hsl(200_45%_6%/0.6)] p-5 backdrop-blur-sm transition-colors hover:border-sa-blue/30"
+    >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-0 transition-opacity duration-300 group-hover:opacity-60"
+        style={{
+          background: `radial-gradient(circle, ${t.grad.replace("linear-gradient(135deg, ", "").split(",")[0]} 0%, transparent 70%)`,
+          filter: "blur(20px)",
+        }}
+      />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-sa-text-3">
+            {label}
+          </span>
+          <span
+            className={`text-2xl font-bold tabular-nums text-foreground ${
+              mono ? "font-mono" : "font-display"
+            }`}
+          >
+            {value}
+          </span>
+          {hint && (
+            <span className="text-[11px] text-sa-text-3">{hint}</span>
+          )}
+        </div>
+        <div
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+          style={{ background: t.iconBg, boxShadow: t.glow }}
+        >
+          <Icon size={18} className="text-black" strokeWidth={2.5} />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function SectionToolbar({
+  title,
+  count,
+  query,
+  setQuery,
+  placeholder,
+}: {
+  title: string;
+  count: number;
+  query: string;
+  setQuery: (q: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-baseline gap-2">
+        <h2 className="font-display text-lg font-bold text-foreground">{title}</h2>
+        <span className="rounded-full border border-sa-border bg-white/[0.02] px-2 py-0.5 text-[10px] font-semibold tabular-nums text-sa-text-3">
+          {count}
+        </span>
+      </div>
+      <div className="relative flex w-full max-w-xs items-center">
+        <Search size={14} className="pointer-events-none absolute left-3 text-sa-text-3" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-xl border border-sa-border bg-white/[0.02] py-2 pl-9 pr-3 text-sm text-foreground placeholder:text-sa-text-3 outline-none transition-colors focus:border-sa-blue/40 focus:bg-sa-blue/[0.04]"
+        />
       </div>
     </div>
-  )
+  );
+}
+
+function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <th
+      className={`px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-sa-text-3 ${className}`}
+    >
+      {children}
+    </th>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const live = status === "live";
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold capitalize ${
+        live
+          ? "border-sa-green/30 bg-sa-green/10 text-sa-green"
+          : "border-sa-border bg-white/[0.02] text-sa-text-3"
+      }`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${live ? "bg-sa-green animate-pulse" : "bg-sa-text-3"}`}
+      />
+      {status}
+    </span>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  message,
+}: {
+  icon: typeof LayoutDashboard;
+  message: string;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-sa-border bg-white/[0.02]">
+        <Icon size={22} className="text-sa-text-3" />
+      </div>
+      <p className="text-sm font-medium text-sa-text-2">{message}</p>
+    </div>
+  );
 }

@@ -1,52 +1,57 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseAdmin } from "@/app/lib/supabase-server"
-import { auth } from "@/app/lib/auth"
+import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 
-const ADMIN_USER_ID = "56917d75-3471-4d21-8bca-1010de7dbbc2"
+export async function POST(req: NextRequest) {
+  try {
+    const { admin_id } = await req.json();
+    const supabase = getSupabaseAdmin();
 
-export async function GET(req: NextRequest) {
-  const session = await auth()
-  if (!session?.user?.id || session.user.id !== ADMIN_USER_ID) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
-  const [usersRes, earningsRes, sessionsRes, sessionsCount] = await Promise.all([
-    getSupabaseAdmin()
+    const { data: admin } = await supabase
       .from("users")
-      .select("id, email, wallet_address, circle_wallet_id, gateway_balance, created_at")
-      .order("created_at", { ascending: false }),
-    getSupabaseAdmin()
-      .from("earnings")
-      .select("id, creator_id, gross_amount, platform_fee, net_amount, created_at")
-      .order("created_at", { ascending: false })
-      .limit(50),
-    getSupabaseAdmin()
-      .from("watch_sessions")
-      .select("id, viewer_id, creator_id, video_id, seconds_watched, total_cost, settled, created_at")
-      .eq("settled", true)
-      .order("created_at", { ascending: false })
-      .limit(50),
-    getSupabaseAdmin()
-      .from("watch_sessions")
-      .select("id", { count: "exact" })
-      .eq("settled", true),
-  ])
+      .select("is_admin")
+      .eq("id", admin_id)
+      .single();
 
-  const totalPlatformFees =
-    earningsRes.data?.reduce((sum, e) => sum + parseFloat(String(e.platform_fee ?? 0)), 0) ?? 0
+    if (!admin?.is_admin) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
 
-  const totalGrossVolume =
-    earningsRes.data?.reduce((sum, e) => sum + parseFloat(String(e.gross_amount ?? 0)), 0) ?? 0
+    const [usersCountRes, videosCountRes, earningsRes, sessionsRes, balanceRes] = await Promise.all([
+      supabase.from("users").select("id", { count: "exact", head: true }),
+      supabase.from("videos").select("*", { count: "exact", head: true }),
+      supabase.from("earnings").select("gross_amount, platform_fee, net_amount"),
+      supabase.from("watch_sessions").select("seconds_watched"),
+      fetch("https://gateway-api-testnet.circle.com/v1/balances?address=0xfa53779d7cb905489d84f1ab2da309624427cafa")
+        .then((r) => r.json())
+        .catch(() => null),
+    ]);
 
-  return NextResponse.json({
-    users: usersRes.data ?? [],
-    earnings: earningsRes.data ?? [],
-    sessions: sessionsRes.data ?? [],
-    stats: {
-      total_users: usersRes.data?.length ?? 0,
-      total_platform_fees: totalPlatformFees,
-      total_gross_volume: totalGrossVolume,
-      total_sessions: sessionsCount.count ?? 0,
-    },
-  })
+    const earnings = earningsRes.data;
+    const sessions = sessionsRes.data;
+
+    const total_gross = earnings?.reduce((s, e) => s + parseFloat(String(e.gross_amount ?? 0)), 0) ?? 0;
+    const total_platform_fees = earnings?.reduce((s, e) => s + parseFloat(String(e.platform_fee ?? 0)), 0) ?? 0;
+    const total_creator_earnings = earnings?.reduce((s, e) => s + parseFloat(String(e.net_amount ?? 0)), 0) ?? 0;
+    const total_watch_seconds =
+      sessions?.reduce((s, e) => s + (Number((e as { seconds_watched?: number }).seconds_watched) || 0), 0) ?? 0;
+    const platform_wallet_balance = parseFloat(
+      String(
+        (balanceRes as { balances?: { amount?: string }[] } | null)?.balances?.[0]?.amount ?? "0"
+      )
+    );
+
+    return NextResponse.json({
+      total_users: usersCountRes.count ?? 0,
+      total_videos: videosCountRes.count ?? 0,
+      total_watch_seconds,
+      total_platform_fees,
+      total_gross,
+      total_creator_earnings,
+      platform_wallet_balance,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Admin stats error:", message);
+    return NextResponse.json({ error: "Failed to fetch stats" }, { status: 500 });
+  }
 }

@@ -174,10 +174,10 @@ const SidebarItem = ({ icon: Icon, label, active = false, onClick }: {
   <button
     type="button"
     onClick={onClick}
-    className={`w-full relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group cursor-pointer ${
+    className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-300 group cursor-pointer ${
       active
         ? "text-foreground"
-        : "text-sa-text-3 hover:bg-white/[0.04] hover:text-foreground bg-transparent"
+        : "text-sa-text-3 hover:bg-sa-blue/[0.06] hover:text-foreground bg-transparent"
     }`}
   >
     <AnimatePresence>
@@ -185,12 +185,25 @@ const SidebarItem = ({ icon: Icon, label, active = false, onClick }: {
         <motion.span
           layoutId="sidebar-active-pill"
           className="absolute inset-0 rounded-xl sidebar-active-glow"
-          transition={{ type: "spring", stiffness: 380, damping: 34 }}
+          transition={{ type: "spring", stiffness: 360, damping: 30 }}
         />
       )}
     </AnimatePresence>
-    <Icon size={18} className={`relative z-10 transition-all duration-200 ${active ? "text-sa-blue" : "group-hover:scale-110"}`} />
-    <span className="relative z-10 font-medium text-sm whitespace-nowrap">{label}</span>
+    <Icon
+      size={18}
+      className={`relative z-10 transition-all duration-300 ${
+        active
+          ? "text-sa-cyan drop-shadow-[0_0_8px_rgba(168,240,240,0.55)]"
+          : "group-hover:scale-110 group-hover:text-sa-cyan"
+      }`}
+    />
+    <span className={`relative z-10 text-sm whitespace-nowrap transition-all duration-200 ${active ? "font-semibold" : "font-medium"}`}>{label}</span>
+    {active && (
+      <span
+        aria-hidden
+        className="ml-auto h-1.5 w-1.5 rounded-full bg-sa-cyan shadow-[0_0_10px_2px_rgba(168,240,240,0.7)]"
+      />
+    )}
   </button>
 );
 
@@ -207,7 +220,19 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   const [liveBalanceActive, setLiveBalanceActive] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const { userId } = useCurrentUser();
+
+  useEffect(() => {
+    if (!userId) return;
+    fetch("/api/users/is-admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId }),
+    })
+      .then((r) => r.json())
+      .then((data) => setIsAdmin(data.is_admin ?? false));
+  }, [userId]);
 
   useEffect(() => {
     setBalance(initialBalance);
@@ -290,6 +315,10 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   const navigateTo = (page: string) => {
     if (page === "watch") {
       router.push(`/watch/${DEFAULT_WATCH_VIDEO_ID}`);
+    } else if (page === "admin") {
+      router.push("/admin");
+    } else if (page === "studio") {
+      router.push("/studio");
     } else {
       onPageChange?.(page);
     }
@@ -303,31 +332,84 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   return (
     <>
       <motion.div
-        initial={{ opacity: 0, x: -20 }}
+        initial={{ opacity: 0, x: -16 }}
         animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.5 }}
-        className="fixed left-0 top-0 bottom-0 z-40 hidden lg:block"
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        className="fixed left-0 top-0 bottom-0 z-50 hidden lg:block"
         style={{ width: "var(--sidebar-width)" }}
       >
-        <aside className="flex h-full flex-col border-r px-4 py-6 gap-6 overflow-y-auto no-scrollbar relative" style={{ background: "hsl(220 45% 10% / 0.85)", borderColor: "hsl(220 35% 30% / 0.22)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}>
-          <div className="flex items-center gap-3 px-2 py-1 relative z-10">
-            <GlitchLogo className="h-10 w-10" period={7} circle />
-            <span className="text-sm font-semibold tracking-tight text-foreground">StreamArc</span>
+        <aside
+          className="flex h-full flex-col px-4 py-6 gap-5 overflow-y-auto no-scrollbar relative"
+          style={{
+            background:
+              "linear-gradient(180deg, hsla(213, 50%, 6%, 0.92) 0%, hsla(213, 50%, 5%, 0.86) 100%)",
+            borderRight: "1px solid hsla(188, 50%, 50%, 0.16)",
+            backdropFilter: "blur(22px) saturate(140%)",
+            WebkitBackdropFilter: "blur(22px) saturate(140%)",
+          }}
+        >
+          {/* hairline glow on inner edge */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 w-px"
+            style={{
+              background:
+                "linear-gradient(180deg, transparent, hsla(188, 86%, 60%, 0.4), transparent)",
+            }}
+          />
+
+          {/* Logo lockup */}
+          <div className="flex items-center gap-3 px-1 py-1 relative z-10">
+            <div className="relative">
+              <div
+                aria-hidden
+                className="absolute inset-0 rounded-full blur-md opacity-70"
+                style={{ background: "radial-gradient(circle, hsla(188, 90%, 60%, 0.5), transparent 65%)" }}
+              />
+              <GlitchLogo
+                className="relative h-9 w-9"
+                period={7}
+                circle
+                videoObjectFit="cover"
+              />
+            </div>
+            <div className="flex flex-col leading-tight">
+              <span className="text-lg font-display font-bold tracking-tight text-foreground">StreamArc</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sa-text-3">
+                Per-second streaming
+              </span>
+            </div>
           </div>
 
-          <nav className="flex-1 flex flex-col gap-2 overflow-y-auto no-scrollbar">
-            <div className="panel mx-1 mb-3 p-4 space-y-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sa-text-3 inline-flex items-center gap-2">
+          <nav className="flex flex-col gap-2">
+            {/* Balance widget */}
+            <div className="panel shrink-0 mx-1 mb-3 p-4 space-y-3 relative overflow-hidden">
+              <div
+                aria-hidden
+                className="absolute -top-12 -right-10 h-32 w-32 rounded-full opacity-40"
+                style={{
+                  background:
+                    "radial-gradient(circle, hsla(188, 90%, 60%, 0.5), transparent 65%)",
+                  filter: "blur(20px)",
+                }}
+              />
+              <div className="relative">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sa-text-3 inline-flex items-center gap-2">
                   USDC Balance
-                  {liveBalanceActive && <span className="record-dot h-1.5 w-1.5 rounded-full bg-sa-green" />}
+                  {liveBalanceActive && (
+                    <span className="record-dot h-1.5 w-1.5 rounded-full bg-sa-green" />
+                  )}
                 </p>
                 <motion.p
                   key={`${liveBalanceActive}-${displayedBalance}`}
                   initial={{ opacity: 0.5, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.22 }}
-                  className={`mt-1 text-2xl font-semibold tabular-nums ${liveBalanceActive ? "text-sa-green" : "text-foreground"}`}
+                  className={`mt-1 font-mono text-2xl font-bold tabular-nums ${
+                    liveBalanceActive
+                      ? "text-grad-brand-strong"
+                      : "text-foreground"
+                  }`}
                 >
                   ${displayedBalance}
                 </motion.p>
@@ -335,7 +417,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               <button
                 type="button"
                 onClick={() => setShowTopUp(true)}
-                className="btn btn-primary btn-sm w-full"
+                className="btn btn-primary btn-sm btn-shine w-full relative"
               >
                 Top up
               </button>
@@ -347,10 +429,19 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               <SidebarItem icon={PlayCircle} label="Watch" active={currentPage === "watch"} onClick={() => navigateTo("watch")} />
             </div>
 
-            <div className="h-px bg-sa-border my-2 mx-3" />
+            <div
+              aria-hidden
+              className="my-3 mx-3 h-px"
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent, hsla(188, 50%, 50%, 0.25), transparent)",
+              }}
+            />
 
             <div className="flex flex-col gap-1">
-              <span className="px-4 text-[10px] font-bold text-sa-text-3 uppercase tracking-widest mb-2">Your Activity</span>
+              <span className="px-4 text-[10px] font-semibold text-sa-text-3 uppercase tracking-[0.22em] mb-2">
+                Your activity
+              </span>
               <SidebarItem
                 icon={History}
                 label="History"
@@ -371,16 +462,32 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               />
             </div>
 
-            <div className="h-px bg-sa-border my-2 mx-3" />
+            <div
+              aria-hidden
+              className="my-3 mx-3 h-px"
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent, hsla(188, 50%, 50%, 0.25), transparent)",
+              }}
+            />
 
             <div className="flex flex-col gap-1">
-              <span className="px-4 text-[10px] font-bold text-sa-text-3 uppercase tracking-widest mb-2">Creator</span>
-              <SidebarItem icon={LayoutDashboard} label="Studio" active={currentPage === "studio"} onClick={() => navigateTo("studio")} />
-              <SidebarItem icon={Shield} label="Admin" active={currentPage === "admin"} onClick={() => navigateTo("admin")} />
+              <span className="px-4 text-[10px] font-semibold text-sa-text-3 uppercase tracking-[0.22em] mb-2">
+                Creator
+              </span>
+              <SidebarItem
+                icon={LayoutDashboard}
+                label="Studio"
+                active={currentPage === "studio" || pathname === "/studio"}
+                onClick={() => navigateTo("studio")}
+              />
+              {isAdmin && (
+                <SidebarItem icon={Shield} label="Admin" active={currentPage === "admin"} onClick={() => navigateTo("admin")} />
+              )}
             </div>
           </nav>
 
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 relative z-10">
             <SidebarItem icon={Settings} label="Settings" onClick={() => router.push("/settings")} />
             <SidebarItem icon={LogOut} label="Sign Out" onClick={() => signOut()} />
           </div>

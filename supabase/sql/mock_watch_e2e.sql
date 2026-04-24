@@ -33,7 +33,7 @@ insert into public.videos (id, creator_id, title, duration_secs, status, rate_pe
 values (
   '00000000-0000-0000-0000-000000000003',
   '00000000-0000-0000-0000-000000000002',
-  'DeFi lending protocol — complete product walkthrough',
+  'DeFi lending protocol: complete product walkthrough',
   272,
   'live',
   0.00003

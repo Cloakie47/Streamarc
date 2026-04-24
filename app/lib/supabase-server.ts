@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-// Server-side only — never expose service role key to client.
+// Server-side only. Never expose service role key to client.
 // Client is created lazily so that missing env vars are caught at runtime
 // (when the server actually handles a request) rather than at build time
 // during static page generation.

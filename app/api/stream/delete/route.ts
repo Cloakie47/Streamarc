@@ -3,10 +3,11 @@ import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { video_id, user_id } = await req.json();
+    const { video_id, user_id, admin_id } = await req.json();
+    const actorId = user_id ?? admin_id;
 
-    if (!video_id || !user_id) {
-      return NextResponse.json({ error: "video_id and user_id required" }, { status: 400 });
+    if (!video_id || !actorId) {
+      return NextResponse.json({ error: "video_id and user_id (or admin_id) required" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
@@ -22,7 +23,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Video not found" }, { status: 404 });
     }
 
-    if (video.creator_id !== user_id) {
+    const { data: adminCheck } = await supabase
+      .from("users")
+      .select("is_admin")
+      .eq("id", actorId)
+      .single();
+
+    if (video.creator_id !== actorId && !adminCheck?.is_admin) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 

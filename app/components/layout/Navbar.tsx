@@ -101,36 +101,47 @@ export default function Navbar({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -20 }}
+      initial={{ opacity: 0, y: -16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
+      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
     >
       <header
-        className="sticky top-0 z-40 mb-5 border-b transition-all duration-300"
+        className="sticky top-0 z-40 mb-6 transition-all duration-500"
         style={{
           background: scrolled
-            ? "hsl(220 45% 10% / 0.90)"
-            : "hsl(220 45% 10% / 0.65)",
-          borderColor: scrolled
-            ? "hsl(220 35% 30% / 0.28)"
-            : "transparent",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
+            ? "linear-gradient(180deg, hsla(213, 50%, 6%, 0.88), hsla(213, 50%, 6%, 0.72))"
+            : "linear-gradient(180deg, hsla(213, 50%, 6%, 0.55), hsla(213, 50%, 6%, 0.30))",
+          borderBottom: scrolled
+            ? "1px solid hsla(188, 50%, 50%, 0.18)"
+            : "1px solid transparent",
+          backdropFilter: "blur(22px) saturate(140%)",
+          WebkitBackdropFilter: "blur(22px) saturate(140%)",
+          boxShadow: scrolled
+            ? "0 10px 30px rgba(2, 8, 20, 0.35)"
+            : "none",
         }}
       >
-        <div className="flex items-center gap-4 px-6 py-3 lg:px-8">
+        <div className="flex items-center gap-4 px-6 py-3.5 lg:px-8">
           <div ref={searchRef} className="relative flex-1 max-w-xl group">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-sa-text-3 group-focus-within:text-white transition-colors z-10" size={18} />
+            <Search
+              className="absolute left-4 top-1/2 -translate-y-1/2 z-10 text-sa-text-3 group-focus-within:text-sa-cyan transition-colors duration-200"
+              size={18}
+            />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => results.length > 0 && setShowDropdown(true)}
-              placeholder="Search demos, projects..."
-              className="w-full bg-sa-surface-2 border-none rounded-2xl pl-12 pr-4 py-2.5 text-sm text-foreground placeholder:text-sa-text-3 focus:outline-none focus:ring-2 focus:ring-sa-accent/50 transition-all"
+              placeholder="Search demos, creators, topics..."
+              className="input-surface w-full pl-12 pr-4 py-2.5 text-sm font-medium"
             />
             {showDropdown && results.length > 0 && (
-              <div className="absolute top-full mt-2 w-full glass rounded-2xl border border-sa-border shadow-2xl overflow-hidden z-50">
+              <motion.div
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                className="panel absolute top-full mt-3 w-full overflow-hidden z-50"
+              >
                 {results.map((video) => (
                   <button
                     key={video.id}
@@ -140,13 +151,14 @@ export default function Navbar({
                       setQuery("");
                       setShowDropdown(false);
                     }}
-                    className="w-full text-left px-4 py-3 text-sm hover:bg-white/5 transition-colors flex items-center justify-between gap-4 border-none bg-transparent cursor-pointer"
+                    className="w-full text-left px-4 py-3 text-sm transition-colors flex items-center justify-between gap-4 border-none bg-transparent cursor-pointer hover:bg-sa-blue/8 group/item"
+                    style={{ background: "transparent" }}
                   >
-                    <span className="line-clamp-1 font-medium">{video.title}</span>
-                    <span className="text-xs text-sa-text-3 flex-shrink-0">${video.rate_per_sec}/s</span>
+                    <span className="line-clamp-1 font-medium group-hover/item:text-sa-cyan transition-colors">{video.title}</span>
+                    <span className="font-mono text-xs text-sa-text-3 flex-shrink-0">${video.rate_per_sec}/s</span>
                   </button>
                 ))}
-              </div>
+              </motion.div>
             )}
           </div>
 
@@ -154,18 +166,18 @@ export default function Navbar({
             <button
               type="button"
               onClick={openTopUp}
-              className="btn btn-primary btn-sm"
+              className="btn btn-primary btn-sm btn-shine"
             >
-              <Plus size={16} />
+              <Plus size={14} />
               Top up
             </button>
             <button
               type="button"
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-sa-border bg-sa-surface-2 transition-colors hover:bg-sa-surface"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-sa-border bg-sa-surface/60 backdrop-blur-md transition-all duration-200 hover:border-sa-blue/45 hover:bg-sa-surface hover:scale-105 active:scale-95"
               aria-label="Notifications"
             >
-              <Bell size={20} className="text-foreground" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-sa-red" />
+              <Bell size={18} className="text-foreground" />
+              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-sa-red shadow-[0_0_8px_2px_rgba(244,93,93,0.6)] pulse-live" />
             </button>
             {isSignedIn ? (
               <div ref={userMenuRef} className="relative">
@@ -174,7 +186,11 @@ export default function Navbar({
                   aria-expanded={userMenuOpen}
                   aria-haspopup="menu"
                   onClick={() => setUserMenuOpen((open) => !open)}
-                  className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-sa-border bg-sa-surface-2 text-sm font-bold text-foreground transition-colors hover:border-sa-border-hover"
+                  className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-black transition-all duration-200 hover:scale-105 active:scale-95"
+                  style={{
+                    background: "var(--sa-grad)",
+                    boxShadow: "0 4px 16px hsla(188, 86%, 50%, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
+                  }}
                 >
                   {user?.avatar_url ? (
                     <img src={user.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
@@ -183,8 +199,11 @@ export default function Navbar({
                   )}
                 </button>
                 {userMenuOpen && (
-                  <div
-                    className="absolute right-0 top-12 z-50 w-52 rounded-2xl border border-sa-border bg-[hsl(216_28%_16%/0.98)] py-2 shadow-[0_18px_40px_rgba(9,18,32,0.28)]"
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                    className="panel absolute right-0 top-12 z-50 w-56 py-2"
                     role="menu"
                   >
                     <button
@@ -194,11 +213,11 @@ export default function Navbar({
                         setUserMenuOpen(false);
                         router.push("/settings");
                       }}
-                      className="w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-white/5"
+                      className="w-full px-4 py-2.5 text-left text-sm font-medium transition-colors hover:bg-sa-blue/10 hover:text-sa-cyan"
                     >
                       Settings
                     </button>
-                    <div className="h-px bg-sa-border mx-3 my-1" />
+                    <div className="h-px bg-sa-border/60 mx-3 my-1" />
                     <button
                       type="button"
                       role="menuitem"
@@ -206,24 +225,33 @@ export default function Navbar({
                         setUserMenuOpen(false);
                         signOut();
                       }}
-                      className="w-full px-4 py-2.5 text-left text-sm text-sa-accent transition-colors hover:bg-white/5"
+                      className="w-full px-4 py-2.5 text-left text-sm font-medium text-sa-red transition-colors hover:bg-sa-red/10"
                     >
                       Sign out
                     </button>
-                  </div>
+                  </motion.div>
                 )}
               </div>
             ) : (
               <button
                 type="button"
                 onClick={() => onPageChange("signin")}
-                className="btn btn-primary btn-sm"
+                className="btn btn-primary btn-sm btn-shine"
               >
                 Sign In
               </button>
             )}
           </div>
         </div>
+        {/* hairline scan line */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 -bottom-px h-px opacity-50"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, hsla(188, 86%, 60%, 0.6), transparent)",
+          }}
+        />
       </header>
     </motion.div>
   );

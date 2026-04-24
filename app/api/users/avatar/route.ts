@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (file.size > 4 * 1024 * 1024) {
-      return NextResponse.json({ error: "File too large — max 4MB" }, { status: 400 });
+      return NextResponse.json({ error: "File too large (max 4MB)" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();

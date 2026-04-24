@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, Fragment } from "react"
 import { motion } from "motion/react"
-import { Plus, TrendingUp, Users, Camera, Twitter, MessageCircle, Save, Trash2, Sparkles } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { Plus, TrendingUp, Users, Camera, Twitter, MessageCircle, Save, Trash2, Sparkles, Tag, Check, X, Clock } from "lucide-react"
 import { useCurrentUser } from "@/app/lib/auth-client"
 import UploadModal from "@/app/components/studio/UploadModal"
 import ChapterEditor from "@/app/components/studio/ChapterEditor"
@@ -27,12 +26,17 @@ interface VideoRow {
   cloudflare_uid?: string | null
   chapters?: unknown
   duration_secs?: number | null
+  accepts_offers?: boolean
+  is_sold?: boolean
+  is_owned?: boolean
+  owner_id?: string | null
 }
 
 export default function StudioPage() {
   const [activeNav, setActiveNav] = useState("Dashboard")
   const [stats, setStats] = useState<EarningsStats | null>(null)
   const [videos, setVideos] = useState<VideoRow[]>([])
+  const [ownedVideos, setOwnedVideos] = useState<VideoRow[]>([])
   const [withdrawing, setWithdrawing] = useState(false)
   const [withdrawError, setWithdrawError] = useState<string | null>(null)
   const [withdrawSuccess, setWithdrawSuccess] = useState(false)
@@ -47,6 +51,7 @@ export default function StudioPage() {
   const [externalTxHash, setExternalTxHash] = useState<string | null>(null)
   const [circleWalletBalance, setCircleWalletBalance] = useState<number | null>(null)
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const [showWLModal, setShowWLModal] = useState(false)
   const [activeTab, setActiveTab] = useState<"dashboard" | "profile">("dashboard")
   const [displayName, setDisplayName] = useState("")
   const [channelName, setChannelName] = useState("")
@@ -61,16 +66,49 @@ export default function StudioPage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null)
   const [chapterEditorVideo, setChapterEditorVideo] = useState<VideoRow | null>(null)
+  const [offers, setOffers] = useState<Record<string, any[]>>({})
+  const [loadingOffers, setLoadingOffers] = useState<string | null>(null)
+  const [acceptingOffer, setAcceptingOffer] = useState<string | null>(null)
+  const [togglingOffers, setTogglingOffers] = useState<string | null>(null)
+  const [isWhitelisted, setIsWhitelisted] = useState<boolean | null>(null)
+  const [requestForm, setRequestForm] = useState({ project_name: "", description: "", twitter: "" })
+  const [submittingRequest, setSubmittingRequest] = useState(false)
+  const [requestSent, setRequestSent] = useState(false)
+  const [requestError, setRequestError] = useState<string | null>(null)
+  const [existingRequest, setExistingRequest] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
 
-  const router = useRouter()
-  const { userId, walletAddress } = useCurrentUser()
+  const { userId, walletAddress, isLoading } = useCurrentUser()
 
   useEffect(() => {
     if (!userId) return
     fetchStats()
     fetchVideos()
     fetchProfile()
+  }, [userId])
+
+  useEffect(() => {
+    if (!userId) return
+    fetch(`/api/users/profile?user_id=${encodeURIComponent(userId)}`)
+      .then((r) => r.json())
+      .then((data) => setIsWhitelisted(data.is_whitelisted ?? false))
+      .catch(() => setIsWhitelisted(false))
+  }, [userId])
+
+  useEffect(() => {
+    if (!userId) return
+    fetch("/api/whitelist-request/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId }),
+    })
+      .then((r) => r.json())
+      .then((data: { status?: string | null }) => {
+        if (data.status === "pending" || data.status === "approved") {
+          setExistingRequest(true)
+        }
+      })
+      .catch(() => {})
   }, [userId])
 
   const fetchStats = async () => {
@@ -116,10 +154,84 @@ export default function StudioPage() {
       })
       const data = await res.json()
       setVideos(data.videos ?? [])
+      setOwnedVideos(data.owned_videos ?? [])
     } catch {
       console.error("Failed to fetch videos")
     }
   }
+
+  const fetchOffersForVideo = async (videoId: string) => {
+    if (!userId) return
+    setLoadingOffers(videoId)
+    try {
+      const res = await fetch("/api/offers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "list", video_id: videoId, owner_id: userId }),
+      })
+      const data = await res.json()
+      setOffers((prev) => ({ ...prev, [videoId]: data.offers ?? [] }))
+    } finally {
+      setLoadingOffers(null)
+    }
+  }
+
+  const handleToggleOffers = async (videoId: string) => {
+    if (!userId) return
+    setTogglingOffers(videoId)
+    try {
+      await fetch("/api/offers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle", video_id: videoId, owner_id: userId }),
+      })
+      fetchVideos()
+    } finally {
+      setTogglingOffers(null)
+    }
+  }
+
+  const handleAcceptOffer = async (offerId: string, videoId: string) => {
+    if (!userId) return
+    if (!confirm("Accept this offer? This will transfer ownership immediately and cannot be undone.")) return
+    setAcceptingOffer(offerId)
+    try {
+      const res = await fetch("/api/offers/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offer_id: offerId, owner_id: userId }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        fetchVideos()
+        setOffers((prev) => ({ ...prev, [videoId]: [] }))
+      } else {
+        alert(data.error ?? "Failed to accept offer")
+      }
+    } finally {
+      setAcceptingOffer(null)
+    }
+  }
+
+  const handleDeclineOffer = async (offerId: string, videoId: string) => {
+    if (!userId) return
+    await fetch("/api/offers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "decline", offer_id: offerId, owner_id: userId }),
+    })
+    setOffers((prev) => ({
+      ...prev,
+      [videoId]: prev[videoId]?.filter((o) => o.id !== offerId) ?? [],
+    }))
+  }
+
+  useEffect(() => {
+    if (!videos.length || !userId) return
+    videos.forEach((v) => {
+      if (v.accepts_offers) fetchOffersForVideo(v.id)
+    })
+  }, [videos, userId])
 
   const handleDeleteVideo = async (videoId: string) => {
     if (!userId) return
@@ -294,6 +406,41 @@ export default function StudioPage() {
     ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
     : "No wallet"
 
+  const handleWhitelistRequest = async () => {
+    if (!userId || !requestForm.project_name.trim()) return
+    setSubmittingRequest(true)
+    setRequestError(null)
+    try {
+      const res = await fetch("/api/whitelist-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, ...requestForm }),
+      })
+      const data = await res.json() as { error?: string }
+      if (!res.ok) {
+        const err = data.error ?? ""
+        const e = err.toLowerCase()
+        if (e.includes("pending") || e.includes("already have")) {
+          setExistingRequest(true)
+        } else {
+          setRequestError(err || "Request failed")
+        }
+      } else {
+        setRequestSent(true)
+      }
+    } finally {
+      setSubmittingRequest(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <span className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-8 pb-20">
       <div className="flex items-center justify-between">
@@ -321,7 +468,13 @@ export default function StudioPage() {
           {activeTab === "dashboard" && (
             <button
               type="button"
-              onClick={() => setShowUploadModal(true)}
+              onClick={() => {
+                if (!isWhitelisted) {
+                  setShowWLModal(true)
+                } else {
+                  setShowUploadModal(true)
+                }
+              }}
               className="btn btn-primary flex gap-2"
             >
               <Plus size={20} />
@@ -394,7 +547,7 @@ export default function StudioPage() {
             </div>
           )}
 
-          {/* Recent Videos — full width */}
+          {/* Recent Videos: full width */}
           <div className="glass rounded-sa-card overflow-hidden">
             <div className="p-6 border-b border-sa-border flex items-center justify-between">
               <h3 className="font-bold">Recent Videos</h3>
@@ -425,55 +578,211 @@ export default function StudioPage() {
                       </td>
                     </tr>
                   ) : videos.map((v) => (
-                    <tr key={v.id} className="hover:bg-sa-surface transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-16 aspect-video rounded-lg overflow-hidden glass bg-sa-surface-2" />
-                          <div>
-                            <span className="text-sm font-medium line-clamp-1">{v.title}</span>
-                            <span className="block mt-0.5 text-xs text-sa-text-3">{formatAge(v.created_at)}</span>
+                    <Fragment key={v.id}>
+                      <tr className="hover:bg-sa-surface transition-colors group">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-16 aspect-video rounded-lg overflow-hidden glass bg-sa-surface-2" />
+                            <div>
+                              <span className="text-sm font-medium line-clamp-1">{v.title}</span>
+                              <span className="block mt-0.5 text-xs text-sa-text-3">{formatAge(v.created_at)}</span>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-xs font-bold text-sa-green bg-sa-green/10 px-2 py-1 rounded-md">
-                          {v.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm tabular-nums">{v.views.toLocaleString()}</td>
-                      <td className="px-6 py-4 text-sm font-bold tabular-nums text-emerald-400">${v.earned.toFixed(4)}</td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setChapterEditorVideo(v)}
-                            title="Edit chapters"
-                            className="p-2 rounded-lg hover:bg-primary/10 text-sa-text-3 hover:text-primary opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none"
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`rounded-full border px-2 py-1 text-xs ${
+                              v.is_sold
+                                ? "border-muted/20 bg-muted/10 text-muted-foreground"
+                                : "border-green-500/20 bg-green-500/10 text-green-400"
+                            }`}
                           >
-                            <Sparkles size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteVideo(v.id)}
-                            disabled={deletingVideoId === v.id}
-                            className="p-2 rounded-lg hover:bg-red-500/10 text-sa-text-3 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none disabled:opacity-50"
-                          >
-                            {deletingVideoId === v.id ? (
-                              <span className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin block" />
-                            ) : (
-                              <Trash2 size={16} />
-                            )}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                            {v.is_sold ? "Sold" : v.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm tabular-nums">{v.views.toLocaleString()}</td>
+                        <td className="px-6 py-4 text-sm font-bold tabular-nums text-emerald-400">${v.earned.toFixed(4)}</td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setChapterEditorVideo(v)}
+                              title="Edit chapters"
+                              className="p-2 rounded-lg hover:bg-primary/10 text-sa-text-3 hover:text-primary opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none"
+                            >
+                              <Sparkles size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void handleToggleOffers(v.id)
+                              }}
+                              disabled={togglingOffers === v.id}
+                              title={v.accepts_offers ? "Stop accepting offers" : "Accept offers"}
+                              className={`p-2 rounded-lg transition-all cursor-pointer bg-transparent border-none opacity-0 group-hover:opacity-100 ${
+                                v.accepts_offers
+                                  ? "text-sa-accent hover:bg-sa-accent/10"
+                                  : "text-sa-text-3 hover:bg-white/5"
+                              }`}
+                            >
+                              <Tag size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteVideo(v.id)}
+                              disabled={deletingVideoId === v.id}
+                              className="p-2 rounded-lg hover:bg-red-500/10 text-sa-text-3 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none disabled:opacity-50"
+                            >
+                              {deletingVideoId === v.id ? (
+                                <span className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin block" />
+                              ) : (
+                                <Trash2 size={16} />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {offers[v.id] && offers[v.id].length > 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-6 pb-4">
+                            <div className="flex flex-col gap-2 rounded-xl border border-sa-border bg-sa-surface/50 p-3">
+                              <p className="text-xs font-bold uppercase tracking-wider text-sa-text-3">
+                                Pending offers ({offers[v.id].length})
+                              </p>
+                              {offers[v.id].map((offer: any) => {
+                                const name = offer.users?.channel_name || offer.users?.display_name || "Anonymous"
+                                const date = new Date(offer.created_at)
+                                const ago = Math.floor((Date.now() - date.getTime()) / 60000)
+                                const timeAgo =
+                                  ago < 60 ? `${ago}m ago` : ago < 1440 ? `${Math.floor(ago / 60)}h ago` : `${Math.floor(ago / 1440)}d ago`
+                                return (
+                                  <div
+                                    key={offer.id}
+                                    className="flex items-center justify-between gap-4 border-t border-sa-border py-2 first:border-t-0"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                                        {name.slice(0, 1).toUpperCase()}
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-medium">{name}</p>
+                                        <p className="text-xs text-muted-foreground">{timeAgo}</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-sm font-bold text-sa-accent">${parseFloat(offer.amount).toFixed(2)}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleAcceptOffer(offer.id, v.id)}
+                                        disabled={acceptingOffer === offer.id}
+                                        className="flex cursor-pointer items-center gap-1 rounded-lg border-none bg-green-500/10 px-3 py-1.5 text-xs font-medium text-green-400 transition-colors hover:bg-green-500/20 disabled:opacity-50"
+                                      >
+                                        <Check size={12} />
+                                        {acceptingOffer === offer.id ? "Accepting..." : "Accept"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDeclineOffer(offer.id, v.id)}
+                                        className="flex cursor-pointer items-center gap-1 rounded-lg border-none bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"
+                                      >
+                                        <X size={12} />
+                                        Decline
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Withdraw + Send External — side by side */}
+          {ownedVideos.length > 0 && (
+            <div className="mt-8 flex flex-col gap-4">
+              <h2 className="flex items-center gap-2 text-lg font-bold">
+                <Tag size={18} className="text-sa-accent" />
+                My Portfolio
+                <span className="text-sm font-normal text-muted-foreground">({ownedVideos.length} owned)</span>
+              </h2>
+              <div className="panel overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-sa-border">
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-sa-text-3">Video</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-sa-text-3">Views</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-sa-text-3">Earnings</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-sa-text-3">Status</th>
+                      <th className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ownedVideos.map((v) => (
+                      <tr key={v.id} className="group border-b border-sa-border/50 transition-colors last:border-0 hover:bg-white/[0.02]">
+                        <td className="px-4 py-3">
+                          <p className="line-clamp-1 text-sm font-medium">{v.title}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Owned · {new Date(v.created_at).toLocaleDateString()}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 text-sm">{v.views ?? 0}</td>
+                        <td className="px-4 py-3 font-mono text-sm text-sa-accent">${(v.earned ?? 0).toFixed(4)}</td>
+                        <td className="px-4 py-3">
+                          <span className="rounded-full border border-sa-accent/20 bg-sa-accent/10 px-2 py-1 text-xs text-sa-accent">
+                            Owned
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleOffers(v.id)}
+                              disabled={togglingOffers === v.id}
+                              title={v.accepts_offers ? "Stop accepting offers" : "Accept offers"}
+                              className={`cursor-pointer rounded-lg border-none bg-transparent p-2 transition-all opacity-0 group-hover:opacity-100 ${
+                                v.accepts_offers
+                                  ? "text-sa-accent hover:bg-sa-accent/10"
+                                  : "text-sa-text-3 hover:bg-white/5"
+                              }`}
+                            >
+                              <Tag size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setChapterEditorVideo(v)}
+                              title="Edit chapters"
+                              className="cursor-pointer rounded-lg border-none bg-transparent p-2 text-sa-text-3 opacity-0 transition-all hover:bg-primary/10 hover:text-primary group-hover:opacity-100"
+                            >
+                              <Sparkles size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteVideo(v.id)}
+                              disabled={deletingVideoId === v.id}
+                              className="cursor-pointer rounded-lg border-none bg-transparent p-2 text-sa-text-3 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 disabled:opacity-50"
+                            >
+                              {deletingVideoId === v.id ? (
+                                <span className="block h-4 w-4 animate-spin rounded-full border-2 border-red-400 border-t-transparent" />
+                              ) : (
+                                <Trash2 size={16} />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Withdraw + Send External: side by side */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="glass p-8 rounded-sa-card bg-gradient-to-br from-sa-accent/20 to-transparent border-sa-accent/30 flex flex-col gap-6 hover-lift">
               <div className="flex flex-col gap-2">
@@ -587,7 +896,7 @@ export default function StudioPage() {
             </div>
           </div>
 
-          {/* Recent Activity — full width */}
+          {/* Recent Activity: full width */}
           <div className="glass p-6 rounded-sa-card flex flex-col gap-4 hover-lift">
             <h3 className="font-bold">Recent Activity</h3>
             <div className="flex flex-col gap-4">
@@ -715,6 +1024,82 @@ export default function StudioPage() {
           onClose={() => setChapterEditorVideo(null)}
           onSave={() => void fetchVideos()}
         />
+      )}
+
+      {showWLModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowWLModal(false)}
+        >
+          <div
+            className="relative mx-4 flex w-full max-w-md flex-col gap-4 rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setShowWLModal(false)}
+              className="absolute right-4 top-4 cursor-pointer rounded-lg border-none bg-transparent p-1.5 transition-colors hover:bg-white/10"
+            >
+              <X size={18} />
+            </button>
+
+            {!requestSent && !existingRequest ? (
+              <>
+                <div className="flex flex-col gap-1">
+                  <h2 className="text-lg font-bold">Apply for creator access</h2>
+                  <p className="text-sm text-muted-foreground">
+                    StreamArc is in private beta. Tell us about your project to get early creator access.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Project or channel name"
+                  value={requestForm.project_name}
+                  onChange={(e) => setRequestForm((p) => ({ ...p, project_name: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <textarea
+                  placeholder="What will you post on StreamArc? (demos, tutorials, updates...)"
+                  value={requestForm.description}
+                  onChange={(e) => setRequestForm((p) => ({ ...p, description: e.target.value }))}
+                  rows={3}
+                  className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <input
+                  type="text"
+                  placeholder="X (Twitter) handle — optional"
+                  value={requestForm.twitter}
+                  onChange={(e) => setRequestForm((p) => ({ ...p, twitter: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                {requestError && <p className="text-xs text-destructive">{requestError}</p>}
+                <button
+                  type="button"
+                  onClick={handleWhitelistRequest}
+                  disabled={submittingRequest || !requestForm.project_name.trim()}
+                  className="btn btn-primary w-full disabled:opacity-50"
+                >
+                  {submittingRequest ? "Submitting..." : "Request creator access"}
+                </button>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-4 py-4 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10">
+                  <Clock size={24} className="text-amber-400" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <p className="font-medium">Creator application pending</p>
+                  <p className="text-sm text-muted-foreground">
+                    We review applications personally and will notify you when approved. Thank you for your patience.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setShowWLModal(false)} className="btn btn-glass w-full">
+                  Got it
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

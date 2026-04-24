@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 
 /**
- * Full AI + transcription flow — kept for when AI chapter generation is re-enabled from POST or webhooks.
+ * Full AI + transcription flow, kept for when AI chapter generation is re-enabled from POST or webhooks.
  */
 export async function generateChaptersWithTranscriptionLegacy(body: {
   video_id: string;

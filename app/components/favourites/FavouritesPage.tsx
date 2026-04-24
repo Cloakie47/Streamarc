@@ -194,9 +194,9 @@ export default function FavouritesPage({ userId }: { userId: string }) {
               className="panel relative overflow-hidden rounded-2xl border border-sa-border p-0"
               style={{
                 background:
-                  "linear-gradient(145deg, hsl(350 40% 14% / 0.92) 0%, hsl(220 45% 12% / 0.95) 50%, hsl(210 50% 11% / 0.94) 100%)",
+                  "linear-gradient(145deg, hsl(188 60% 10% / 0.92) 0%, hsl(200 55% 8% / 0.95) 50%, hsl(210 60% 6% / 0.94) 100%)",
                 boxShadow:
-                  "0 24px 48px rgba(4, 10, 24, 0.45), inset 0 1px 0 hsl(0 50% 55% / 0.08)",
+                  "0 24px 48px rgba(4, 10, 24, 0.45), inset 0 1px 0 hsl(188 90% 60% / 0.12)",
               }}
             >
               <div className="relative aspect-video w-full overflow-hidden rounded-t-2xl bg-black/40">

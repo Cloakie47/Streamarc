@@ -15,13 +15,22 @@ function randomNonce(): string {
   return "0x" + Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("")
 }
 
-async function getCreatorWallet(creatorId: string): Promise<string | null> {
+async function getEarningsRecipientWallet(videoId: string, creatorId: string): Promise<{ wallet: string | null, recipientId: string }> {
+  const { data: video } = await getSupabaseAdmin()
+    .from("videos")
+    .select("owner_id")
+    .eq("id", videoId)
+    .single()
+
+  const recipientId = video?.owner_id ?? creatorId
+
   const { data } = await getSupabaseAdmin()
     .from("users")
     .select("wallet_address")
-    .eq("id", creatorId)
+    .eq("id", recipientId)
     .single()
-  return data?.wallet_address ?? null
+
+  return { wallet: data?.wallet_address ?? null, recipientId }
 }
 
 export async function POST(req: NextRequest) {
@@ -70,12 +79,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Viewer Circle wallet not found" }, { status: 400 })
     }
 
-    const creatorWallet = await getCreatorWallet(creator_id)
+    const { wallet: creatorWallet, recipientId: earningsRecipientId } = await getEarningsRecipientWallet(video_id, creator_id)
     if (!creatorWallet) {
-      return NextResponse.json({ error: "Creator wallet not found" }, { status: 400 })
+      return NextResponse.json({ error: "Earnings recipient wallet not found" }, { status: 400 })
     }
 
-    const platformWallet = process.env.PLATFORM_WALLET_ADDRESS!
+    const platformWallet = "0xfa53779d7cb905489d84f1ab2da309624427cafa"
 
     const creatorAmountIn6Dec = Math.round(actualAmount * 0.80 * 1e6).toString()
     const platformAmountIn6Dec = Math.round(actualAmount * 0.20 * 1e6).toString()
@@ -255,7 +264,7 @@ export async function POST(req: NextRequest) {
       .insert({
         session_id,
         viewer_id,
-        creator_id,
+        creator_id: earningsRecipientId,
         video_id,
         amount: actualAmount,
         seconds_covered: seconds_watched,
@@ -269,7 +278,7 @@ export async function POST(req: NextRequest) {
 
     if (batch) {
       await getSupabaseAdmin().from("earnings").insert({
-        creator_id,
+        creator_id: earningsRecipientId,
         video_id,
         batch_id: batch.id,
         gross_amount: actualAmount,

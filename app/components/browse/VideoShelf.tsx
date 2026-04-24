@@ -234,7 +234,7 @@ function FeaturedSection({ videos, onPlay }: { videos: Video[]; onPlay: (videoId
     return (
       <section className="flex flex-col gap-6 px-6">
         <h2 className="text-2xl font-bold tracking-tight">Featured demos</h2>
-        <p className="text-sm text-sa-text-3">No videos yet — be the first to upload.</p>
+        <p className="text-sm text-sa-text-3">No videos yet. Be the first to upload.</p>
       </section>
     );
   }
@@ -258,7 +258,7 @@ function AllDemos({ videos, onPlay }: { videos: Video[]; onPlay: (videoId: strin
     return (
       <section className="flex flex-col gap-6 px-6">
         <h2 className="text-2xl font-bold tracking-tight">All demos</h2>
-        <p className="text-sm text-sa-text-3">No videos yet — be the first to upload.</p>
+        <p className="text-sm text-sa-text-3">No videos yet. Be the first to upload.</p>
       </section>
     );
   }
