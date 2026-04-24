@@ -12,6 +12,7 @@ import {
   UserPlus,
   Users,
   Share2,
+  ArrowLeft,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCurrentUser } from "@/app/lib/auth-client";
@@ -149,10 +150,26 @@ export default function CreatorProfile({
     }
   };
 
+  const goBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
+  };
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col pb-12">
       {/* ── Hero Banner (Kick-style wide header) ── */}
       <div className="panel relative h-48 w-full overflow-hidden sm:h-56 lg:h-64">
+        <button
+          type="button"
+          onClick={goBack}
+          aria-label="Go back"
+          className="absolute left-3 top-3 z-20 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sa-border bg-sa-surface-2/80 text-sa-text-2 backdrop-blur-sm transition-colors hover:bg-white/[0.06] hover:text-foreground sm:left-4 sm:top-4"
+        >
+          <ArrowLeft size={18} strokeWidth={2} />
+        </button>
         {creator.banner_url ? (
           <>
             <img src={creator.banner_url} alt="Banner" className="h-full w-full object-cover" />

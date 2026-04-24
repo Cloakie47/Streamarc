@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { motion } from "motion/react";
 import { Eye, Lock, Bookmark } from "lucide-react";
 import { FrostedPlayMark } from "@/app/components/ui/FrostedPlayMark";
@@ -9,7 +10,9 @@ import { useCurrentUser } from "@/app/lib/auth-client";
 interface Video {
   id: string;
   title: string;
-  project: string;
+  creatorId: string | null;
+  creatorName: string;
+  creatorAvatarUrl: string | null;
   projectAvatar: string;
   thumbnail: string;
   thumbnailUrl?: string | null;
@@ -22,15 +25,24 @@ interface Video {
   category: string;
 }
 
+interface ApiCreator {
+  id: string;
+  display_name: string | null;
+  channel_name: string | null;
+  avatar_url: string | null;
+}
+
 interface ApiVideoRow {
   id: string;
   title: string;
+  creator_id: string | null;
   duration_secs: number | null;
   views: number | null;
   rate_per_sec: number | null;
   thumbnail_url?: string | null;
   cloudflare_uid?: string | null;
   created_at: string;
+  users?: ApiCreator | ApiCreator[] | null;
 }
 
 const THUMB_GRADIENTS = [
@@ -61,15 +73,42 @@ function isNewVideo(createdAt: string): boolean {
   return Date.now() - t < 7 * 24 * 60 * 60 * 1000;
 }
 
+function creatorProfileFromRow(row: ApiVideoRow): {
+  id: string | null;
+  name: string;
+  avatarUrl: string | null;
+  initials: string;
+} {
+  const raw = row.users;
+  const u = Array.isArray(raw) ? raw[0] : raw;
+  if (!u) {
+    return { id: row.creator_id, name: "Unknown", avatarUrl: null, initials: "?" };
+  }
+  const name =
+    (u.channel_name && u.channel_name.trim()) || (u.display_name && u.display_name.trim()) || "Unknown";
+  const forInitials = (u.channel_name || u.display_name || "CR").replace(/\s+/g, " ").trim();
+  const parts = forInitials.split(/\s+/).filter(Boolean);
+  const initials =
+    parts.length >= 2
+      ? `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase()
+      : (forInitials.slice(0, 2) || "CR").toUpperCase();
+  return {
+    id: u.id ?? row.creator_id,
+    name,
+    avatarUrl: u.avatar_url ?? null,
+    initials: initials.slice(0, 2),
+  };
+}
+
 function mapRowToVideo(row: ApiVideoRow, i: number): Video {
-  const words = row.title.trim().split(/\s+/);
-  const project = words.slice(0, 2).join(" ") || "Creator";
-  const avatar = (words[0]?.slice(0, 2) ?? "SA").toUpperCase();
+  const c = creatorProfileFromRow(row);
   return {
     id: row.id,
     title: row.title,
-    project,
-    projectAvatar: avatar,
+    creatorId: c.id,
+    creatorName: c.name,
+    creatorAvatarUrl: c.avatarUrl,
+    projectAvatar: c.initials,
     thumbnail: THUMB_GRADIENTS[i % THUMB_GRADIENTS.length],
     thumbnailUrl: row.thumbnail_url ?? null,
     cloudflareUid: row.cloudflare_uid ?? null,
@@ -204,13 +243,27 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
       </div>
 
       <div className="flex gap-3 px-1">
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-sa-border bg-sa-surface-2 text-[10px] font-bold">
-          {video.projectAvatar}
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-sa-border bg-sa-surface-2 text-[10px] font-bold">
+          {video.creatorAvatarUrl ? (
+            <img src={video.creatorAvatarUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            video.projectAvatar
+          )}
         </div>
         <div className="flex flex-col gap-1 overflow-hidden">
           <h3 className="line-clamp-2 text-sm font-medium leading-tight transition-colors group-hover:text-foreground">{video.title}</h3>
-          <div className="flex items-center gap-2 text-xs text-sa-text-3">
-            <span>{video.project}</span>
+          <div className="flex min-w-0 items-center gap-2 text-xs text-sa-text-3">
+            {placeholder || !video.creatorId ? (
+              <span className="min-w-0 truncate">{video.creatorName}</span>
+            ) : (
+              <Link
+                href={`/profile/${video.creatorId}`}
+                onClick={(e) => e.stopPropagation()}
+                className="min-w-0 truncate hover:text-foreground hover:underline"
+              >
+                {video.creatorName}
+              </Link>
+            )}
             {!placeholder && (
               <>
                 <span className="w-1 h-1 rounded-full bg-sa-text-3" />

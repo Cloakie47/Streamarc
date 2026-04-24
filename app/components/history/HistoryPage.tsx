@@ -232,7 +232,7 @@ export default function HistoryPage({ userId }: { userId: string }) {
           </div>
           <p className="text-lg font-medium">No watch history yet</p>
           <p className="text-sm text-muted-foreground">Videos you watch will appear here</p>
-          <button type="button" onClick={() => router.push("/")} className="btn btn-primary mt-2">
+          <button type="button" onClick={() => router.push("/?page=browse")} className="btn btn-primary mt-2">
             Browse Videos
           </button>
         </div>

@@ -45,8 +45,7 @@ export default function HistoryLayout({ children }: { children: React.ReactNode 
   }, []);
 
   const handlePageChange = (page: string) => {
-    if (page === "studio") router.push("/?page=studio");
-    else router.push("/");
+    router.push(`/?page=${encodeURIComponent(page)}`);
   };
 
   return (

@@ -13,16 +13,19 @@ import { DEFAULT_WATCH_VIDEO_ID } from "./lib/constants";
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [currentPage, setCurrentPage] = useState(
-    searchParams.get("page") ?? "landing"
-  );
+  // Derive currentPage directly from the URL — the URL is the single source
+  // of truth. No local state / sync effect needed, so back/forward, refresh,
+  // and deep links all resolve consistently.
+  const currentPage = searchParams.get("page") ?? "landing";
   const [balance, setBalance] = useState(0);
   const [scrolled, setScrolled] = useState(false);
 
-  useEffect(() => {
-    const page = searchParams.get("page");
-    if (page) setCurrentPage(page);
-  }, [searchParams]);
+  // Canonical navigator: always updates the URL so refresh / back / forward
+  // all land on the correct page instead of falling back to "landing".
+  const navigate = (page: string) => {
+    if (page === currentPage) return;
+    router.push(`/?page=${encodeURIComponent(page)}`);
+  };
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -38,7 +41,7 @@ function HomeContent() {
         <Sidebar
           balance={balance}
           onBalanceChange={setBalance}
-          onPageChange={setCurrentPage}
+          onPageChange={navigate}
           currentPage={currentPage}
         />
       )}
@@ -46,7 +49,7 @@ function HomeContent() {
       <main className={`transition-all duration-300 ${showSidebar ? "lg:ml-[236px]" : ""}`}>
         {showSidebar && (
           <Navbar
-            onPageChange={setCurrentPage}
+            onPageChange={navigate}
             balance={balance}
             scrolled={scrolled}
           />
@@ -55,8 +58,8 @@ function HomeContent() {
         <div className={`${showSidebar ? "px-4 pb-8 lg:px-8" : ""}`}>
           {currentPage === "landing" && (
             <LandingPage
-              onEnter={() => setCurrentPage("browse")}
-              onSignIn={() => setCurrentPage("signin")}
+              onEnter={() => navigate("browse")}
+              onSignIn={() => navigate("signin")}
             />
           )}
           {currentPage === "browse" && (
@@ -64,11 +67,11 @@ function HomeContent() {
               onWatch={(videoId) =>
                 router.push(`/watch/${videoId ?? DEFAULT_WATCH_VIDEO_ID}`)
               }
-              onSignup={() => setCurrentPage("signin")}
+              onSignup={() => navigate("signin")}
             />
           )}
           {currentPage === "signin" && (
-            <SignInPage onSignIn={() => setCurrentPage("browse")} />
+            <SignInPage onSignIn={() => navigate("browse")} />
           )}
           {currentPage === "studio" && (
             <StudioPage />

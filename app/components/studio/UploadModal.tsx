@@ -3,6 +3,21 @@
 import { useState, useRef } from "react"
 import { X, Upload, CheckCircle, Loader2 } from "lucide-react"
 
+const CATEGORIES = [
+  { id: "project-demo", label: "🏗️ Project Demo" },
+  { id: "tutorial", label: "📚 Tutorial" },
+  { id: "defi", label: "🏦 DeFi" },
+  { id: "bridges", label: "🌉 Bridges & Cross-chain" },
+  { id: "infrastructure", label: "⚙️ Infrastructure" },
+  { id: "governance", label: "🗳️ Governance" },
+  { id: "nft", label: "🖼️ NFTs" },
+  { id: "ai-agents", label: "🤖 AI & Agents" },
+  { id: "ama", label: "🎙️ AMA" },
+  { id: "talks", label: "🎤 Talks & Panels" },
+  { id: "irl", label: "📍 IRL Moments" },
+  { id: "random", label: "🎲 Random" },
+]
+
 interface UploadModalProps {
   userId: string
   onClose: () => void
@@ -14,6 +29,7 @@ type UploadStatus = "idle" | "uploading" | "processing" | "done" | "error"
 export default function UploadModal({ userId, onClose, onSuccess }: UploadModalProps) {
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [ratePerSec, setRatePerSec] = useState("0.00005")
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<UploadStatus>("idle")
@@ -24,6 +40,14 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (f) setFile(f)
+  }
+
+  const toggleCategory = (id: string) => {
+    setSelectedCategories((prev) => {
+      if (prev.includes(id)) return prev.filter((c) => c !== id)
+      if (prev.length >= 3) return prev
+      return [...prev, id]
+    })
   }
 
   const pollUntilReady = async (videoId: string, cloudflareUid: string) => {
@@ -77,6 +101,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
           title: title.trim(),
           description: description.trim(),
           rate_per_sec: rate,
+          categories: selectedCategories,
         }),
       })
 
@@ -160,6 +185,29 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
               disabled={status !== "idle" && status !== "error"}
               className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50 resize-none"
             />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Categories</label>
+            <div className="flex flex-wrap gap-2">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => toggleCategory(cat.id)}
+                  className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    selectedCategories.includes(cat.id)
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-sa-border bg-transparent text-muted-foreground hover:border-sa-border-hover hover:text-foreground"
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Select up to 3 categories ({selectedCategories.length}/3)
+            </p>
           </div>
 
           {/* Rate */}

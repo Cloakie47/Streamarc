@@ -187,7 +187,7 @@ export default function WatchLaterPage({ userId }: { userId: string }) {
           <p className="text-sm text-muted-foreground">
             Click the bookmark icon on any video to save it here
           </p>
-          <button type="button" onClick={() => router.push("/")} className="btn btn-primary mt-2">
+          <button type="button" onClick={() => router.push("/?page=browse")} className="btn btn-primary mt-2">
             Browse videos
           </button>
         </div>

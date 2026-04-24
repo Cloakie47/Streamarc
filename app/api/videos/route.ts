@@ -7,13 +7,14 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status") ?? "live";
     const search = searchParams.get("search") ?? "";
     const creator_id = searchParams.get("creator_id");
+    const category = searchParams.get("category") ?? "";
 
     const supabase = getSupabaseAdmin();
 
     let query = supabase
       .from("videos")
       .select(
-        "id, title, description, duration_secs, rate_per_sec, views, created_at, cloudflare_uid, thumbnail_url"
+        "id, title, description, duration_secs, rate_per_sec, views, created_at, cloudflare_uid, thumbnail_url, categories, creator_id, users!creator_id(id, display_name, channel_name, avatar_url)"
       )
       .eq("status", status)
       .order("created_at", { ascending: false });
@@ -24,6 +25,15 @@ export async function GET(req: NextRequest) {
 
     if (search) {
       query = query.ilike("title", `%${search}%`);
+    }
+
+    if (category && category !== "new-this-week") {
+      query = query.contains("categories", [category]);
+    }
+
+    if (category === "new-this-week") {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      query = query.gte("created_at", sevenDaysAgo);
     }
 
     const { data, error } = await query;

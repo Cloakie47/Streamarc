@@ -16,7 +16,14 @@ export default function Navbar({
   scrolled?: boolean;
 }) {
   const router = useRouter();
-  const { user, isSignedIn } = useCurrentUser();
+  const { user, isSignedIn, userId } = useCurrentUser();
+  const [notifications, setNotifications] = useState<
+    { id: string; type: string; title: string; message: string | null; read: boolean; created_at: string }[]
+  >([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
   const [liveBalanceActive, setLiveBalanceActive] = useState(false);
@@ -64,8 +71,67 @@ export default function Navbar({
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [userMenuOpen]);
 
+  useEffect(() => {
+    if (!userId) return;
+    const fetchUnreadCount = async () => {
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, action: "unread_count" }),
+      });
+      const data = (await res.json()) as { count?: number };
+      setUnreadCount(data.count ?? 0);
+    };
+    void fetchUnreadCount();
+    const interval = window.setInterval(() => {
+      void fetchUnreadCount();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [userId]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const openTopUp = () => {
     window.dispatchEvent(new CustomEvent("open-top-up"));
+  };
+
+  const fetchNotifications = async () => {
+    if (!userId) return;
+    setLoadingNotifications(true);
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, action: "list" }),
+      });
+      const data = (await res.json()) as {
+        notifications?: {
+          id: string;
+          type: string;
+          title: string;
+          message: string | null;
+          read: boolean;
+          created_at: string;
+        }[];
+      };
+      setNotifications(data.notifications ?? []);
+      await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, action: "mark_read" }),
+      });
+      setUnreadCount(0);
+    } finally {
+      setLoadingNotifications(false);
+    }
   };
 
   useEffect(() => {
@@ -171,14 +237,89 @@ export default function Navbar({
               <Plus size={14} />
               Top up
             </button>
-            <button
-              type="button"
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-sa-border bg-sa-surface/60 backdrop-blur-md transition-all duration-200 hover:border-sa-blue/45 hover:bg-sa-surface hover:scale-105 active:scale-95"
-              aria-label="Notifications"
-            >
-              <Bell size={18} className="text-foreground" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-sa-red shadow-[0_0_8px_2px_rgba(244,93,93,0.6)] pulse-live" />
-            </button>
+            <div ref={notifRef} className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNotifications((prev) => {
+                    const next = !prev;
+                    if (!prev) {
+                      void fetchNotifications();
+                    }
+                    return next;
+                  });
+                }}
+                className="relative flex h-10 w-10 items-center justify-center rounded-full border border-sa-border bg-sa-surface-2 text-sa-text-3 transition-all hover:border-sa-border-hover hover:text-foreground"
+                aria-label="Notifications"
+              >
+                <Bell size={18} />
+                {unreadCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-2xl border border-sa-border bg-card shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-sa-border px-4 py-3">
+                    <h3 className="text-sm font-bold">Notifications</h3>
+                    {notifications.length > 0 && (
+                      <span className="text-xs text-muted-foreground">{notifications.length} total</span>
+                    )}
+                  </div>
+
+                  <div className="max-h-80 overflow-y-auto">
+                    {loadingNotifications ? (
+                      <div className="flex items-center justify-center py-8">
+                        <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      </div>
+                    ) : notifications.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-8 text-center">
+                        <Bell size={24} className="text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">No notifications yet</p>
+                      </div>
+                    ) : (
+                      notifications.map((n) => {
+                        const ago = Math.floor((Date.now() - new Date(n.created_at).getTime()) / 60000);
+                        const timeAgo =
+                          ago < 1
+                            ? "just now"
+                            : ago < 60
+                              ? `${ago}m ago`
+                              : ago < 1440
+                                ? `${Math.floor(ago / 60)}h ago`
+                                : `${Math.floor(ago / 1440)}d ago`;
+                        const icons: Record<string, string> = {
+                          follow: "👤",
+                          comment: "💬",
+                          tip: "💰",
+                          offer: "🏷️",
+                          whitelist: "✅",
+                          purchase: "🎉",
+                        };
+                        return (
+                          <div
+                            key={n.id}
+                            className={`flex items-start gap-3 border-b border-sa-border/50 px-4 py-3 transition-colors last:border-0 hover:bg-white/[0.02] ${
+                              !n.read ? "bg-primary/[0.03]" : ""
+                            }`}
+                          >
+                            <span className="mt-0.5 flex-shrink-0 text-lg">{icons[n.type] ?? "🔔"}</span>
+                            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                              <p className="text-sm font-medium">{n.title}</p>
+                              {n.message && <p className="text-xs text-muted-foreground">{n.message}</p>}
+                              <p className="text-[10px] text-muted-foreground/60">{timeAgo}</p>
+                            </div>
+                            {!n.read && <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-primary" />}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             {isSignedIn ? (
               <div ref={userMenuRef} className="relative">
                 <button

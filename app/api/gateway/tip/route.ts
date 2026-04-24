@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
+import { createNotification } from "@/app/lib/notify";
 import { getWalletIdByAddress, signTypedDataWithWallet } from "@/app/lib/circle-wallets";
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
 
@@ -161,6 +162,13 @@ export async function POST(req: NextRequest) {
       platform_fee: 0,
       net_amount: tipAmount,
     });
+
+    await createNotification(
+      creator_id,
+      "tip",
+      "You received a tip!",
+      `Someone tipped you $${tipAmount.toFixed(2)}`,
+    );
 
     return NextResponse.json({ success: true, amount: tipAmount, tx: result.transaction });
   } catch (err: unknown) {

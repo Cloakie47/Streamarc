@@ -319,6 +319,8 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
       router.push("/admin");
     } else if (page === "studio") {
       router.push("/studio");
+    } else if (page === "explore") {
+      router.push("/explore");
     } else {
       onPageChange?.(page);
     }
@@ -425,7 +427,12 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
 
             <div className="flex flex-col gap-1">
               <SidebarItem icon={Home} label="Browse" active={currentPage === "browse"} onClick={() => navigateTo("browse")} />
-              <SidebarItem icon={Compass} label="Explore" active={currentPage === "explore"} onClick={() => navigateTo("explore")} />
+              <SidebarItem
+                icon={Compass}
+                label="Explore"
+                active={currentPage === "explore" || pathname === "/explore"}
+                onClick={() => navigateTo("explore")}
+              />
               <SidebarItem icon={PlayCircle} label="Watch" active={currentPage === "watch"} onClick={() => navigateTo("watch")} />
             </div>
 

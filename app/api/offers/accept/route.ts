@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
+import { createNotification } from "@/app/lib/notify"
 import { getWalletIdByAddress, signTypedDataWithWallet } from "@/app/lib/circle-wallets"
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server"
 
@@ -246,6 +247,13 @@ export async function POST(req: NextRequest) {
       .eq("video_id", offer.video_id)
       .eq("status", "pending")
       .neq("id", offer_id)
+
+    await createNotification(
+      offer.buyer_id,
+      "purchase",
+      "Ownership transferred",
+      "You now own the video and will earn all future watch revenue",
+    )
 
     return NextResponse.json({
       success: true,

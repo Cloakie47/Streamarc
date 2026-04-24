@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
+import { createNotification } from "@/app/lib/notify"
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,6 +61,16 @@ export async function POST(req: NextRequest) {
         .insert({ video_id, buyer_id, amount: parseFloat(amount), status: "pending" })
         .select()
         .single()
+
+      const offerAmount = parseFloat(amount)
+      if (currentOwner) {
+        await createNotification(
+          currentOwner,
+          "offer",
+          "New offer received",
+          `Someone made a $${offerAmount.toFixed(2)} offer on your video`,
+        )
+      }
 
       return NextResponse.json({ success: true, offer })
     }

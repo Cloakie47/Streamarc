@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
+import { createNotification } from "@/app/lib/notify";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,6 +17,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "target_id required" }, { status: 400 });
       }
       await supabase.from("follows").upsert({ follower_id: user_id, following_id: target_id });
+      await createNotification(
+        target_id,
+        "follow",
+        "New follower",
+        "Someone started following you",
+      );
       return NextResponse.json({ success: true, following: true });
     }
 

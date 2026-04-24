@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -20,6 +21,7 @@ import {
   Check,
   Inbox,
   Search,
+  ArrowLeft,
 } from "lucide-react";
 
 interface AdminStats {
@@ -102,6 +104,7 @@ const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
 ];
 
 export default function AdminPage({ userId }: { userId: string }) {
+  const router = useRouter();
   console.log("AdminPage userId:", userId);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [videos, setVideos] = useState<VideoRow[]>([]);
@@ -269,6 +272,14 @@ export default function AdminPage({ userId }: { userId: string }) {
     );
   }, [users, userQuery]);
 
+  const goBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col gap-6 px-6 pb-20 pt-2">
@@ -308,6 +319,14 @@ export default function AdminPage({ userId }: { userId: string }) {
 
         <div className="relative flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={goBack}
+              aria-label="Go back"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sa-border bg-sa-surface-2/80 text-sa-text-2 backdrop-blur-sm transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            >
+              <ArrowLeft size={18} strokeWidth={2} />
+            </button>
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}

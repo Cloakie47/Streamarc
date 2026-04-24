@@ -49,8 +49,7 @@ export default function FavouritesLayout({
   }, []);
 
   const handlePageChange = (page: string) => {
-    if (page === "studio") router.push("/?page=studio");
-    else router.push("/");
+    router.push(`/?page=${encodeURIComponent(page)}`);
   };
 
   return (

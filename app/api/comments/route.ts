@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
+import { createNotification } from "@/app/lib/notify";
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,6 +22,23 @@ export async function POST(req: NextRequest) {
         .insert({ video_id, user_id, content: content.trim() })
         .select("id, content, created_at, user_id, users(display_name, channel_name, avatar_url)")
         .single();
+
+      if (data) {
+        const { data: video } = await supabase
+          .from("videos")
+          .select("creator_id, title, owner_id")
+          .eq("id", video_id)
+          .single();
+        const recipient = video?.owner_id ?? video?.creator_id;
+        if (recipient && recipient !== user_id) {
+          await createNotification(
+            recipient,
+            "comment",
+            "New comment",
+            "Someone commented on your video",
+          );
+        }
+      }
 
       return NextResponse.json({ success: true, comment: data });
     }

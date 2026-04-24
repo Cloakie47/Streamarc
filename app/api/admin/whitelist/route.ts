@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
+import { createNotification } from "@/app/lib/notify";
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,6 +21,15 @@ export async function POST(req: NextRequest) {
       .from("users")
       .update({ is_whitelisted })
       .eq("id", user_id);
+
+    if (is_whitelisted) {
+      await createNotification(
+        user_id,
+        "whitelist",
+        "Creator access approved!",
+        "You can now upload videos to StreamArc",
+      );
+    }
 
     return NextResponse.json({ success: true, is_whitelisted });
   } catch (err: unknown) {

@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 
 export async function POST(req: NextRequest) {
   try {
-    const { user_id, title, description, rate_per_sec } = await req.json()
+    const { user_id, title, description, rate_per_sec, categories } = await req.json()
 
     if (!user_id || !title) {
       return NextResponse.json({ error: "user_id and title required" }, { status: 400 })
@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
         cloudflare_uid: videoUID,
         views: 0,
         total_earned: 0,
+        categories: Array.isArray(categories) ? categories : [],
       })
       .select()
       .single()

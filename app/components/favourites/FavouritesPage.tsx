@@ -183,7 +183,7 @@ export default function FavouritesPage({ userId }: { userId: string }) {
           <p className="text-sm text-muted-foreground">
             Click the heart icon on any video to add it here
           </p>
-          <button type="button" onClick={() => router.push("/")} className="btn btn-primary mt-2">
+          <button type="button" onClick={() => router.push("/?page=browse")} className="btn btn-primary mt-2">
             Browse videos
           </button>
         </div>
