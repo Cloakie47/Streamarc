@@ -199,17 +199,25 @@ export async function POST(req: NextRequest) {
     await settlePayment(buyerWalletId, buyer.wallet_address, PLATFORM_WALLET, platformFee)
     await settlePayment(buyerWalletId, buyer.wallet_address, seller.wallet_address, sellerReceives)
 
-    // Pay original creator royalty on resales
+    // Pay original creator royalty on resales.
+    // Skip when the buyer IS the original creator (creator buying back their own video) —
+    // the underlying gateway rejects from===to as a self-transfer, and paying yourself
+    // is a no-op anyway.
     if (!isFirstSale && creatorRoyalty > 0) {
       const originalCreatorId = video.original_creator_id ?? video.creator_id
-      const { data: originalCreator } = await supabase
-        .from("users")
-        .select("wallet_address")
-        .eq("id", originalCreatorId)
-        .single()
+      if (originalCreatorId !== offer.buyer_id) {
+        const { data: originalCreator } = await supabase
+          .from("users")
+          .select("wallet_address")
+          .eq("id", originalCreatorId)
+          .single()
 
-      if (originalCreator?.wallet_address) {
-        await settlePayment(buyerWalletId, buyer.wallet_address, originalCreator.wallet_address, creatorRoyalty)
+        if (
+          originalCreator?.wallet_address &&
+          originalCreator.wallet_address.toLowerCase() !== buyer.wallet_address.toLowerCase()
+        ) {
+          await settlePayment(buyerWalletId, buyer.wallet_address, originalCreator.wallet_address, creatorRoyalty)
+        }
       }
     }
 

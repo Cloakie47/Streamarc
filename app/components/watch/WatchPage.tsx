@@ -584,7 +584,7 @@ export default function WatchPage({
   };
 
   const handleTip = async () => {
-    if (!VIEWER_ID || !tipAmount || isOwnVideo) return;
+    if (!VIEWER_ID || !tipAmount || VIEWER_ID === ownerId) return;
     setTipping(true);
     setTipError(null);
     setTipSuccess(false);
@@ -894,8 +894,8 @@ export default function WatchPage({
                 </button>
               </div>
 
-              {/* Tip controls — inline minimal */}
-              {!isOwnVideo && (
+              {/* Tip controls — inline minimal (not the current video owner) */}
+              {VIEWER_ID && VIEWER_ID !== ownerId && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-sa-text-3 pr-1">
                     Tip
@@ -938,7 +938,7 @@ export default function WatchPage({
             </div>
           )}
 
-          {(!isOwnVideo && VIEWER_ID) && (tipError || tipSuccess) && (
+          {VIEWER_ID && VIEWER_ID !== ownerId && (tipError || tipSuccess) && (
             <div className="flex items-center gap-2 text-xs">
               {tipError && <p className="text-destructive">{tipError}</p>}
               {tipSuccess && <p className="text-green-400">Tip sent!</p>}

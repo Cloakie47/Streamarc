@@ -242,7 +242,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="panel w-full max-w-md p-10 flex flex-col gap-8 relative overflow-hidden"
+        className="panel w-full max-w-md translate-y-6 p-10 flex flex-col gap-8 relative overflow-hidden sm:translate-y-10"
       >
         <div className="flex flex-col items-center gap-4 text-center relative z-10">
           <div className="flex flex-col gap-1.5">

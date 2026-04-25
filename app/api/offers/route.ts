@@ -183,6 +183,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ accepts_offers: video?.accepts_offers ?? false })
     }
 
+    // List all pending offers across all videos owned by this user
+    if (action === "list_all") {
+      if (!owner_id) {
+        return NextResponse.json({ error: "owner_id required" }, { status: 400 })
+      }
+
+      const { data: ownedVideos } = await supabase
+        .from("videos")
+        .select("id, title, owner_id, creator_id")
+        .or(`creator_id.eq.${owner_id},owner_id.eq.${owner_id}`)
+
+      if (!ownedVideos || ownedVideos.length === 0) {
+        return NextResponse.json({ offers: [] })
+      }
+
+      const currentlyOwnedIds = ownedVideos
+        .filter((v) => (v.owner_id ?? v.creator_id) === owner_id)
+        .map((v) => v.id)
+
+      if (currentlyOwnedIds.length === 0) {
+        return NextResponse.json({ offers: [] })
+      }
+
+      const { data: offers } = await supabase
+        .from("video_offers")
+        .select(
+          "id, amount, status, created_at, buyer_id, video_id, users(display_name, channel_name, avatar_url), videos(title)",
+        )
+        .in("video_id", currentlyOwnedIds)
+        .eq("status", "pending")
+        .order("amount", { ascending: false })
+
+      return NextResponse.json({ offers: offers ?? [] })
+    }
+
     return NextResponse.json({ error: "Invalid action" }, { status: 400 })
   } catch (err: any) {
     console.error("Offers error:", err?.message)
