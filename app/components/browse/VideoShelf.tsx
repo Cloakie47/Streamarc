@@ -162,11 +162,7 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
       onHoverEnd={() => setHovered(false)}
     >
       <div className={`video-card relative aspect-video hover-lift ${placeholder ? "" : "group-hover:border-sa-border-hover"}`}>
-        <div className="absolute inset-0 bg-gradient-to-br from-[#182233] via-[#202b40] to-[#131c2c]" />
-        <div
-          className={`absolute inset-0 bg-gradient-to-br opacity-[0.2] ${video.thumbnail}`}
-          aria-hidden
-        />
+        <div className="absolute inset-0 bg-[#182233]" />
         {previewUrl && hovered && !placeholder ? (
           <video
             className="absolute inset-0 h-full w-full object-cover z-[1]"
@@ -183,12 +179,10 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
             className={`absolute inset-0 h-full w-full object-cover z-[1] ${hovered && !placeholder ? "preview-kenburns" : ""}`}
           />
         ) : (
-          <div className={`absolute inset-0 z-[1] bg-gradient-to-br ${video.thumbnail} opacity-35 ${hovered && !placeholder ? "preview-kenburns" : ""}`} />
+          <div className={`absolute inset-0 z-[1] bg-sa-blue/15 ${hovered && !placeholder ? "preview-kenburns" : ""}`} />
         )}
         {/* Noise texture */}
         <div className="absolute inset-0 z-[2] mix-blend-overlay pointer-events-none opacity-40" style={{ backgroundImage: NOISE_SVG, backgroundRepeat: "repeat" }} />
-        {/* Top inner glow */}
-        <div className="absolute inset-x-0 top-0 h-24 z-[2] pointer-events-none" style={{ background: "linear-gradient(to bottom, rgba(255,255,255,0.04), transparent)" }} />
 
         <div className="absolute top-3 left-3 flex gap-2 z-10">
           {placeholder ? (

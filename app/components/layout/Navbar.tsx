@@ -175,8 +175,8 @@ export default function Navbar({
         className="sticky top-0 z-40 mb-6 transition-all duration-500"
         style={{
           background: scrolled
-            ? "linear-gradient(180deg, hsla(213, 50%, 6%, 0.88), hsla(213, 50%, 6%, 0.72))"
-            : "linear-gradient(180deg, hsla(213, 50%, 6%, 0.55), hsla(213, 50%, 6%, 0.30))",
+            ? "hsla(213, 50%, 6%, 0.85)"
+            : "hsla(213, 50%, 6%, 0.45)",
           borderBottom: scrolled
             ? "1px solid hsla(188, 50%, 50%, 0.18)"
             : "1px solid transparent",
@@ -291,12 +291,12 @@ export default function Navbar({
                                 ? `${Math.floor(ago / 60)}h ago`
                                 : `${Math.floor(ago / 1440)}d ago`;
                         const icons: Record<string, string> = {
-                          follow: "👤",
-                          comment: "💬",
-                          tip: "💰",
-                          offer: "🏷️",
-                          whitelist: "✅",
-                          purchase: "🎉",
+                          follow: "\u{1F464}",
+                          comment: "\u{1F4AC}",
+                          tip: "\u{1F4B0}",
+                          offer: "\u{1F3F7}\uFE0F",
+                          whitelist: "\u2705",
+                          purchase: "\u{1F389}",
                         };
                         return (
                           <div
@@ -305,7 +305,7 @@ export default function Navbar({
                               !n.read ? "bg-primary/[0.03]" : ""
                             }`}
                           >
-                            <span className="mt-0.5 flex-shrink-0 text-lg">{icons[n.type] ?? "🔔"}</span>
+                            <span className="mt-0.5 flex-shrink-0 text-lg">{icons[n.type] ?? "\u{1F514}"}</span>
                             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                               <p className="text-sm font-medium">{n.title}</p>
                               {n.message && <p className="text-xs text-muted-foreground">{n.message}</p>}
@@ -329,8 +329,8 @@ export default function Navbar({
                   onClick={() => setUserMenuOpen((open) => !open)}
                   className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-black transition-all duration-200 hover:scale-105 active:scale-95"
                   style={{
-                    background: "var(--sa-grad)",
-                    boxShadow: "0 4px 16px hsla(188, 86%, 50%, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
+                    background: "var(--sa-blue)",
+                    boxShadow: "0 4px 14px hsla(188, 86%, 50%, 0.3)",
                   }}
                 >
                   {user?.avatar_url ? (
@@ -384,14 +384,10 @@ export default function Navbar({
             )}
           </div>
         </div>
-        {/* hairline scan line */}
+        {/* hairline bottom edge */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 -bottom-px h-px opacity-50"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, hsla(188, 86%, 60%, 0.6), transparent)",
-          }}
+          className="pointer-events-none absolute inset-x-0 -bottom-px h-px bg-sa-border/60"
         />
       </header>
     </motion.div>

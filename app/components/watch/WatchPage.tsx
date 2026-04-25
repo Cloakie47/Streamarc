@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Stream } from "@cloudflare/stream-react";
 import {
@@ -22,15 +23,31 @@ import { PAYMENT_CONFIG } from "@/app/lib/constants";
 import { useCurrentUser } from "@/app/lib/auth-client";
 import { FROSTED_PLAY_CLASSES, FrostedPauseSvg, FrostedPlayMark, FrostedPlaySvg } from "@/app/components/ui/FrostedPlayMark";
 
-const upNext = [
-  { id: "2", title: "Cross-chain bridge live demo", project: "BridgeARC", duration: "7:14", bg: "from-[#021610] to-[#041e18]" },
-  { id: "3", title: "Smart contract deployment", project: "ArcDev", duration: "9:01", bg: "from-[#140410] to-[#200818]" },
-  { id: "4", title: "NFT marketplace walkthrough", project: "ArcMarket", duration: "3:55", bg: "from-[#0e0520] to-[#160a30]" },
-  { id: "5", title: "Staking mechanism explained", project: "ArcStake", duration: "5:28", bg: "from-[#050c20] to-[#091430]" },
-  { id: "6", title: "Governance voting explained", project: "ArcGov", duration: "6:12", bg: "from-[#081020] to-[#0c1830]" },
-];
-
 const { intervalSeconds, freePreviewSeconds } = PAYMENT_CONFIG;
+
+export type UpNextVideo = {
+  id: string;
+  title: string;
+  duration_secs: number | null;
+  cloudflare_uid: string | null;
+  thumbnail_url: string | null;
+  channelLabel: string;
+};
+
+function formatUpNextDuration(secs: number | null | undefined) {
+  const s = Math.max(0, secs ?? 0);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
+function upNextPosterUrl(v: UpNextVideo) {
+  if (v.thumbnail_url) return v.thumbnail_url;
+  if (v.cloudflare_uid) {
+    return `https://videodelivery.net/${v.cloudflare_uid}/thumbnails/thumbnail.jpg?height=720`;
+  }
+  return null;
+}
 
 interface CommentUser {
   channel_name?: string | null;
@@ -74,6 +91,7 @@ export interface WatchPageProps {
   } | null;
   chapters?: { time: number; title: string }[] | null;
   onBalanceChange?: (bal: number) => void;
+  upNextVideos?: UpNextVideo[];
 }
 
 export default function WatchPage({
@@ -88,7 +106,9 @@ export default function WatchPage({
   creator,
   chapters,
   onBalanceChange,
+  upNextVideos = [],
 }: WatchPageProps) {
+  const router = useRouter();
   const [playing, setPlaying] = useState(false);
   const [secs, setSecs] = useState(0);
   const [free, setFree] = useState(true);
@@ -668,7 +688,7 @@ export default function WatchPage({
             className={`player-container panel aspect-video w-full overflow-hidden relative group bg-black ${!cloudflareUid ? "cursor-pointer" : ""}`}
           >
             {!cloudflareUid && (
-              <div className="absolute inset-0 bg-gradient-to-br from-[#1a2333] via-[#111827] to-black" />
+              <div className="absolute inset-0 bg-[#0e1420]" />
             )}
             {cloudflareUid && !isOwnVideo && balance < 0.001 && VIEWER_ID ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/80 backdrop-blur-sm">
@@ -717,9 +737,9 @@ export default function WatchPage({
             )}
 
             {!cloudflareUid && (
-              <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <div className="absolute bottom-0 inset-x-0 p-4 bg-black/70 flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                 <div className="relative h-1 w-full cursor-pointer overflow-hidden rounded-full bg-white/20">
-                  <div className="h-full rounded-full transition-all duration-300" style={{ background: "linear-gradient(90deg, hsl(188 90% 60%), hsl(180 80% 80%))", boxShadow: "0 0 12px hsla(188, 86%, 55%, 0.55)", width: `${progress}%` }} />
+                  <div className="h-full rounded-full transition-all duration-300 bg-sa-blue" style={{ width: `${progress}%` }} />
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -773,8 +793,7 @@ export default function WatchPage({
                   <img src={creator.avatar_url} alt="Creator" className="w-full h-full object-cover" />
                 ) : (
                   <div
-                    className="w-full h-full flex items-center justify-center text-sm font-bold text-[hsl(var(--primary-foreground))]"
-                    style={{ background: "linear-gradient(135deg, #9ab7dc, #c8d9ef)" }}
+                    className="w-full h-full flex items-center justify-center text-sm font-bold text-[hsl(var(--primary-foreground))] bg-sa-blue"
                   >
                     {(creator?.channel_name || creator?.display_name || creatorId).slice(0, 1).toUpperCase()}
                   </div>
@@ -1186,28 +1205,44 @@ export default function WatchPage({
             </div>
           </div>
         )}
-        <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-sa-text-3">Up next</h3>
-        {upNext.map((v) => (
-          <div key={v.id} className="panel flex gap-3 group cursor-pointer p-3 transition-colors hover:border-sa-border-hover">
-            <div className="w-[136px] aspect-video rounded-xl overflow-hidden flex-shrink-0 relative">
-              <div className={`absolute inset-0 bg-gradient-to-br ${v.bg}`} />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-7 h-7 rounded-full bg-white/15 backdrop-blur-sm border border-white/20 flex items-center justify-center opacity-70 group-hover:opacity-100 group-hover:scale-110 transition-all">
-                  <FrostedPlaySvg className="ml-0.5 h-2.5 w-2.5 fill-current text-white" />
-                </div>
-              </div>
-              <span className="absolute bottom-1 right-1 text-[9px] font-mono font-bold text-white/80 bg-black/60 backdrop-blur-sm rounded px-1 py-px">
-                {v.duration}
-              </span>
-            </div>
-            <div className="flex min-w-0 flex-col justify-center gap-1 py-0.5">
-              <h4 className="line-clamp-2 text-[13px] font-semibold leading-snug transition-colors group-hover:text-foreground">{v.title}</h4>
-              <span className="text-[11px] text-sa-text-3">{v.project}</span>
-              <span className="text-[11px] text-sa-text-3">Suggested next</span>
-            </div>
-          </div>
-        ))}
+        {upNextVideos.length > 0 && (
+          <>
+            <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-sa-text-3">Up next</h3>
+            {upNextVideos.map((v) => {
+              const poster = upNextPosterUrl(v);
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => router.push(`/watch/${v.id}`)}
+                  className="panel group flex w-full cursor-pointer gap-3 p-3 text-left transition-colors hover:border-sa-border-hover"
+                >
+                  <div className="relative aspect-video w-[136px] flex-shrink-0 overflow-hidden rounded-xl">
+                    {poster ? (
+                      <img src={poster} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                    ) : (
+                      <div className="absolute inset-0 bg-[#0e1420]" />
+                    )}
+                    <div className="absolute inset-0 bg-black/30" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/15 opacity-70 backdrop-blur-sm transition-all group-hover:scale-110 group-hover:opacity-100">
+                        <FrostedPlaySvg className="ml-0.5 h-2.5 w-2.5 fill-current text-white" />
+                      </div>
+                    </div>
+                    <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-px font-mono text-[9px] font-bold text-white/80 backdrop-blur-sm">
+                      {formatUpNextDuration(v.duration_secs)}
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 flex-col justify-center gap-1 py-0.5">
+                    <h4 className="line-clamp-2 text-[13px] font-semibold leading-snug transition-colors group-hover:text-foreground">{v.title}</h4>
+                    <span className="text-[11px] text-sa-text-3">{v.channelLabel}</span>
+                    <span className="text-[11px] text-sa-text-3">Suggested next</span>
+                  </div>
+                </button>
+              );
+            })}
+          </>
+        )}
       </div>
     </div>
   );

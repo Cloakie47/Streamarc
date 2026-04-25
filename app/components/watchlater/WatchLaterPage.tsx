@@ -198,9 +198,8 @@ export default function WatchLaterPage({ userId }: { userId: string }) {
             <div
               className="panel relative overflow-hidden rounded-2xl border border-sa-border p-0"
               style={{
-                background:
-                  "linear-gradient(145deg, hsl(188 60% 10% / 0.95) 0%, hsl(195 55% 12% / 0.88) 45%, hsl(210 60% 6% / 0.92) 100%)",
-                boxShadow: "0 24px 48px rgba(4, 10, 24, 0.45), inset 0 1px 0 hsl(188 90% 60% / 0.10)",
+                background: "hsl(213 50% 9% / 0.92)",
+                boxShadow: "0 24px 48px rgba(4, 10, 24, 0.45)",
               }}
             >
               <div className="relative aspect-video w-full overflow-hidden rounded-t-2xl bg-black/40">
@@ -211,11 +210,11 @@ export default function WatchLaterPage({ userId }: { userId: string }) {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#1a2333] via-[#111827] to-black">
+                  <div className="flex h-full w-full items-center justify-center bg-[#0e1420]">
                     <Bookmark className="h-16 w-16 text-white/20" />
                   </div>
                 )}
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                <div className="pointer-events-none absolute inset-0 bg-black/40" />
               </div>
               <div className="space-y-4 p-5">
                 <div className="flex items-start gap-2">
@@ -297,7 +296,7 @@ export default function WatchLaterPage({ userId }: { userId: string }) {
                         {thumb ? (
                           <img src={thumb} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#1a2333] to-black">
+                          <div className="flex h-full w-full items-center justify-center bg-[#0e1420]">
                             <Bookmark size={24} className="text-white/25" />
                           </div>
                         )}

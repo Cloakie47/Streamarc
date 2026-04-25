@@ -8,7 +8,6 @@ import {
   ShieldCheck,
   Radio,
 } from "lucide-react";
-import { GlitchLogo } from "@/app/components/ui/GlitchLogo";
 
 interface LandingPageProps {
   onEnter: () => void;
@@ -17,39 +16,30 @@ interface LandingPageProps {
 
 /* ──────────────────────────────────────────────────────────
    Minimal, clean, professional landing page.
-   Hero · Features · Metrics · CTA · Footer
+   Hero · Features · CTA · Footer
    ────────────────────────────────────────────────────────── */
 
 export default function LandingPage({ onEnter, onSignIn }: LandingPageProps) {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#040910] text-sa-text">
-      {/* Soft ambient backdrop */}
+      {/* Subtle grid overlay (single-color line tiling, no color gradients) */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(1200px 600px at 50% -10%, hsla(188, 90%, 55%, 0.18), transparent 60%), radial-gradient(800px 500px at 90% 30%, hsla(180, 80%, 70%, 0.08), transparent 60%)",
-        }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.35]"
+        className="pointer-events-none absolute inset-0 opacity-[0.18]"
         style={{
           backgroundImage:
             "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px)",
           backgroundSize: "48px 48px",
-          maskImage:
-            "radial-gradient(ellipse at 50% 0%, black 40%, transparent 75%)",
         }}
       />
 
       {/* ─── Nav ─── */}
       <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 overflow-hidden rounded-full ring-1 ring-white/10">
-            <GlitchLogo className="h-9 w-9" circle videoObjectFit="cover" />
-          </div>
+        <div className="flex items-center gap-2.5">
+          <span
+            aria-hidden
+            className="h-2.5 w-2.5 rounded-full bg-sa-blue shadow-[0_0_12px_rgba(48,216,240,0.7)]"
+          />
           <span className="text-base font-semibold tracking-tight">
             Stream<span className="text-sa-blue">Arc</span>
           </span>
@@ -90,9 +80,7 @@ export default function LandingPage({ onEnter, onSignIn }: LandingPageProps) {
           <h1 className="text-balance font-display text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">
             Streaming that pays
             <br />
-            <span className="bg-gradient-to-r from-sa-blue via-sa-cyan to-sa-blue bg-clip-text text-transparent">
-              creators fairly.
-            </span>
+            <span className="text-sa-blue">creators fairly.</span>
           </h1>
 
           <p className="mt-6 max-w-xl text-pretty text-base leading-relaxed text-sa-text-2 sm:text-lg">
@@ -119,13 +107,6 @@ export default function LandingPage({ onEnter, onSignIn }: LandingPageProps) {
             >
               Sign in
             </button>
-          </div>
-
-          {/* Subtle metric strip */}
-          <div className="mt-14 grid w-full max-w-xl grid-cols-3 gap-8 border-t border-white/10 pt-8 text-left">
-            <Metric value="100%" label="On-chain payouts" />
-            <Metric value="0.03s" label="Per-second billing" />
-            <Metric value="24/7" label="Live streaming" />
           </div>
         </motion.div>
       </section>
@@ -164,13 +145,7 @@ export default function LandingPage({ onEnter, onSignIn }: LandingPageProps) {
 
       {/* ─── Closing CTA ─── */}
       <section className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24">
-        <div
-          className="overflow-hidden rounded-3xl border border-white/10 p-10 text-center sm:p-16"
-          style={{
-            background:
-              "linear-gradient(135deg, hsla(188, 90%, 55%, 0.12), hsla(200, 60%, 10%, 0.4))",
-          }}
-        >
+        <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-10 text-center sm:p-16">
           <h3 className="mx-auto max-w-2xl font-display text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
             Start earning the moment your first viewer hits play.
           </h3>
@@ -199,9 +174,10 @@ export default function LandingPage({ onEnter, onSignIn }: LandingPageProps) {
       <footer className="relative z-10 mx-auto w-full max-w-6xl border-t border-white/5 px-6 py-8">
         <div className="flex flex-col items-center justify-between gap-4 text-xs text-sa-text-3 sm:flex-row">
           <div className="flex items-center gap-2">
-            <div className="h-5 w-5 overflow-hidden rounded-full ring-1 ring-white/10">
-              <GlitchLogo className="h-5 w-5" circle videoObjectFit="cover" />
-            </div>
+            <span
+              aria-hidden
+              className="h-1.5 w-1.5 rounded-full bg-sa-blue/70"
+            />
             <span>© {new Date().getFullYear()} StreamArc Labs</span>
           </div>
           <div className="flex items-center gap-6">
@@ -224,17 +200,6 @@ export default function LandingPage({ onEnter, onSignIn }: LandingPageProps) {
 /* ──────────────────────────────────────────────────────────
    Subcomponents
    ────────────────────────────────────────────────────────── */
-
-function Metric({ value, label }: { value: string; label: string }) {
-  return (
-    <div>
-      <p className="font-display text-2xl font-semibold tracking-tight text-foreground">
-        {value}
-      </p>
-      <p className="mt-1 text-xs text-sa-text-3">{label}</p>
-    </div>
-  );
-}
 
 function Feature({
   icon: Icon,

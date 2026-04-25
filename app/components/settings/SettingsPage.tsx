@@ -96,7 +96,7 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
         <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Banner Image
         </label>
-        <div className="panel relative flex h-32 w-full cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-primary/15 to-transparent transition-opacity hover:opacity-90">
+        <div className="panel relative flex h-32 w-full cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-sa-blue/[0.08] transition-opacity hover:opacity-90">
           {user.banner_url ? (
             <img src={user.banner_url} alt="Banner" className="w-full h-full object-cover" />
           ) : (

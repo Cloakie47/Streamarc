@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/app/components/layout/Sidebar";
 import Navbar from "@/app/components/layout/Navbar";
+import { useScrolled } from "@/app/lib/useScrolled";
 
 /**
  * Main app chrome (sidebar + navbar) for routes that are not the home `page` shell,
@@ -18,13 +19,7 @@ export default function AppShell({
 }) {
   const router = useRouter();
   const [balance, setBalance] = useState(0);
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  const scrolled = useScrolled();
 
   const onPageChange = (page: string) => {
     router.push(`/?page=${encodeURIComponent(page)}`);

@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
 import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
-import { GlitchLogo } from "@/app/components/ui/GlitchLogo";
 function WalletBalances({ userId, walletAddress, onDeposited, open }: {
   userId: string | null;
   walletAddress: string | null;
@@ -343,40 +342,19 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
         <aside
           className="flex h-full flex-col px-4 py-6 gap-5 overflow-y-auto no-scrollbar relative"
           style={{
-            background:
-              "linear-gradient(180deg, hsla(213, 50%, 6%, 0.92) 0%, hsla(213, 50%, 5%, 0.86) 100%)",
-            borderRight: "1px solid hsla(188, 50%, 50%, 0.16)",
+            background: "hsla(213, 50%, 6%, 0.9)",
+            borderRight: "1px solid hsla(198, 30%, 22%, 0.6)",
             backdropFilter: "blur(22px) saturate(140%)",
             WebkitBackdropFilter: "blur(22px) saturate(140%)",
           }}
         >
-          {/* hairline glow on inner edge */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 right-0 w-px"
-            style={{
-              background:
-                "linear-gradient(180deg, transparent, hsla(188, 86%, 60%, 0.4), transparent)",
-            }}
-          />
 
-          {/* Logo lockup */}
-          <div className="flex items-center gap-3 px-1 py-1 relative z-10">
-            <div className="relative">
-              <div
-                aria-hidden
-                className="absolute inset-0 rounded-full blur-md opacity-70"
-                style={{ background: "radial-gradient(circle, hsla(188, 90%, 60%, 0.5), transparent 65%)" }}
-              />
-              <GlitchLogo
-                className="relative h-9 w-9"
-                period={7}
-                circle
-                videoObjectFit="cover"
-              />
-            </div>
+          {/* Wordmark lockup */}
+          <div className="flex items-center px-1 py-1 relative z-10">
             <div className="flex flex-col leading-tight">
-              <span className="text-lg font-display font-bold tracking-tight text-foreground">StreamArc</span>
+              <span className="text-lg font-display font-bold tracking-tight text-foreground">
+                Stream<span className="text-sa-blue">Arc</span>
+              </span>
               <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sa-text-3">
                 Per-second streaming
               </span>
@@ -386,15 +364,6 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
           <nav className="flex flex-col gap-2">
             {/* Balance widget */}
             <div className="panel shrink-0 mx-1 mb-3 p-4 space-y-3 relative overflow-hidden">
-              <div
-                aria-hidden
-                className="absolute -top-12 -right-10 h-32 w-32 rounded-full opacity-40"
-                style={{
-                  background:
-                    "radial-gradient(circle, hsla(188, 90%, 60%, 0.5), transparent 65%)",
-                  filter: "blur(20px)",
-                }}
-              />
               <div className="relative">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sa-text-3 inline-flex items-center gap-2">
                   USDC Balance
@@ -408,9 +377,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.22 }}
                   className={`mt-1 font-mono text-2xl font-bold tabular-nums ${
-                    liveBalanceActive
-                      ? "text-grad-brand-strong"
-                      : "text-foreground"
+                    liveBalanceActive ? "text-sa-blue" : "text-foreground"
                   }`}
                 >
                   ${displayedBalance}
@@ -436,14 +403,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               <SidebarItem icon={PlayCircle} label="Watch" active={currentPage === "watch"} onClick={() => navigateTo("watch")} />
             </div>
 
-            <div
-              aria-hidden
-              className="my-3 mx-3 h-px"
-              style={{
-                background:
-                  "linear-gradient(90deg, transparent, hsla(188, 50%, 50%, 0.25), transparent)",
-              }}
-            />
+            <div aria-hidden className="my-3 mx-3 h-px bg-sa-border/50" />
 
             <div className="flex flex-col gap-1">
               <span className="px-4 text-[10px] font-semibold text-sa-text-3 uppercase tracking-[0.22em] mb-2">
@@ -469,14 +429,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               />
             </div>
 
-            <div
-              aria-hidden
-              className="my-3 mx-3 h-px"
-              style={{
-                background:
-                  "linear-gradient(90deg, transparent, hsla(188, 50%, 50%, 0.25), transparent)",
-              }}
-            />
+            <div aria-hidden className="my-3 mx-3 h-px bg-sa-border/50" />
 
             <div className="flex flex-col gap-1">
               <span className="px-4 text-[10px] font-semibold text-sa-text-3 uppercase tracking-[0.22em] mb-2">

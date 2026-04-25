@@ -136,9 +136,9 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
 
       // Poll until Cloudflare finishes processing
       await pollUntilReady(videoId, videoUID)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Upload failed:", err)
-      setError(err?.message ?? "Upload failed")
+      setError(err instanceof Error ? err.message : "Upload failed")
       setStatus("error")
     }
   }

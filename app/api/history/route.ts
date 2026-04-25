@@ -3,7 +3,14 @@ import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { user_id, action, video_id, seconds_watched, id: historyRowId } = await req.json();
+    const {
+      user_id,
+      action,
+      video_id,
+      seconds_watched,
+      id: historyRowId,
+      ids: historyRowIds,
+    } = await req.json();
 
     if (!user_id || !action) {
       return NextResponse.json({ error: "user_id and action required" }, { status: 400 });
@@ -32,7 +39,7 @@ export async function POST(req: NextRequest) {
         )
         .eq("user_id", user_id)
         .order("watched_at", { ascending: false })
-        .limit(50);
+        .limit(200);
 
       const list = rows ?? [];
       const creatorIds = [
@@ -105,14 +112,34 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "remove") {
-      if (!historyRowId) {
-        return NextResponse.json({ error: "id required for remove" }, { status: 400 });
+      const idList: string[] =
+        Array.isArray(historyRowIds) && historyRowIds.length > 0
+          ? historyRowIds
+          : historyRowId
+            ? [historyRowId]
+            : [];
+      if (idList.length === 0) {
+        return NextResponse.json(
+          { error: "id or non-empty ids required for remove" },
+          { status: 400 },
+        );
+      }
+      const { data: existing } = await supabase
+        .from("watch_history")
+        .select("id")
+        .eq("user_id", user_id)
+        .in("id", idList);
+      if (!existing || existing.length !== idList.length) {
+        return NextResponse.json(
+          { error: "One or more history entries are invalid" },
+          { status: 400 },
+        );
       }
       await supabase
         .from("watch_history")
         .delete()
-        .eq("id", historyRowId)
-        .eq("user_id", user_id);
+        .eq("user_id", user_id)
+        .in("id", idList);
       return NextResponse.json({ success: true });
     }
 

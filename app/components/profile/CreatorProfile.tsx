@@ -66,13 +66,6 @@ function formatRate(rate: number | null): string {
   return rate.toFixed(5);
 }
 
-const THUMB_GRADIENTS = [
-  "from-rose-600 to-orange-500",
-  "from-emerald-600 to-teal-500",
-  "from-sky-600 to-blue-500",
-  "from-violet-600 to-indigo-500",
-];
-
 export default function CreatorProfile({
   creator,
   videos,
@@ -173,12 +166,11 @@ export default function CreatorProfile({
         {creator.banner_url ? (
           <>
             <img src={creator.banner_url} alt="Banner" className="h-full w-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0f18] via-[#0a0f18]/50 to-transparent" />
+            <div className="absolute inset-0 bg-[#0a0f18]/60" />
           </>
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-[#0d1520] via-[#152030] to-[#0a1018]" />
+          <div className="absolute inset-0 bg-[#0d1520]" />
         )}
-        <div className="absolute inset-y-0 right-0 hidden w-2/5 bg-gradient-to-l from-primary/5 to-transparent md:block" />
       </div>
 
       {/* ── Channel header: avatar + identity + actions (Kick-inspired) ── */}
@@ -389,10 +381,7 @@ export default function CreatorProfile({
                     onHoverEnd={() => setHoveredVideoId((current) => (current === video.id ? null : current))}
                   >
                     <div className="relative aspect-video overflow-hidden rounded-t-2xl">
-                      <div
-                        className={`absolute inset-0 bg-gradient-to-br ${THUMB_GRADIENTS[i % THUMB_GRADIENTS.length]} opacity-30`}
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-br from-[#182233] via-[#223047] to-[#131c2c]" />
+                      <div className="absolute inset-0 bg-[#182233]" />
                       {video.thumbnail_url && (
                         <img
                           src={video.thumbnail_url}
@@ -401,7 +390,7 @@ export default function CreatorProfile({
                         />
                       )}
                       {!video.thumbnail_url && (
-                        <div className={`absolute inset-0 bg-gradient-to-br ${THUMB_GRADIENTS[i % THUMB_GRADIENTS.length]} opacity-40 ${hoveredVideoId === video.id ? "preview-kenburns" : ""}`} />
+                        <div className={`absolute inset-0 bg-sa-blue/15 ${hoveredVideoId === video.id ? "preview-kenburns" : ""}`} />
                       )}
                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                         <FrostedPlayMark sizeClass="w-12 h-12" />

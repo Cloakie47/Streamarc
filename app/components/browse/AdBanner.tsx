@@ -10,20 +10,10 @@ export default function AdBanner() {
   return (
     <div className="panel relative flex items-center gap-4 px-5 py-4 hover-lift overflow-hidden">
       <div
-        aria-hidden
-        className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-20"
-        style={{
-          background:
-            "radial-gradient(circle, hsla(160, 70%, 50%, 0.55), transparent 65%)",
-          filter: "blur(28px)",
-        }}
-      />
-
-      <div
         className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"
         style={{
-          background: "linear-gradient(135deg, #34D399, #0E9F8E)",
-          boxShadow: "0 8px 22px rgba(52, 211, 153, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
+          background: "#34D399",
+          boxShadow: "0 6px 18px rgba(52, 211, 153, 0.3)",
         }}
       >
         <span className="text-base font-bold text-black">PR</span>

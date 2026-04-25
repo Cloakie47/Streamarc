@@ -297,26 +297,7 @@ export default function AdminPage({ userId }: { userId: string }) {
   return (
     <div className="flex flex-col gap-8 px-4 pb-20 pt-2 sm:px-6">
       {/* HERO HEADER */}
-      <div className="relative overflow-hidden rounded-3xl border border-sa-border bg-gradient-to-br from-[hsl(200_55%_10%/0.85)] via-[hsl(200_45%_7%/0.9)] to-[hsl(188_60%_6%/0.9)] p-6 sm:p-8">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-60"
-          style={{
-            background:
-              "radial-gradient(circle, hsla(188, 90%, 55%, 0.35) 0%, transparent 65%)",
-            filter: "blur(30px)",
-          }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -bottom-16 -left-10 h-48 w-48 rounded-full opacity-50"
-          style={{
-            background:
-              "radial-gradient(circle, hsla(180, 80%, 70%, 0.22) 0%, transparent 70%)",
-            filter: "blur(36px)",
-          }}
-        />
-
+      <div className="relative overflow-hidden rounded-3xl border border-sa-border bg-sa-surface p-6 sm:p-8">
         <div className="relative flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <button
@@ -333,10 +314,8 @@ export default function AdminPage({ userId }: { userId: string }) {
               transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
               className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
               style={{
-                background:
-                  "linear-gradient(135deg, hsl(188 90% 60%), hsl(180 80% 70%))",
-                boxShadow:
-                  "0 10px 28px hsla(188, 90%, 60%, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
+                background: "var(--sa-blue)",
+                boxShadow: "0 10px 24px hsla(188, 86%, 50%, 0.3)",
               }}
             >
               <Shield size={26} className="text-black" strokeWidth={2.5} />
@@ -400,10 +379,7 @@ export default function AdminPage({ userId }: { userId: string }) {
               }`}
               style={
                 isActive
-                  ? {
-                      background:
-                        "linear-gradient(135deg, hsla(188,90%,60%,0.18), hsla(180,80%,70%,0.08))",
-                    }
+                  ? { background: "hsla(188, 86%, 56%, 0.14)" }
                   : undefined
               }
             >
@@ -412,10 +388,7 @@ export default function AdminPage({ userId }: { userId: string }) {
                   layoutId="admin-tab-glow"
                   aria-hidden
                   className="pointer-events-none absolute inset-0 rounded-xl"
-                  style={{
-                    background:
-                      "radial-gradient(120% 100% at 0% 0%, hsla(188,90%,65%,0.2), transparent 60%)",
-                  }}
+                  style={{ background: "hsla(188, 86%, 56%, 0.08)" }}
                   transition={{ type: "spring", stiffness: 320, damping: 30 }}
                 />
               )}
@@ -491,24 +464,14 @@ export default function AdminPage({ userId }: { userId: string }) {
             </div>
 
             {/* PLATFORM WALLET CARD */}
-            <div className="relative overflow-hidden rounded-2xl border border-sa-border bg-gradient-to-br from-[hsl(195_50%_9%/0.85)] to-[hsl(200_50%_6%/0.9)] p-6">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full"
-                style={{
-                  background:
-                    "radial-gradient(circle, hsla(158, 70%, 55%, 0.3) 0%, transparent 65%)",
-                  filter: "blur(36px)",
-                }}
-              />
+            <div className="relative overflow-hidden rounded-2xl border border-sa-border bg-sa-surface p-6">
               <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-start gap-4">
                   <div
                     className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
                     style={{
-                      background:
-                        "linear-gradient(135deg, hsl(158 70% 55%), hsl(170 60% 45%))",
-                      boxShadow: "0 8px 24px hsla(158, 70%, 55%, 0.35)",
+                      background: "hsl(158 70% 50%)",
+                      boxShadow: "0 8px 20px hsla(158, 70%, 50%, 0.3)",
                     }}
                   >
                     <Wallet size={22} className="text-black" strokeWidth={2.5} />
@@ -594,7 +557,7 @@ export default function AdminPage({ userId }: { userId: string }) {
                                 <div
                                   className="relative flex h-10 w-[70px] shrink-0 items-center justify-center overflow-hidden rounded-lg"
                                   style={{
-                                    background: `linear-gradient(135deg, hsl(${hue} 65% 25%), hsl(${(hue + 40) % 360} 60% 15%))`,
+                                    background: `hsl(${hue} 60% 22%)`,
                                   }}
                                 >
                                   <PlayCircle size={18} className="text-white/70" />
@@ -703,7 +666,7 @@ export default function AdminPage({ userId }: { userId: string }) {
                                 <div
                                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
                                   style={{
-                                    background: `linear-gradient(135deg, hsl(${hue} 70% 50%), hsl(${(hue + 30) % 360} 65% 35%))`,
+                                    background: `hsl(${hue} 65% 45%)`,
                                   }}
                                   aria-hidden
                                 >
@@ -816,7 +779,7 @@ export default function AdminPage({ userId }: { userId: string }) {
                                 <div
                                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
                                   style={{
-                                    background: `linear-gradient(135deg, hsl(${hue} 70% 50%), hsl(${(hue + 30) % 360} 65% 35%))`,
+                                    background: `hsl(${hue} 65% 45%)`,
                                   }}
                                   aria-hidden
                                 >
@@ -884,30 +847,30 @@ export default function AdminPage({ userId }: { userId: string }) {
 
 type Tone = "blue" | "cyan" | "teal" | "green";
 
-const TONE_MAP: Record<Tone, { grad: string; glow: string; text: string; iconBg: string }> = {
+const TONE_MAP: Record<Tone, { solid: string; glow: string; text: string; iconBg: string }> = {
   blue: {
-    grad: "linear-gradient(135deg, hsl(188 90% 60%), hsl(195 80% 50%))",
-    glow: "0 10px 24px hsla(188, 90%, 60%, 0.25)",
+    solid: "hsl(188 86% 56%)",
+    glow: "0 8px 18px hsla(188, 86%, 56%, 0.25)",
     text: "text-sa-blue",
-    iconBg: "linear-gradient(135deg, hsl(188 90% 60%), hsl(195 80% 50%))",
+    iconBg: "hsl(188 86% 56%)",
   },
   cyan: {
-    grad: "linear-gradient(135deg, hsl(180 80% 70%), hsl(188 80% 55%))",
-    glow: "0 10px 24px hsla(180, 80%, 70%, 0.25)",
+    solid: "hsl(180 70% 65%)",
+    glow: "0 8px 18px hsla(180, 70%, 65%, 0.22)",
     text: "text-sa-cyan",
-    iconBg: "linear-gradient(135deg, hsl(180 80% 70%), hsl(188 80% 55%))",
+    iconBg: "hsl(180 70% 65%)",
   },
   teal: {
-    grad: "linear-gradient(135deg, hsl(195 85% 50%), hsl(200 70% 35%))",
-    glow: "0 10px 24px hsla(195, 85%, 45%, 0.25)",
+    solid: "hsl(195 80% 50%)",
+    glow: "0 8px 18px hsla(195, 80%, 45%, 0.22)",
     text: "text-[hsl(195_85%_65%)]",
-    iconBg: "linear-gradient(135deg, hsl(195 85% 50%), hsl(200 70% 35%))",
+    iconBg: "hsl(195 80% 50%)",
   },
   green: {
-    grad: "linear-gradient(135deg, hsl(158 70% 55%), hsl(170 60% 40%))",
-    glow: "0 10px 24px hsla(158, 70%, 55%, 0.25)",
+    solid: "hsl(158 70% 50%)",
+    glow: "0 8px 18px hsla(158, 70%, 50%, 0.22)",
     text: "text-sa-green",
-    iconBg: "linear-gradient(135deg, hsl(158 70% 55%), hsl(170 60% 40%))",
+    iconBg: "hsl(158 70% 50%)",
   },
 };
 
@@ -935,14 +898,6 @@ function KpiCard({
       whileHover={{ y: -2 }}
       className="group relative overflow-hidden rounded-2xl border border-sa-border bg-[hsl(200_45%_6%/0.6)] p-5 backdrop-blur-sm transition-colors hover:border-sa-blue/30"
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-0 transition-opacity duration-300 group-hover:opacity-60"
-        style={{
-          background: `radial-gradient(circle, ${t.grad.replace("linear-gradient(135deg, ", "").split(",")[0]} 0%, transparent 70%)`,
-          filter: "blur(20px)",
-        }}
-      />
       <div className="relative flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-sa-text-3">

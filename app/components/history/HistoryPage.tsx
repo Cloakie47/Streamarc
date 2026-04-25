@@ -42,6 +42,31 @@ interface HistoryItem {
     | null;
 }
 
+type DisplayHistoryItem = HistoryItem & { sourceIds: string[] };
+
+function buildDedupedHistory(history: HistoryItem[]): DisplayHistoryItem[] {
+  const byKey = new Map<string, HistoryItem[]>();
+  for (const item of history) {
+    if (!normalizeVideo(item.videos)) continue;
+    const k = `${dayBucketKey(item.watched_at)}::${item.video_id}`;
+    const list = byKey.get(k) ?? [];
+    list.push(item);
+    byKey.set(k, list);
+  }
+  const out: DisplayHistoryItem[] = [];
+  for (const items of byKey.values()) {
+    const best = items.reduce((a, b) =>
+      new Date(b.watched_at) > new Date(a.watched_at) ? b : a,
+    );
+    out.push({ ...best, sourceIds: items.map((i) => i.id) });
+  }
+  out.sort(
+    (a, b) =>
+      new Date(b.watched_at).getTime() - new Date(a.watched_at).getTime(),
+  );
+  return out;
+}
+
 function normalizeVideo(
   v: HistoryItem["videos"],
 ): {
@@ -154,10 +179,19 @@ export default function HistoryPage({ userId }: { userId: string }) {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpenId]);
 
+  const dedupedHistory = useMemo(
+    () => buildDedupedHistory(history),
+    [history],
+  );
+
   const grouped = useMemo(() => {
-    const groups: { label: string; key: string; items: HistoryItem[] }[] = [];
+    const groups: {
+      label: string;
+      key: string;
+      items: DisplayHistoryItem[];
+    }[] = [];
     let lastKey: string | null = null;
-    for (const item of history) {
+    for (const item of dedupedHistory) {
       const v = normalizeVideo(item.videos);
       if (!v) continue;
       const key = dayBucketKey(item.watched_at);
@@ -170,7 +204,7 @@ export default function HistoryPage({ userId }: { userId: string }) {
       }
     }
     return groups;
-  }, [history]);
+  }, [dedupedHistory]);
 
   const handleClear = async () => {
     if (!confirm("Clear all watch history?")) return;
@@ -182,14 +216,15 @@ export default function HistoryPage({ userId }: { userId: string }) {
     setHistory([]);
   };
 
-  const handleRemove = async (historyId: string) => {
+  const handleRemove = async (sourceIds: string[]) => {
     setMenuOpenId(null);
     await fetch("/api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, action: "remove", id: historyId }),
+      body: JSON.stringify({ user_id: userId, action: "remove", ids: sourceIds }),
     });
-    setHistory((prev) => prev.filter((h) => h.id !== historyId));
+    const idSet = new Set(sourceIds);
+    setHistory((prev) => prev.filter((h) => !idSet.has(h.id)));
   };
 
   return (
@@ -198,7 +233,7 @@ export default function HistoryPage({ userId }: { userId: string }) {
         <div className="flex flex-wrap items-center gap-3">
           <History size={28} className="shrink-0 text-primary" />
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Watch history</h1>
-          <span className="text-sm text-muted-foreground">({history.length})</span>
+          <span className="text-sm text-muted-foreground">({dedupedHistory.length})</span>
         </div>
         {history.length > 0 && (
           <button
@@ -225,7 +260,7 @@ export default function HistoryPage({ userId }: { userId: string }) {
             </div>
           ))}
         </div>
-      ) : history.length === 0 ? (
+      ) : dedupedHistory.length === 0 ? (
         <div className="flex flex-col items-center gap-4 py-24 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-sa-surface-2">
             <History size={32} className="text-muted-foreground" />
@@ -266,7 +301,7 @@ export default function HistoryPage({ userId }: { userId: string }) {
                           {thumb ? (
                             <img src={thumb} alt="" className="h-full w-full object-cover" />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#1a2333] to-black">
+                            <div className="flex h-full w-full items-center justify-center bg-[#0e1420]">
                               <History size={24} className="text-white/20" />
                             </div>
                           )}
@@ -315,7 +350,7 @@ export default function HistoryPage({ userId }: { userId: string }) {
                                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-white/[0.06]"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  void handleRemove(item.id);
+                                  void handleRemove(item.sourceIds);
                                 }}
                               >
                                 <Trash2 size={14} className="text-muted-foreground" />

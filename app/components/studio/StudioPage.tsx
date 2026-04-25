@@ -784,7 +784,7 @@ export default function StudioPage() {
 
           {/* Withdraw + Send External: side by side */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="glass p-8 rounded-sa-card bg-gradient-to-br from-sa-accent/20 to-transparent border-sa-accent/30 flex flex-col gap-6 hover-lift">
+            <div className="glass p-8 rounded-sa-card bg-sa-accent/[0.08] border-sa-accent/30 flex flex-col gap-6 hover-lift">
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium text-sa-text-3">Available for withdrawal</span>
                 <h2 className="text-4xl font-bold tracking-tight">${(stats?.gateway_balance ?? 0).toFixed(4)}</h2>

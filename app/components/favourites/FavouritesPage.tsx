@@ -193,10 +193,8 @@ export default function FavouritesPage({ userId }: { userId: string }) {
             <div
               className="panel relative overflow-hidden rounded-2xl border border-sa-border p-0"
               style={{
-                background:
-                  "linear-gradient(145deg, hsl(188 60% 10% / 0.92) 0%, hsl(200 55% 8% / 0.95) 50%, hsl(210 60% 6% / 0.94) 100%)",
-                boxShadow:
-                  "0 24px 48px rgba(4, 10, 24, 0.45), inset 0 1px 0 hsl(188 90% 60% / 0.12)",
+                background: "hsl(213 50% 9% / 0.92)",
+                boxShadow: "0 24px 48px rgba(4, 10, 24, 0.45)",
               }}
             >
               <div className="relative aspect-video w-full overflow-hidden rounded-t-2xl bg-black/40">
@@ -207,11 +205,11 @@ export default function FavouritesPage({ userId }: { userId: string }) {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#1a2333] via-[#111827] to-black">
+                  <div className="flex h-full w-full items-center justify-center bg-[#0e1420]">
                     <Heart className="h-16 w-16 text-red-400/30" />
                   </div>
                 )}
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                <div className="pointer-events-none absolute inset-0 bg-black/40" />
               </div>
               <div className="space-y-4 p-5">
                 <div className="flex items-start gap-2">
@@ -292,7 +290,7 @@ export default function FavouritesPage({ userId }: { userId: string }) {
                         {thumb ? (
                           <img src={thumb} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#1a2333] to-black">
+                          <div className="flex h-full w-full items-center justify-center bg-[#0e1420]">
                             <Heart size={24} className="text-red-400/35" />
                           </div>
                         )}

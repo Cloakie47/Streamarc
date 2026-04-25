@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Navbar from "./components/layout/Navbar";
 import Sidebar from "./components/layout/Sidebar";
@@ -9,6 +9,7 @@ import SignInPage from "./components/auth/SignInPage";
 import StudioPage from "./components/studio/StudioPage";
 import LandingPage from "./components/landing/LandingPage";
 import { DEFAULT_WATCH_VIDEO_ID } from "./lib/constants";
+import { useScrolled } from "./lib/useScrolled";
 
 function HomeContent() {
   const router = useRouter();
@@ -18,7 +19,7 @@ function HomeContent() {
   // and deep links all resolve consistently.
   const currentPage = searchParams.get("page") ?? "landing";
   const [balance, setBalance] = useState(0);
-  const [scrolled, setScrolled] = useState(false);
+  const scrolled = useScrolled();
 
   // Canonical navigator: always updates the URL so refresh / back / forward
   // all land on the correct page instead of falling back to "landing".
@@ -26,12 +27,6 @@ function HomeContent() {
     if (page === currentPage) return;
     router.push(`/?page=${encodeURIComponent(page)}`);
   };
-
-  useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
 
   const showSidebar = currentPage !== "landing" && currentPage !== "signin";
 

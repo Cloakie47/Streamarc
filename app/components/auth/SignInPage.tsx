@@ -4,7 +4,6 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import { signIn } from "next-auth/react";
 import { Shield } from "lucide-react";
-import { GlitchLogo } from "@/app/components/ui/GlitchLogo";
 
 type Tab = "signin" | "signup";
 type Step = "auth" | "verify" | "2fa" | "forgot" | "reset_code" | "reset_password";
@@ -142,8 +141,8 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
       } else {
         onSignIn();
       }
-    } catch (err: any) {
-      setError(err?.message || "Sign in failed");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Sign in failed");
     } finally {
       setLoading(null);
     }
@@ -246,32 +245,9 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
         className="panel w-full max-w-md p-10 flex flex-col gap-8 relative overflow-hidden"
       >
         <div className="flex flex-col items-center gap-4 text-center relative z-10">
-          <div className="relative">
-            <div
-              aria-hidden
-              className="absolute -inset-3 rounded-full"
-              style={{
-                background:
-                  "radial-gradient(circle, hsla(188, 90%, 60%, 0.45), transparent 65%)",
-                filter: "blur(20px)",
-              }}
-            />
-            <div
-              className="relative rounded-full p-1"
-              style={{
-                background:
-                  "conic-gradient(from 90deg at 50% 50%, hsl(188 90% 65%), hsl(180 80% 80%), hsl(195 90% 55%), hsl(188 90% 65%))",
-                boxShadow: "0 0 36px hsla(188, 90%, 60%, 0.35)",
-              }}
-            >
-              <div className="rounded-full bg-black p-1">
-                <GlitchLogo className="h-20 w-20 sm:h-24 sm:w-24" period={6} circle videoObjectFit="cover" />
-              </div>
-            </div>
-          </div>
           <div className="flex flex-col gap-1.5">
             <h1 className="font-display text-3xl font-bold tracking-[-0.025em]">
-              Welcome to <span className="text-grad-brand">StreamArc</span>
+              Welcome to <span className="text-sa-blue">StreamArc</span>
             </h1>
             <p className="text-sm text-sa-text-3">Sign in to browse and publish streaming demos.</p>
           </div>
@@ -411,8 +387,8 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                 style={
                   tab === "signin"
                     ? {
-                        background: "var(--sa-grad)",
-                        boxShadow: "0 4px 14px hsla(188, 86%, 50%, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
+                        background: "var(--sa-blue)",
+                        boxShadow: "0 4px 14px hsla(188, 86%, 50%, 0.3)",
                       }
                     : {}
                 }
@@ -430,8 +406,8 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                 style={
                   tab === "signup"
                     ? {
-                        background: "var(--sa-grad)",
-                        boxShadow: "0 4px 14px hsla(188, 86%, 50%, 0.35), inset 0 1px 0 hsla(0,0%,100%,0.25)",
+                        background: "var(--sa-blue)",
+                        boxShadow: "0 4px 14px hsla(188, 86%, 50%, 0.3)",
                       }
                     : {}
                 }
@@ -495,10 +471,10 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(188 90% 60% / 0.35), transparent)" }} />
+                <div className="w-full h-px bg-sa-border/60" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="px-3 text-sa-text-3 bg-sa-bg/80 backdrop-blur-sm rounded-full">Or continue with</span>
+                <span className="px-3 text-sa-text-3 bg-sa-bg rounded-full">Or continue with</span>
               </div>
             </div>
 
@@ -523,7 +499,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
         )}
 
         <p className="text-center text-xs text-sa-text-3">
-          By continuing you agree to StreamArc's terms. This is a 60-day testnet experiment.
+          By continuing you agree to StreamArc&apos;s terms. This is a 60-day testnet experiment.
         </p>
       </motion.div>
     </div>

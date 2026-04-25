@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import Navbar from "@/app/components/layout/Navbar"
 import Sidebar from "@/app/components/layout/Sidebar"
 import { useCurrentUser } from "@/app/lib/auth-client"
+import { useScrolled } from "@/app/lib/useScrolled"
 
 export default function WatchLayout({
   children,
@@ -12,7 +13,7 @@ export default function WatchLayout({
   children: React.ReactNode
 }) {
   const [balance, setBalance] = useState(0)
-  const [scrolled, setScrolled] = useState(false)
+  const scrolled = useScrolled()
   const router = useRouter()
   const { userId } = useCurrentUser()
 
@@ -40,12 +41,6 @@ export default function WatchLayout({
 
     window.addEventListener("gateway-balance-live", handleLiveBalance as EventListener)
     return () => window.removeEventListener("gateway-balance-live", handleLiveBalance as EventListener)
-  }, [])
-
-  useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 20)
-    window.addEventListener("scroll", handleScroll)
-    return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
   const handlePageChange = (page: string) => {

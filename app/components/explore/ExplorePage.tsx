@@ -21,15 +21,6 @@ const CATEGORIES = [
   { id: "random", label: "🎲 Random" },
 ];
 
-const THUMB_GRADIENTS = [
-  "from-rose-600 to-orange-500",
-  "from-emerald-600 to-teal-500",
-  "from-sky-600 to-blue-500",
-  "from-violet-600 to-indigo-500",
-  "from-amber-600 to-yellow-500",
-  "from-fuchsia-600 to-pink-500",
-];
-
 interface Video {
   id: string;
   title: string;
@@ -54,8 +45,7 @@ function VideoCard({ video, index, onClick }: { video: Video; index: number; onC
       onClick={onClick}
     >
       <div className="relative aspect-video overflow-hidden rounded-xl border border-white/[0.06]">
-        <div className={`absolute inset-0 bg-gradient-to-br ${THUMB_GRADIENTS[index % THUMB_GRADIENTS.length]} opacity-30`} />
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0c0d14] via-[#131528] to-[#090a10]" />
+        <div className="absolute inset-0 bg-[#0c0d14]" />
         <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
           <PlayCircle size={32} className="fill-white/10 text-white" />
         </div>
