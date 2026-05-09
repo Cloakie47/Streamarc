@@ -15,7 +15,6 @@ import {
   MoreVertical,
   Pencil,
   Trash2,
-  Tag,
   Share2,
 } from "lucide-react";
 import { createWatchSession, endWatchSession, settleWatchSession } from "@/app/lib/payments";
@@ -76,7 +75,6 @@ function formatSubCentsShows(rate: number) {
 export interface WatchPageProps {
   videoId: string;
   creatorId: string;
-  ownerId: string;
   title: string;
   description: string;
   cloudflareUid?: string;
@@ -97,7 +95,6 @@ export interface WatchPageProps {
 export default function WatchPage({
   videoId,
   creatorId,
-  ownerId,
   title,
   description,
   cloudflareUid,
@@ -117,7 +114,7 @@ export default function WatchPage({
 
   const { userId, balance: userBalance } = useCurrentUser();
   const VIEWER_ID = userId || "";
-  const isOwnVideo = VIEWER_ID === ownerId;
+  const isOwnVideo = VIEWER_ID === creatorId;
 
   const handleShare = () => {
     const url = `${window.location.origin}/watch/${videoId}`;
@@ -146,12 +143,7 @@ export default function WatchPage({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editCommentText, setEditCommentText] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
-  const [acceptsOffers, setAcceptsOffers] = useState(false);
-  const [offerAmount, setOfferAmount] = useState("");
-  const [submittingOffer, setSubmittingOffer] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [offerSuccess, setOfferSuccess] = useState(false);
-  const [offerError, setOfferError] = useState<string | null>(null);
   const commentMenuRef = useRef<HTMLDivElement | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -418,17 +410,6 @@ export default function WatchPage({
   }, [videoId]);
 
   useEffect(() => {
-    if (!videoId) return;
-    fetch("/api/offers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "check_offers", video_id: videoId }),
-    })
-      .then((r) => r.json())
-      .then((data: { accepts_offers?: boolean }) => setAcceptsOffers(data.accepts_offers ?? false));
-  }, [videoId]);
-
-  useEffect(() => {
     if (!openMenuCommentId) return;
     const onDoc = (e: MouseEvent) => {
       if (commentMenuRef.current?.contains(e.target as Node)) return;
@@ -584,7 +565,7 @@ export default function WatchPage({
   };
 
   const handleTip = async () => {
-    if (!VIEWER_ID || !tipAmount || VIEWER_ID === ownerId) return;
+    if (!VIEWER_ID || !tipAmount || VIEWER_ID === creatorId) return;
     setTipping(true);
     setTipError(null);
     setTipSuccess(false);
@@ -594,9 +575,7 @@ export default function WatchPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           viewer_id: VIEWER_ID,
-          // Tip goes to the CURRENT OWNER, not the original creator.
-          // Once a video is sold, future tips belong to whoever owns it now.
-          creator_id: ownerId,
+          creator_id: creatorId,
           video_id: videoId,
           amount: tipAmount,
         }),
@@ -614,38 +593,6 @@ export default function WatchPage({
       setTipError("Tip failed");
     } finally {
       setTipping(false);
-    }
-  };
-
-  const handleMakeOffer = async () => {
-    if (!VIEWER_ID || !offerAmount) return;
-    if (parseFloat(offerAmount) < 1.0) {
-      setOfferError("Minimum offer is $1.00");
-      return;
-    }
-    setSubmittingOffer(true);
-    setOfferError(null);
-    try {
-      const res = await fetch("/api/offers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "make",
-          video_id: videoId,
-          buyer_id: VIEWER_ID,
-          amount: offerAmount,
-        }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        setOfferError(data.error ?? "Offer failed");
-      } else {
-        setOfferSuccess(true);
-        setOfferAmount("");
-        setTimeout(() => setOfferSuccess(false), 5000);
-      }
-    } finally {
-      setSubmittingOffer(false);
     }
   };
 
@@ -905,13 +852,13 @@ export default function WatchPage({
             </div>
           )}
 
-          {/* Dedicated tip section — only for non-owners */}
-          {VIEWER_ID && VIEWER_ID !== ownerId && (
+          {/* Dedicated tip section — only for non-creators */}
+          {VIEWER_ID && VIEWER_ID !== creatorId && (
             <div className="rounded-xl border border-sa-border/60 bg-sa-surface-2/40 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-semibold text-foreground">Send a tip</span>
-                  <span className="text-xs text-sa-text-3">Goes directly to the current owner</span>
+                  <span className="text-xs text-sa-text-3">Goes directly to the creator</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {["0.01", "0.05", "0.10"].map((amount) => (
@@ -953,7 +900,7 @@ export default function WatchPage({
               {(tipError || tipSuccess) && (
                 <div className="mt-3 text-xs">
                   {tipError && <p className="text-destructive">{tipError}</p>}
-                  {tipSuccess && <p className="text-green-400">Tip sent — thanks for supporting the owner!</p>}
+                  {tipSuccess && <p className="text-green-400">Tip sent — thanks for supporting the creator!</p>}
                 </div>
               )}
             </div>
@@ -1147,39 +1094,6 @@ export default function WatchPage({
               </div>
             )}
           </div>
-
-          {acceptsOffers && VIEWER_ID && !isOwnVideo && (
-            <div className="glass mt-4 flex flex-col gap-3 rounded-xl border border-sa-border p-4">
-              <div className="flex items-center gap-2">
-                <Tag size={16} className="text-sa-accent" />
-                <h3 className="text-sm font-bold">This video accepts offers</h3>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Make an offer to purchase ownership of this video. If accepted, you will earn all future watch revenue.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={offerAmount}
-                  onChange={(e) => setOfferAmount(e.target.value)}
-                  placeholder="Offer amount (min $1.00)"
-                  min={1}
-                  step="0.01"
-                  className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleMakeOffer()}
-                  disabled={submittingOffer || !offerAmount || parseFloat(offerAmount) < 1}
-                  className="btn btn-primary disabled:opacity-50"
-                >
-                  {submittingOffer ? "Sending..." : "Make Offer"}
-                </button>
-              </div>
-              {offerError && <p className="text-xs text-destructive">{offerError}</p>}
-              {offerSuccess && <p className="text-xs text-green-400">Offer sent! The owner will be notified.</p>}
-            </div>
-          )}
 
         </motion.div>
 

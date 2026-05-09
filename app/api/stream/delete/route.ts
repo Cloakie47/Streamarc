@@ -12,11 +12,9 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseAdmin();
 
-    // Verify current ownership: only the current owner (or an admin) may delete.
-    // After a sale, the original creator no longer has delete rights.
     const { data: video } = await supabase
       .from("videos")
-      .select("id, creator_id, owner_id, cloudflare_uid")
+      .select("id, creator_id, cloudflare_uid")
       .eq("id", video_id)
       .single();
 
@@ -30,8 +28,7 @@ export async function POST(req: NextRequest) {
       .eq("id", actorId)
       .single();
 
-    const currentOwner = video.owner_id ?? video.creator_id;
-    if (currentOwner !== actorId && !adminCheck?.is_admin) {
+    if (video.creator_id !== actorId && !adminCheck?.is_admin) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 

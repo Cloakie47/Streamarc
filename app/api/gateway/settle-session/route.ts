@@ -15,24 +15,6 @@ function randomNonce(): string {
   return "0x" + Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("")
 }
 
-async function getEarningsRecipientWallet(videoId: string, creatorId: string): Promise<{ wallet: string | null, recipientId: string }> {
-  const { data: video } = await getSupabaseAdmin()
-    .from("videos")
-    .select("owner_id")
-    .eq("id", videoId)
-    .single()
-
-  const recipientId = video?.owner_id ?? creatorId
-
-  const { data } = await getSupabaseAdmin()
-    .from("users")
-    .select("wallet_address")
-    .eq("id", recipientId)
-    .single()
-
-  return { wallet: data?.wallet_address ?? null, recipientId }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const { session_id, viewer_id, creator_id, video_id, seconds_watched } = await req.json()
@@ -79,7 +61,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Viewer Circle wallet not found" }, { status: 400 })
     }
 
-    const { wallet: creatorWallet, recipientId: earningsRecipientId } = await getEarningsRecipientWallet(video_id, creator_id)
+    const { data: creatorData } = await getSupabaseAdmin()
+      .from("users")
+      .select("wallet_address")
+      .eq("id", creator_id)
+      .single()
+    const creatorWallet = creatorData?.wallet_address ?? null
+    const earningsRecipientId = creator_id
     if (!creatorWallet) {
       return NextResponse.json({ error: "Earnings recipient wallet not found" }, { status: 400 })
     }
