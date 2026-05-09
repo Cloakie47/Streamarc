@@ -344,70 +344,33 @@ export default function WatchPage({
   }, [playing, free, fireBatch, onBalanceChange, isOwnVideo, ratePerSecond, intervalSeconds]);
 
   useEffect(() => {
-    if (!VIEWER_ID) return
-    fetch("/api/gateway/balance", {
+    if (!videoId) return;
+    setLoadingComments(true);
+    fetch("/api/watch/init", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: VIEWER_ID }),
+      body: JSON.stringify({ video_id: videoId, user_id: VIEWER_ID || undefined }),
     })
-      .then(r => r.json())
-      .then(data => {
-        if (data.balance !== undefined) {
-          setBalance(data.balance)
-          initialBalanceRef.current = data.balance
+      .then((r) => r.json())
+      .then((data: {
+        watchlisted?: boolean;
+        favorited?: boolean;
+        following?: boolean;
+        comments?: CommentItem[];
+        balance?: number;
+      }) => {
+        setSavedToWatchlist(!!data.watchlisted);
+        setFavorited(!!data.favorited);
+        setFollowing(!!data.following);
+        setComments(data.comments ?? []);
+        if (typeof data.balance === "number") {
+          setBalance(data.balance);
+          initialBalanceRef.current = data.balance;
         }
       })
       .catch(() => {})
-  }, [VIEWER_ID])
-
-  useEffect(() => {
-    if (!VIEWER_ID || !videoId) return;
-    fetch("/api/watchlist", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: VIEWER_ID, video_id: videoId, action: "check" }),
-    })
-      .then((r) => r.json())
-      .then((data: { saved?: boolean }) => setSavedToWatchlist(!!data.saved))
-      .catch(() => {});
-  }, [VIEWER_ID, videoId]);
-
-  useEffect(() => {
-    if (!VIEWER_ID || !videoId) return;
-    fetch("/api/favorites", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: VIEWER_ID, video_id: videoId, action: "check" }),
-    })
-      .then((r) => r.json())
-      .then((data: { favorited?: boolean }) => setFavorited(!!data.favorited))
-      .catch(() => {});
-  }, [VIEWER_ID, videoId]);
-
-  useEffect(() => {
-    if (!VIEWER_ID || !creatorId || VIEWER_ID === creatorId) return;
-    fetch("/api/follows", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: VIEWER_ID, target_id: creatorId, action: "check" }),
-    })
-      .then((r) => r.json())
-      .then((data: { following?: boolean }) => setFollowing(data.following ?? false))
-      .catch(() => {});
-  }, [VIEWER_ID, creatorId]);
-
-  useEffect(() => {
-    if (!videoId) return;
-    setLoadingComments(true);
-    fetch("/api/comments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ video_id: videoId, action: "list" }),
-    })
-      .then((r) => r.json())
-      .then((data: { comments?: CommentItem[] }) => setComments(data.comments ?? []))
       .finally(() => setLoadingComments(false));
-  }, [videoId]);
+  }, [VIEWER_ID, videoId]);
 
   useEffect(() => {
     if (!openMenuCommentId) return;

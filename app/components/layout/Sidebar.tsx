@@ -9,34 +9,18 @@ import {
 } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
 import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
-function WalletBalances({ userId, walletAddress, onDeposited, open }: {
+function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gatewayBalance }: {
   userId: string | null;
   walletAddress: string | null;
   onDeposited: () => void;
-  open: boolean;
+  walletBalance: number;
+  gatewayBalance: number;
 }) {
-  const [walletBalance, setWalletBalance] = useState<string | null>(null);
-  const [gatewayBalance, setGatewayBalance] = useState<string | null>(null);
   const [depositing, setDepositing] = useState(false);
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositTxHash, setDepositTxHash] = useState<string | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [copiedAddress, setCopiedAddress] = useState(false);
-
-  useEffect(() => {
-    if (!userId || !open) return;
-    fetch("/api/gateway/balance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.balance !== undefined) setGatewayBalance(data.balance.toFixed(4))
-        if (data.wallet_balance !== undefined) setWalletBalance(data.wallet_balance.toFixed(4))
-      })
-      .catch(() => {});
-  }, [userId, open]);
 
   const handleDeposit = async () => {
     if (!userId) return;
@@ -87,13 +71,13 @@ function WalletBalances({ userId, walletAddress, onDeposited, open }: {
         <div className="panel-muted p-3 space-y-1">
           <p className="text-[10px] text-sa-text-3 uppercase tracking-wider">Wallet USDC</p>
           <p className="text-lg font-bold font-mono text-foreground">
-            ${walletBalance ?? "..."}
+            ${walletBalance.toFixed(4)}
           </p>
         </div>
         <div className="panel-muted p-3 space-y-1">
           <p className="text-[10px] text-sa-green uppercase tracking-wider">Gateway balance</p>
           <p className="text-lg font-bold font-mono text-sa-green">
-            ${gatewayBalance ?? "..."}
+            ${gatewayBalance.toFixed(4)}
           </p>
         </div>
       </div>
@@ -215,6 +199,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   const router = useRouter();
   const pathname = usePathname();
   const [balance, setBalance] = useState(initialBalance);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
   const [liveBalanceActive, setLiveBalanceActive] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -250,6 +235,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
           setBalance(data.balance);
           onBalanceChange?.(data.balance);
         }
+        if (data.wallet_balance !== undefined) setWalletBalance(data.wallet_balance);
         if (data.wallet_address) setWalletAddress(data.wallet_address);
       })
       .catch(() => {});
@@ -269,6 +255,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
             setBalance(data.balance);
             onBalanceChange?.(data.balance);
           }
+          if (data.wallet_balance !== undefined) setWalletBalance(data.wallet_balance);
         })
         .catch(() => {});
     };
@@ -469,22 +456,10 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
             <WalletBalances
               userId={userId ?? null}
               walletAddress={walletAddress ?? null}
-              open={showTopUp}
+              walletBalance={walletBalance}
+              gatewayBalance={balance}
               onDeposited={() => {
-                if (userId) {
-                  fetch("/api/gateway/balance", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ user_id: userId }),
-                  })
-                    .then(r => r.json())
-                    .then(data => {
-                      if (data.balance !== undefined) {
-                        setBalance(data.balance)
-                        onBalanceChange?.(data.balance)
-                      }
-                    })
-                }
+                window.dispatchEvent(new CustomEvent("gateway-balance-updated"))
                 setShowTopUp(false)
               }}
             />
