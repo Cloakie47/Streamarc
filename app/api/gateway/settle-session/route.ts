@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     const creatorNonce = randomNonce()
     const platformNonce = randomNonce()
     const now = Math.floor(Date.now() / 1000)
-    const validBefore = (now + 345600).toString()
+    const validBefore = (now + 2592000).toString()
 
     // Check nonce collision
     const { data: existingNonce } = await getSupabaseAdmin()
@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
         asset: USDC_ADDRESS,
         amount,
         payTo: to,
-        maxTimeoutSeconds: 345600,
+        maxTimeoutSeconds: 2592000,
         extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: GATEWAY_WALLET },
       },
       payload: {
@@ -198,7 +198,7 @@ export async function POST(req: NextRequest) {
       description: "StreamArc pay-per-second video",
       mimeType: "application/json",
       payTo: to,
-      maxTimeoutSeconds: 345600,
+      maxTimeoutSeconds: 2592000,
       asset: USDC_ADDRESS,
       extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: GATEWAY_WALLET },
     })
