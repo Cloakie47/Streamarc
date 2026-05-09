@@ -1,21 +1,59 @@
 import { NextRequest, NextResponse } from "next/server"
-import { GatewayClient } from "@circle-fin/x402-batching/client"
+import { UnifiedBalanceKit } from "@circle-fin/unified-balance-kit"
+import { createViemAdapterFromProvider } from "@circle-fin/adapter-viem-v2"
+import { getWalletBalance } from "@/app/lib/circle-wallets"
+import { createCircleEip1193Provider } from "@/app/lib/circle-eip1193"
+import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 
-const client = new GatewayClient({
-  chain: "arcTestnet",
-  privateKey: "0x0000000000000000000000000000000000000000000000000000000000000001",
-})
+const kit = new UnifiedBalanceKit()
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get("address")
   if (!address) return NextResponse.json({ error: "Missing address" }, { status: 400 })
 
   try {
-    const balances = await client.getBalances(address as `0x${string}`)
+    const walletAddress = address as `0x${string}`
+
+    const { data: user } = await getSupabaseAdmin()
+      .from("users")
+      .select("circle_wallet_id")
+      .eq("wallet_address", walletAddress)
+      .single()
+
+    if (!user?.circle_wallet_id) {
+      return NextResponse.json({ error: "Wallet not registered" }, { status: 404 })
+    }
+
+    const provider = createCircleEip1193Provider({
+      walletId: user.circle_wallet_id,
+      address: walletAddress,
+    })
+    const adapter = await createViemAdapterFromProvider({
+      provider,
+      capabilities: { addressContext: "developer-controlled" },
+    })
+
+    const [walletBalance, gatewayResult] = await Promise.all([
+      getWalletBalance(walletAddress),
+      kit
+        .getBalances({
+          sources: [{ adapter, address: walletAddress, chains: "Arc_Testnet" }],
+          networkType: "testnet",
+          includePending: true,
+        })
+        .catch((err: unknown) => {
+          console.error("UBK getBalances failed:", err instanceof Error ? err.message : err)
+          return null
+        }),
+    ])
+
+    const confirmed = parseFloat(gatewayResult?.totalConfirmedBalance ?? "0")
+    const pending = parseFloat(gatewayResult?.totalPendingBalance ?? "0")
+
     return NextResponse.json({
-      available: balances.gateway.formattedAvailable,
-      total: balances.gateway.formattedTotal,
-      wallet: balances.wallet.formatted,
+      available: confirmed.toString(),
+      total: (confirmed + pending).toString(),
+      wallet: walletBalance.toString(),
     })
   } catch {
     return NextResponse.json({ error: "Failed to fetch balance" }, { status: 500 })
