@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
         from: viewer.wallet_address, // EOA address â€” owns Gateway balance
         to: creatorWallet,
         value: creatorAmountIn6Dec,
-        validAfter: "0",
+        validAfter: (now - 600).toString(),
         validBefore,
         nonce: creatorNonce,
       },
@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
         from: viewer.wallet_address, // EOA address â€” owns Gateway balance
         to: platformWallet,
         value: platformAmountIn6Dec,
-        validAfter: "0",
+        validAfter: (now - 600).toString(),
         validBefore,
         nonce: platformNonce,
       },
@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
           from: viewer.wallet_address, // EOA address â€” owns Gateway balance
           to,
           value: amount,
-          validAfter: "0",
+          validAfter: (now - 600).toString(),
           validBefore,
           nonce,
         },
