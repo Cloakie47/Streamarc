@@ -594,7 +594,9 @@ export default function WatchPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           viewer_id: VIEWER_ID,
-          creator_id: creatorId,
+          // Tip goes to the CURRENT OWNER, not the original creator.
+          // Once a video is sold, future tips belong to whoever owns it now.
+          creator_id: ownerId,
           video_id: videoId,
           amount: tipAmount,
         }),
@@ -832,17 +834,16 @@ export default function WatchPage({
               )}
             </div>
 
-            {/* Live rate indicator — minimal, no heavy container */}
-            <span className="inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-sa-text-3">
+            {/* Live rate indicator — small surface pill so it stops floating top-right */}
+            <span className="inline-flex items-center gap-2 rounded-full border border-sa-border/60 bg-sa-surface-2/60 px-3 py-1.5 font-mono text-[11px] tabular-nums text-sa-text-3">
               <span className={`h-1.5 w-1.5 rounded-full ${playing ? "bg-sa-green animate-pulse shadow-[0_0_6px_rgba(60,217,160,0.8)]" : "bg-sa-text-3"}`} />
               <span className="text-foreground">{rateStatusLabel}</span>
             </span>
           </div>
 
-          {/* Action row: lightweight ghost icon-pills + compact tip */}
+          {/* Action row — contained in a subtle surface so pills stop floating in negative space */}
           {VIEWER_ID && (
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-sa-border/60 pt-4">
-              {/* Ghost action pills */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sa-border/60 bg-sa-surface-2/40 p-1.5">
               <div className="flex flex-wrap items-center gap-1">
                 <button
                   type="button"
@@ -853,10 +854,10 @@ export default function WatchPage({
                   disabled={savingWatchlist}
                   aria-pressed={savedToWatchlist}
                   title={savedToWatchlist ? "Saved to Watch Later" : "Save to Watch Later"}
-                  className={`inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium transition-all ${
+                  className={`inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-all ${
                     savedToWatchlist
-                      ? "bg-primary/10 text-primary ring-1 ring-inset ring-primary/25"
-                      : "text-sa-text-2 hover:bg-white/[0.05] hover:text-foreground"
+                      ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/30"
+                      : "text-sa-text-2 hover:bg-white/[0.06] hover:text-foreground"
                   } disabled:opacity-60`}
                 >
                   <Bookmark size={15} className={savedToWatchlist ? "fill-current" : ""} />
@@ -871,10 +872,10 @@ export default function WatchPage({
                   disabled={togglingFavorite}
                   aria-pressed={favorited}
                   title={favorited ? "Remove from favourites" : "Add to favourites"}
-                  className={`inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium transition-all ${
+                  className={`inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-all ${
                     favorited
-                      ? "bg-red-500/10 text-red-400 ring-1 ring-inset ring-red-500/25"
-                      : "text-sa-text-2 hover:bg-white/[0.05] hover:text-foreground"
+                      ? "bg-red-500/15 text-red-400 ring-1 ring-inset ring-red-500/30"
+                      : "text-sa-text-2 hover:bg-white/[0.06] hover:text-foreground"
                   } disabled:opacity-60`}
                 >
                   <Heart size={15} className={favorited ? "fill-current" : ""} />
@@ -887,34 +888,48 @@ export default function WatchPage({
                     handleShare();
                   }}
                   title="Share link"
-                  className="inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-medium text-sa-text-2 transition-all hover:bg-white/[0.05] hover:text-foreground"
+                  className="inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium text-sa-text-2 transition-all hover:bg-white/[0.06] hover:text-foreground"
                 >
                   <Share2 size={15} />
                   <span>{copied ? "Copied!" : "Share"}</span>
                 </button>
               </div>
+              {/* Right-side balance: small ownership badge when viewer owns the video,
+                  otherwise the tip card below carries the visual weight. */}
+              {isOwnVideo && (
+                <span className="mr-2 inline-flex items-center gap-1.5 rounded-full bg-sa-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-sa-accent ring-1 ring-inset ring-sa-accent/25">
+                  <span className="h-1.5 w-1.5 rounded-full bg-sa-accent" />
+                  You own this
+                </span>
+              )}
+            </div>
+          )}
 
-              {/* Tip controls — inline minimal (not the current video owner) */}
-              {VIEWER_ID && VIEWER_ID !== ownerId && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-sa-text-3 pr-1">
-                    Tip
-                  </span>
+          {/* Dedicated tip section — only for non-owners */}
+          {VIEWER_ID && VIEWER_ID !== ownerId && (
+            <div className="rounded-xl border border-sa-border/60 bg-sa-surface-2/40 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-semibold text-foreground">Send a tip</span>
+                  <span className="text-xs text-sa-text-3">Goes directly to the current owner</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   {["0.01", "0.05", "0.10"].map((amount) => (
                     <button
                       key={amount}
                       type="button"
                       onClick={() => setTipAmount(amount)}
-                      className={`h-8 rounded-full px-3 text-[12px] font-medium tabular-nums transition-all ${
+                      className={`inline-flex h-9 items-center justify-center rounded-full px-3.5 text-[13px] font-semibold tabular-nums transition-all ${
                         tipAmount === amount
-                          ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/30"
-                          : "text-sa-text-2 hover:bg-white/[0.05] hover:text-foreground"
+                          ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/40"
+                          : "bg-sa-surface text-sa-text-2 ring-1 ring-inset ring-sa-border/60 hover:bg-white/[0.05] hover:text-foreground"
                       }`}
                     >
                       ${amount}
                     </button>
                   ))}
-                  <div className="flex h-8 items-center rounded-full bg-sa-surface-2/80 ring-1 ring-inset ring-sa-border overflow-hidden">
+                  <div className="flex h-9 w-[8.5rem] items-center rounded-full bg-sa-surface ring-1 ring-inset ring-sa-border/60 focus-within:ring-primary/40">
+                    <span className="pl-3 text-[13px] text-sa-text-3">$</span>
                     <input
                       type="number"
                       value={tipAmount}
@@ -922,26 +937,25 @@ export default function WatchPage({
                       placeholder="Custom"
                       min="0.001"
                       step="0.001"
-                      className="h-full w-[7.5rem] bg-transparent px-3 text-[12px] tabular-nums placeholder:text-sa-text-3 focus:outline-none"
+                      className="h-full w-full bg-transparent px-2 text-[13px] tabular-nums placeholder:text-sa-text-3 focus:outline-none"
                     />
-                    <button
-                      type="button"
-                      onClick={handleTip}
-                      disabled={tipping || !tipAmount || Number.parseFloat(tipAmount) < 0.001}
-                      className="h-full bg-primary px-3.5 text-[12px] font-semibold text-primary-foreground transition hover:bg-sa-cyan disabled:opacity-50"
-                    >
-                      {tipping ? "…" : "Send"}
-                    </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleTip}
+                    disabled={tipping || !tipAmount || Number.parseFloat(tipAmount) < 0.001}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-primary px-5 text-[13px] font-semibold text-primary-foreground transition hover:bg-sa-cyan disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {tipping ? "Sending…" : "Send tip"}
+                  </button>
+                </div>
+              </div>
+              {(tipError || tipSuccess) && (
+                <div className="mt-3 text-xs">
+                  {tipError && <p className="text-destructive">{tipError}</p>}
+                  {tipSuccess && <p className="text-green-400">Tip sent — thanks for supporting the owner!</p>}
                 </div>
               )}
-            </div>
-          )}
-
-          {VIEWER_ID && VIEWER_ID !== ownerId && (tipError || tipSuccess) && (
-            <div className="flex items-center gap-2 text-xs">
-              {tipError && <p className="text-destructive">{tipError}</p>}
-              {tipSuccess && <p className="text-green-400">Tip sent!</p>}
             </div>
           )}
 

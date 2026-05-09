@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     const { data: row, error: fetchErr } = await supabase
       .from("videos")
-      .select("creator_id")
+      .select("creator_id, owner_id")
       .eq("id", video_id)
       .single();
 
@@ -25,8 +25,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Video not found" }, { status: 404 });
     }
 
-    if (row.creator_id !== user_id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    // Permission: current owner OR admin only.
+    // After a sale, the original creator no longer has edit rights.
+    const currentOwner = row.owner_id ?? row.creator_id;
+    if (currentOwner !== user_id) {
+      const { data: adminCheck } = await supabase
+        .from("users")
+        .select("is_admin")
+        .eq("id", user_id)
+        .single();
+      if (!adminCheck?.is_admin) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+      }
     }
 
     const { error } = await supabase

@@ -52,6 +52,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Wallet not found" }, { status: 400 });
     }
 
+    // Prevent same-wallet self-tip — the gateway rejects from===to as a self transfer.
+    // This also covers the case where viewer_id and creator_id are different but happen
+    // to share a wallet address (e.g. linked accounts).
+    if (viewer.wallet_address.toLowerCase() === creator.wallet_address.toLowerCase()) {
+      return NextResponse.json({ error: "You cannot tip yourself" }, { status: 400 });
+    }
+
     const viewerRow = viewer as { wallet_address: string; circle_wallet_id?: string | null };
     const viewerWalletId =
       viewerRow.circle_wallet_id ?? (await getWalletIdByAddress(viewerRow.wallet_address));

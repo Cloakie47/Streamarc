@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { motion } from "motion/react"
-import { Plus, TrendingUp, Users, Camera, Twitter, MessageCircle, Save, Trash2, Sparkles, Tag, Check, X, Clock } from "lucide-react"
+import { Plus, TrendingUp, Users, Camera, Twitter, MessageCircle, Save, Trash2, Sparkles, Tag, Check, X, Clock, Film, MoreVertical, ShoppingBag, Crown } from "lucide-react"
 import { useCurrentUser } from "@/app/lib/auth-client"
 import UploadModal from "@/app/components/studio/UploadModal"
 import ChapterEditor from "@/app/components/studio/ChapterEditor"
@@ -13,6 +13,11 @@ interface EarningsStats {
   total_views: number
   avg_watch_seconds: number
   today_earned: number
+}
+
+interface PartyInfo {
+  display_name: string | null
+  channel_name: string | null
 }
 
 interface VideoRow {
@@ -30,6 +35,19 @@ interface VideoRow {
   is_sold?: boolean
   is_owned?: boolean
   owner_id?: string | null
+  current_owner?: PartyInfo | null
+  original_creator?: PartyInfo | null
+}
+
+type VideoRole = "creator-owner" | "creator-sold" | "purchased"
+
+interface UnifiedVideo extends VideoRow {
+  role: VideoRole
+}
+
+function partyLabel(p: PartyInfo | null | undefined): string {
+  if (!p) return "another user"
+  return p.channel_name?.trim() || p.display_name?.trim() || "another user"
 }
 
 export default function StudioPage() {
@@ -69,6 +87,8 @@ export default function StudioPage() {
   const [allOffers, setAllOffers] = useState<any[]>([])
   const [acceptingOffer, setAcceptingOffer] = useState<string | null>(null)
   const [togglingOffers, setTogglingOffers] = useState<string | null>(null)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
   const [isWhitelisted, setIsWhitelisted] = useState<boolean | null>(null)
   const [requestForm, setRequestForm] = useState({ project_name: "", description: "", twitter: "" })
   const [submittingRequest, setSubmittingRequest] = useState(false)
@@ -226,6 +246,31 @@ export default function StudioPage() {
   useEffect(() => {
     void fetchAllOffers()
   }, [fetchAllOffers])
+
+  useEffect(() => {
+    if (!openMenuId) return
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node)) return
+      setOpenMenuId(null)
+    }
+    document.addEventListener("mousedown", onDoc)
+    return () => document.removeEventListener("mousedown", onDoc)
+  }, [openMenuId])
+
+  const unifiedVideos: UnifiedVideo[] = [
+    ...videos.map((v): UnifiedVideo => ({
+      ...v,
+      role: v.is_sold ? "creator-sold" : "creator-owner",
+    })),
+    ...ownedVideos.map((v): UnifiedVideo => ({
+      ...v,
+      role: "purchased",
+    })),
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+  const createdCount = videos.filter((v) => !v.is_sold).length
+  const soldCount = videos.filter((v) => v.is_sold).length
+  const purchasedCount = ownedVideos.length
 
   const handleDeleteVideo = async (videoId: string) => {
     if (!userId) return
@@ -541,25 +586,39 @@ export default function StudioPage() {
             </div>
           )}
 
-          {/* Recent Videos: full width */}
+          {/* Unified Videos: created + purchased in one box */}
           <div className="glass rounded-sa-card overflow-hidden">
-            <div className="p-6 border-b border-sa-border flex items-center justify-between">
-              <h3 className="font-bold">Recent Videos</h3>
-              <button type="button" className="text-sm text-sa-accent font-medium hover:underline cursor-pointer bg-transparent border-none">View all</button>
+            <div className="flex flex-col gap-1 border-b border-sa-border p-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-0.5">
+                <h3 className="flex items-center gap-2 font-bold">
+                  <Film size={16} className="text-sa-accent" />
+                  Videos
+                  <span className="text-sm font-normal text-sa-text-3">({unifiedVideos.length})</span>
+                </h3>
+                {unifiedVideos.length > 0 && (
+                  <p className="text-xs text-sa-text-3">
+                    {createdCount > 0 && <span>{createdCount} created</span>}
+                    {createdCount > 0 && soldCount > 0 && <span> · </span>}
+                    {soldCount > 0 && <span>{soldCount} sold</span>}
+                    {(createdCount > 0 || soldCount > 0) && purchasedCount > 0 && <span> · </span>}
+                    {purchasedCount > 0 && <span>{purchasedCount} purchased</span>}
+                  </p>
+                )}
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-xs text-sa-text-3 uppercase tracking-wider">
-                    <th className="px-6 py-4 font-bold">Video</th>
-                    <th className="px-6 py-4 font-bold">Status</th>
-                    <th className="px-6 py-4 font-bold">Views</th>
-                    <th className="px-6 py-4 font-bold">Revenue</th>
-                    <th className="px-6 py-4 font-bold"></th>
+                  <tr className="border-b border-sa-border/50 text-xs uppercase tracking-wider text-sa-text-3">
+                    <th className="px-6 py-3 font-bold">Video</th>
+                    <th className="px-6 py-3 font-bold">Role</th>
+                    <th className="px-6 py-3 font-bold">Views</th>
+                    <th className="px-6 py-3 font-bold">Earnings</th>
+                    <th className="px-6 py-3 text-right font-bold">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-sa-border">
-                  {videos.length === 0 ? (
+                <tbody className="divide-y divide-sa-border/40">
+                  {unifiedVideos.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3">
@@ -571,154 +630,121 @@ export default function StudioPage() {
                         </div>
                       </td>
                     </tr>
-                  ) : videos.map((v) => (
-                    <tr key={v.id} className="hover:bg-sa-surface transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-16 aspect-video rounded-lg overflow-hidden glass bg-sa-surface-2" />
-                          <div>
-                            <span className="text-sm font-medium line-clamp-1">{v.title}</span>
-                            <span className="block mt-0.5 text-xs text-sa-text-3">{formatAge(v.created_at)}</span>
+                  ) : unifiedVideos.map((v) => {
+                    const roleLabel =
+                      v.role === "creator-owner" ? "Creator · Owner" :
+                      v.role === "creator-sold" ? "Sold" :
+                      "Purchased"
+                    const RoleIcon =
+                      v.role === "creator-owner" ? Crown :
+                      v.role === "creator-sold" ? Users :
+                      ShoppingBag
+                    const roleClass =
+                      v.role === "creator-owner" ? "border-sa-accent/30 bg-sa-accent/10 text-sa-accent" :
+                      v.role === "creator-sold" ? "border-white/10 bg-white/5 text-sa-text-3" :
+                      "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                    const subline =
+                      v.role === "creator-sold"
+                        ? `Owner: ${partyLabel(v.current_owner)}`
+                        : v.role === "purchased"
+                        ? `Created by: ${partyLabel(v.original_creator)}`
+                        : null
+                    return (
+                      <tr key={v.id} className="group transition-colors hover:bg-sa-surface">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="aspect-video w-16 shrink-0 overflow-hidden rounded-lg bg-sa-surface-2" />
+                            <div className="min-w-0">
+                              <p className="line-clamp-1 text-sm font-medium">{v.title}</p>
+                              <p className="mt-0.5 text-xs text-sa-text-3">{formatAge(v.created_at)}</p>
+                              {subline && (
+                                <p className="mt-0.5 truncate text-xs text-sa-text-3">{subline}</p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`rounded-full border px-2 py-1 text-xs ${
-                            v.is_sold
-                              ? "border-muted/20 bg-muted/10 text-muted-foreground"
-                              : "border-green-500/20 bg-green-500/10 text-green-400"
-                          }`}
-                        >
-                          {v.is_sold ? "Sold" : v.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm tabular-nums">{v.views.toLocaleString()}</td>
-                      <td className="px-6 py-4 text-sm font-bold tabular-nums text-emerald-400">${v.earned.toFixed(4)}</td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setChapterEditorVideo(v)}
-                            title="Edit chapters"
-                            className="p-2 rounded-lg hover:bg-primary/10 text-sa-text-3 hover:text-primary opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none"
-                          >
-                            <Sparkles size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void handleToggleOffers(v.id)
-                            }}
-                            disabled={togglingOffers === v.id}
-                            title={v.accepts_offers ? "Stop accepting offers" : "Accept offers"}
-                            className={`p-2 rounded-lg transition-all cursor-pointer bg-transparent border-none opacity-0 group-hover:opacity-100 ${
-                              v.accepts_offers
-                                ? "text-sa-accent hover:bg-sa-accent/10"
-                                : "text-sa-text-3 hover:bg-white/5"
-                            }`}
-                          >
-                            <Tag size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteVideo(v.id)}
-                            disabled={deletingVideoId === v.id}
-                            className="p-2 rounded-lg hover:bg-red-500/10 text-sa-text-3 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all cursor-pointer bg-transparent border-none disabled:opacity-50"
-                          >
-                            {deletingVideoId === v.id ? (
-                              <span className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin block" />
-                            ) : (
-                              <Trash2 size={16} />
-                            )}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${roleClass}`}>
+                            <RoleIcon size={12} />
+                            {roleLabel}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm tabular-nums">{v.views.toLocaleString()}</td>
+                        <td className="px-6 py-4 text-sm font-bold tabular-nums text-emerald-400">${v.earned.toFixed(4)}</td>
+                        <td className="px-6 py-4">
+                          {v.role === "creator-sold" ? (
+                            // Original creator who has sold this video has no
+                            // management permissions — those belong to the current owner.
+                            <div className="flex items-center justify-end">
+                              <span className="text-xs text-sa-text-3">No actions — sold</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setChapterEditorVideo(v)}
+                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-sa-border bg-sa-surface-2 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                              >
+                                <Sparkles size={13} />
+                                Chapters
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleToggleOffers(v.id)}
+                                disabled={togglingOffers === v.id}
+                                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-wait disabled:opacity-60 ${
+                                  v.accepts_offers
+                                    ? "border-sa-accent/40 bg-sa-accent/15 text-sa-accent hover:bg-sa-accent/25"
+                                    : "border-sa-border bg-sa-surface-2 text-sa-text-3 hover:border-sa-accent/30 hover:text-foreground"
+                                }`}
+                              >
+                                <Tag size={13} />
+                                {togglingOffers === v.id ? "..." : v.accepts_offers ? "Offers: On" : "Offers: Off"}
+                              </button>
+                              <div className="relative" ref={openMenuId === v.id ? menuRef : undefined}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setOpenMenuId((id) => (id === v.id ? null : v.id))
+                                  }}
+                                  aria-label="More actions"
+                                  className="inline-flex cursor-pointer items-center justify-center rounded-lg border border-sa-border bg-sa-surface-2 p-1.5 text-sa-text-3 transition-colors hover:border-sa-border-hover hover:text-foreground"
+                                >
+                                  <MoreVertical size={14} />
+                                </button>
+                                {openMenuId === v.id && (
+                                  <div className="absolute right-0 top-9 z-30 min-w-[180px] overflow-hidden rounded-lg border border-sa-border bg-sa-surface py-1 shadow-xl">
+                                    <button
+                                      type="button"
+                                      disabled={deletingVideoId === v.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setOpenMenuId(null)
+                                        void handleDeleteVideo(v.id)
+                                      }}
+                                      className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-3 py-2 text-left text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:cursor-wait disabled:opacity-60"
+                                    >
+                                      {deletingVideoId === v.id ? (
+                                        <span className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-red-400 border-t-transparent" />
+                                      ) : (
+                                        <Trash2 size={13} />
+                                      )}
+                                      Delete video
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
-
-          {ownedVideos.length > 0 && (
-            <div className="mt-8 flex flex-col gap-4">
-              <h2 className="flex items-center gap-2 text-lg font-bold">
-                <Tag size={18} className="text-sa-accent" />
-                My Portfolio
-                <span className="text-sm font-normal text-muted-foreground">({ownedVideos.length} owned)</span>
-              </h2>
-              <div className="panel overflow-hidden">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-sa-border">
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-sa-text-3">Video</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-sa-text-3">Views</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-sa-text-3">Earnings</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-sa-text-3">Status</th>
-                      <th className="px-4 py-3" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ownedVideos.map((v) => (
-                      <tr key={v.id} className="group border-b border-sa-border/50 transition-colors last:border-0 hover:bg-white/[0.02]">
-                        <td className="px-4 py-3">
-                          <p className="line-clamp-1 text-sm font-medium">{v.title}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            Owned · {new Date(v.created_at).toLocaleDateString()}
-                          </p>
-                        </td>
-                        <td className="px-4 py-3 text-sm">{v.views ?? 0}</td>
-                        <td className="px-4 py-3 font-mono text-sm text-sa-accent">${(v.earned ?? 0).toFixed(4)}</td>
-                        <td className="px-4 py-3">
-                          <span className="rounded-full border border-sa-accent/20 bg-sa-accent/10 px-2 py-1 text-xs text-sa-accent">
-                            Owned
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => void handleToggleOffers(v.id)}
-                              disabled={togglingOffers === v.id}
-                              title={v.accepts_offers ? "Stop accepting offers" : "Accept offers"}
-                              className={`cursor-pointer rounded-lg border-none bg-transparent p-2 transition-all opacity-0 group-hover:opacity-100 ${
-                                v.accepts_offers
-                                  ? "text-sa-accent hover:bg-sa-accent/10"
-                                  : "text-sa-text-3 hover:bg-white/5"
-                              }`}
-                            >
-                              <Tag size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setChapterEditorVideo(v)}
-                              title="Edit chapters"
-                              className="cursor-pointer rounded-lg border-none bg-transparent p-2 text-sa-text-3 opacity-0 transition-all hover:bg-primary/10 hover:text-primary group-hover:opacity-100"
-                            >
-                              <Sparkles size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteVideo(v.id)}
-                              disabled={deletingVideoId === v.id}
-                              className="cursor-pointer rounded-lg border-none bg-transparent p-2 text-sa-text-3 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 disabled:opacity-50"
-                            >
-                              {deletingVideoId === v.id ? (
-                                <span className="block h-4 w-4 animate-spin rounded-full border-2 border-red-400 border-t-transparent" />
-                              ) : (
-                                <Trash2 size={16} />
-                              )}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
 
           {allOffers.length > 0 && (
             <div className="mt-8 flex flex-col gap-4">
