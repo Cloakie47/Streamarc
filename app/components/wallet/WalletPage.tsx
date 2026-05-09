@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -10,8 +10,11 @@ import {
   ExternalLink,
   RefreshCw,
   Wallet,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
-import ChainSelector, { SUPPORTED_CHAINS } from "./ChainSelector";
+import ChainSelector from "./ChainSelector";
+import { SUPPORTED_CHAINS } from "@/app/lib/chains";
 
 const ARC_TESTNET = "Arc_Testnet";
 const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -46,15 +49,19 @@ function timeAgo(iso: string) {
   return `${d}d ago`;
 }
 
-interface Estimate {
+// Inline fee math (mirrors the fallback values from /api/wallet/estimate).
+// kept as a module constant so the breakdown updates instantly as inputs change.
+const GATEWAY_FEE_BPS = 0.00005; // 0.005% on cross-chain spend
+const FORWARDING_FEE_USDC = 0;
+const GAS_ESTIMATE_USDC = 0;
+
+interface FeeBreakdown {
   spend_amount: number;
   platform_fee: number;
   gateway_fee: number;
   forwarding_fee: number;
   gas_estimate: number;
   you_receive: number;
-  destination_chain: string;
-  is_cross_chain: boolean;
 }
 
 interface Transaction {
@@ -68,6 +75,16 @@ interface Transaction {
   tx_hash: string | null;
   status: string;
   created_at: string;
+}
+
+interface ChainBalance {
+  chain: string;
+  confirmed: number;
+  pending: number;
+}
+
+function chainIcon(chainId: string) {
+  return SUPPORTED_CHAINS.find((c) => c.id === chainId)?.icon ?? "•";
 }
 
 const SEND_DISABLED_CHAINS = SUPPORTED_CHAINS
@@ -84,9 +101,6 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
   const [wdAmount, setWdAmount] = useState("");
   const [wdChain, setWdChain] = useState(ARC_TESTNET);
   const [wdDestination, setWdDestination] = useState("");
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
-  const [estimating, setEstimating] = useState(false);
-  const [estimateError, setEstimateError] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [withdrawTx, setWithdrawTx] = useState<{ hash: string; chain: string } | null>(null);
@@ -103,6 +117,10 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [loadingTxs, setLoadingTxs] = useState(true);
 
+  // Per-chain Gateway balance breakdown
+  const [chainBalances, setChainBalances] = useState<ChainBalance[]>([]);
+  const [showByChain, setShowByChain] = useState(false);
+
   const wdIsCrossChain = wdChain !== ARC_TESTNET;
   const wdMinimum = wdIsCrossChain ? 0.5 : 0.1;
   const wdAmountNum = parseFloat(wdAmount);
@@ -110,6 +128,27 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
   const wdDestValid = wdIsCrossChain
     ? EVM_ADDRESS_RE.test(wdDestination)
     : !wdDestination || EVM_ADDRESS_RE.test(wdDestination);
+
+  const wdChainConfig = useMemo(
+    () => SUPPORTED_CHAINS.find((c) => c.id === wdChain),
+    [wdChain],
+  );
+
+  const fees: FeeBreakdown = useMemo(() => {
+    const amt = isNaN(wdAmountNum) ? 0 : Math.max(0, wdAmountNum);
+    const platform = wdChainConfig?.feeUsdc ?? 0;
+    const gateway = wdIsCrossChain ? amt * GATEWAY_FEE_BPS : 0;
+    const forwarding = wdIsCrossChain ? FORWARDING_FEE_USDC : 0;
+    const gas = GAS_ESTIMATE_USDC;
+    return {
+      spend_amount: amt,
+      platform_fee: platform,
+      gateway_fee: gateway,
+      forwarding_fee: forwarding,
+      gas_estimate: gas,
+      you_receive: amt - platform - gateway - forwarding - gas,
+    };
+  }, [wdAmountNum, wdIsCrossChain, wdChainConfig]);
 
   const refreshBalance = useCallback(async () => {
     try {
@@ -124,6 +163,24 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
       if (typeof data.pending_balance === "number") setPendingBalance(data.pending_balance);
     } catch {
       // keep stale values
+    }
+  }, [userId]);
+
+  const refreshChainBalances = useCallback(async () => {
+    try {
+      const res = await fetch("/api/wallet/balances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (!res.ok) {
+        setChainBalances([]);
+        return;
+      }
+      const data = await res.json();
+      setChainBalances(Array.isArray(data.per_chain) ? data.per_chain : []);
+    } catch {
+      setChainBalances([]);
     }
   }, [userId]);
 
@@ -151,46 +208,17 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
   useEffect(() => {
     refreshBalance();
     refreshTxs();
-  }, [refreshBalance, refreshTxs]);
+    refreshChainBalances();
+  }, [refreshBalance, refreshTxs, refreshChainBalances]);
 
   useEffect(() => {
-    const handler = () => refreshBalance();
+    const handler = () => {
+      refreshBalance();
+      refreshChainBalances();
+    };
     window.addEventListener("gateway-balance-updated", handler);
     return () => window.removeEventListener("gateway-balance-updated", handler);
-  }, [refreshBalance]);
-
-  // Reset estimate whenever inputs change
-  useEffect(() => {
-    setEstimate(null);
-    setEstimateError(null);
-  }, [wdAmount, wdChain, wdDestination]);
-
-  const handleEstimate = async () => {
-    setEstimating(true);
-    setEstimateError(null);
-    setEstimate(null);
-    try {
-      const res = await fetch("/api/wallet/estimate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId,
-          amount: wdAmount,
-          destination_chain: wdChain,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setEstimateError(data.error ?? "Estimate failed");
-        return;
-      }
-      setEstimate(data as Estimate);
-    } catch {
-      setEstimateError("Estimate failed");
-    } finally {
-      setEstimating(false);
-    }
-  };
+  }, [refreshBalance, refreshChainBalances]);
 
   const handleWithdraw = async () => {
     setWithdrawing(true);
@@ -217,7 +245,6 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
       setWithdrawTx({ hash: data.tx_hash, chain: wdChain });
       setWdAmount("");
       setWdDestination("");
-      setEstimate(null);
       window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
       refreshBalance();
       refreshTxs();
@@ -306,6 +333,55 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
           </div>
         </div>
 
+        {/* Per-chain breakdown */}
+        {chainBalances.some((c) => c.confirmed > 0) && (
+          <div className="glass rounded-sa-card overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowByChain((v) => !v)}
+              className="w-full flex items-center justify-between gap-3 px-6 py-4 text-left hover:bg-sa-surface transition-colors"
+              aria-expanded={showByChain}
+            >
+              <span className="inline-flex items-center gap-2">
+                {showByChain ? (
+                  <ChevronDown size={14} className="text-sa-text-3" />
+                ) : (
+                  <ChevronRight size={14} className="text-sa-text-3" />
+                )}
+                <span className="text-sm font-semibold">Deposited from</span>
+                <span className="text-xs text-sa-text-3">
+                  {chainBalances.filter((c) => c.confirmed > 0).length} chain
+                  {chainBalances.filter((c) => c.confirmed > 0).length !== 1 ? "s" : ""}
+                </span>
+              </span>
+            </button>
+            {showByChain && (
+              <div className="border-t border-sa-border divide-y divide-sa-border/40">
+                {chainBalances
+                  .filter((c) => c.confirmed > 0)
+                  .map((c) => (
+                    <div
+                      key={c.chain}
+                      className="flex items-center justify-between gap-3 px-6 py-3"
+                    >
+                      <span className="inline-flex items-center gap-2 min-w-0">
+                        <span className="text-base leading-none" aria-hidden>
+                          {chainIcon(c.chain)}
+                        </span>
+                        <span className="text-sm text-foreground truncate">
+                          {chainName(c.chain)}
+                        </span>
+                      </span>
+                      <span className="font-mono text-sm tabular-nums text-foreground">
+                        ${c.confirmed.toFixed(4)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Withdraw card */}
         <div className="glass p-6 rounded-sa-card flex flex-col gap-5 hover-lift">
           <div className="flex flex-col gap-1">
@@ -334,6 +410,35 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
             />
           </div>
 
+          {wdAmountNum > 0 && (
+            <div className="panel-muted p-4 space-y-1.5 text-sm font-mono">
+              <FeeRow label="Amount" value={`$${fees.spend_amount.toFixed(4)}`} />
+              {fees.platform_fee > 0 && (
+                <FeeRow label="Platform fee" value={`$${fees.platform_fee.toFixed(4)}`} />
+              )}
+              {fees.gateway_fee > 0 && (
+                <FeeRow label="Gateway fee" value={`$${fees.gateway_fee.toFixed(6)}`} />
+              )}
+              {fees.forwarding_fee > 0 && (
+                <FeeRow label="Forwarding fee" value={`$${fees.forwarding_fee.toFixed(4)}`} />
+              )}
+              {fees.gas_estimate > 0 && (
+                <FeeRow label="Gas estimate" value={`~$${fees.gas_estimate.toFixed(4)}`} />
+              )}
+              <div className="my-1 h-px bg-sa-border" />
+              <FeeRow
+                label="You receive"
+                value={`$${Math.max(0, fees.you_receive).toFixed(4)}`}
+                emphasis
+              />
+              {fees.you_receive <= 0 && (
+                <p className="mt-2 text-xs text-sa-red font-sans">
+                  Amount is too small to cover fees. Increase the amount.
+                </p>
+              )}
+            </div>
+          )}
+
           <ChainSelector
             label="Destination chain"
             selected={wdChain}
@@ -355,29 +460,6 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
             />
           </div>
 
-          {/* Estimate breakdown */}
-          {estimate && (
-            <div className="panel-muted p-4 space-y-1.5 text-sm font-mono">
-              <FeeRow label="Amount" value={`$${estimate.spend_amount.toFixed(4)}`} />
-              <FeeRow label="Platform fee" value={`$${estimate.platform_fee.toFixed(4)}`} />
-              <FeeRow label="Gateway fee" value={`$${estimate.gateway_fee.toFixed(6)}`} />
-              <FeeRow label="Forwarding fee" value={`$${estimate.forwarding_fee.toFixed(4)}`} />
-              <FeeRow label="Gas estimate" value={`~$${estimate.gas_estimate.toFixed(4)}`} />
-              <div className="my-1 h-px bg-sa-border" />
-              <FeeRow
-                label="You receive"
-                value={`$${Math.max(0, estimate.you_receive).toFixed(4)}`}
-                emphasis
-              />
-              {estimate.you_receive <= 0 && (
-                <p className="mt-2 text-xs text-sa-red font-sans">
-                  Amount is too small to cover fees. Increase the amount.
-                </p>
-              )}
-            </div>
-          )}
-
-          {estimateError && <p className="text-xs text-sa-red">{estimateError}</p>}
           {withdrawError && <p className="text-xs text-sa-red">{withdrawError}</p>}
           {withdrawTx && (
             <div className="space-y-1">
@@ -394,44 +476,26 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
             </div>
           )}
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleEstimate}
-              disabled={estimating || !wdAmountValid || !wdDestValid || gatewayBalance <= 0}
-              className="btn btn-glass disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {estimating ? (
-                <>
-                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-foreground/40 border-t-transparent" />
-                  Estimating…
-                </>
-              ) : (
-                "Estimate fees"
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={handleWithdraw}
-              disabled={
-                withdrawing ||
-                !estimate ||
-                estimate.you_receive <= 0 ||
-                !wdAmountValid ||
-                !wdDestValid
-              }
-              className="btn btn-accent disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {withdrawing ? (
-                <>
-                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Confirming…
-                </>
-              ) : (
-                "Confirm withdrawal"
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleWithdraw}
+            disabled={
+              withdrawing ||
+              !wdAmountValid ||
+              !wdDestValid ||
+              fees.you_receive <= 0
+            }
+            className="btn btn-accent self-start disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {withdrawing ? (
+              <>
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                Confirming…
+              </>
+            ) : (
+              "Confirm withdrawal"
+            )}
+          </button>
         </div>
       </section>
 

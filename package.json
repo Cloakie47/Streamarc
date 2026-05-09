@@ -13,6 +13,7 @@
   "dependencies": {
     "@aptos-labs/ts-sdk": "^6.2.0",
     "@auth/supabase-adapter": "^1.11.1",
+    "@circle-fin/adapter-circle-wallets": "^1.2.9",
     "@circle-fin/adapter-viem-v2": "^1.10.0",
     "@circle-fin/circle-sdk": "^2.9.0",
     "@circle-fin/developer-controlled-wallets": "^10.2.0",

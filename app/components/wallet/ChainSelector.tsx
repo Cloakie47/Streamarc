@@ -1,22 +1,6 @@
 "use client";
 
-export interface ChainOption {
-  id: string;
-  name: string;
-  icon: string;
-  fee: string;
-  feeUsdc: number;
-}
-
-export const SUPPORTED_CHAINS: ChainOption[] = [
-  { id: "Arc_Testnet", name: "Arc Testnet", icon: "🔴", fee: "$0.00", feeUsdc: 0 },
-  { id: "Base_Sepolia", name: "Base Sepolia", icon: "🔵", fee: "$0.10", feeUsdc: 0.1 },
-  { id: "Arbitrum_Sepolia", name: "Arbitrum Sepolia", icon: "🔷", fee: "$0.10", feeUsdc: 0.1 },
-  { id: "Avalanche_Fuji", name: "Avalanche Fuji", icon: "🔺", fee: "$0.10", feeUsdc: 0.1 },
-  { id: "Ethereum_Sepolia", name: "Ethereum Sepolia", icon: "⟠", fee: "$0.10", feeUsdc: 0.1 },
-  { id: "Optimism_Sepolia", name: "OP Sepolia", icon: "🔴", fee: "$0.10", feeUsdc: 0.1 },
-  { id: "Polygon_Amoy_Testnet", name: "Polygon Amoy", icon: "🟣", fee: "$0.10", feeUsdc: 0.1 },
-];
+import { SUPPORTED_CHAINS } from "@/app/lib/chains";
 
 export interface ChainSelectorProps {
   selected: string;
