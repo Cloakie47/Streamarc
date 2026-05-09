@@ -6,25 +6,27 @@ export async function POST(req: NextRequest) {
     const { creator_id } = await req.json()
     if (!creator_id) return NextResponse.json({ error: "creator_id required" }, { status: 400 })
 
+    const supabase = getSupabaseAdmin()
+
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    const { data: earnings } = await getSupabaseAdmin()
-      .from("earnings")
-      .select("net_amount, gross_amount, created_at")
-      .eq("creator_id", creator_id)
-
-    // Get video IDs for this creator first
-    const { data: creatorVideos } = await getSupabaseAdmin()
-      .from("videos")
-      .select("id")
-      .eq("creator_id", creator_id)
+    const [{ data: earnings }, { data: creatorVideos }] = await Promise.all([
+      supabase
+        .from("earnings")
+        .select("net_amount, gross_amount, created_at")
+        .eq("creator_id", creator_id),
+      supabase
+        .from("videos")
+        .select("id")
+        .eq("creator_id", creator_id),
+    ])
 
     const videoIds = creatorVideos?.map((v) => v.id) ?? []
 
     const { data: sessions } =
       videoIds.length > 0
-        ? await getSupabaseAdmin()
+        ? await supabase
             .from("watch_sessions")
             .select("seconds_watched, viewer_id")
             .in("video_id", videoIds)

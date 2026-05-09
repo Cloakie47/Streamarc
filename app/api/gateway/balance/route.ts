@@ -10,10 +10,11 @@ const kit = new UnifiedBalanceKit();
 export async function POST(req: NextRequest) {
   try {
     const { user_id } = await req.json();
+    const supabase = getSupabaseAdmin();
 
-    const { data: user } = await getSupabaseAdmin()
+    const { data: user } = await supabase
       .from("users")
-      .select("wallet_address, circle_wallet_id, gateway_balance")
+      .select("wallet_address, circle_wallet_id")
       .eq("id", user_id)
       .single();
 
@@ -49,11 +50,6 @@ export async function POST(req: NextRequest) {
     ]);
 
     const gatewayBalance = parseFloat(gatewayResult?.totalConfirmedBalance ?? "0");
-
-    await getSupabaseAdmin()
-      .from("users")
-      .update({ gateway_balance: gatewayBalance })
-      .eq("id", user_id);
 
     return NextResponse.json({
       balance: gatewayBalance,

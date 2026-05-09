@@ -34,21 +34,22 @@ export default async function WatchVideoPage({ params }: Props) {
 
   if (!video) notFound()
 
-  const { data: creator } = await supabase
-    .from("users")
-    .select("id, display_name, channel_name, avatar_url, is_verified")
-    .eq("id", video.creator_id)
-    .single()
-
-  const { data: upNextRows } = await supabase
-    .from("videos")
-    .select(
-      "id, title, duration_secs, cloudflare_uid, thumbnail_url, users!creator_id (channel_name, display_name)",
-    )
-    .eq("status", "live")
-    .neq("id", videoId)
-    .order("created_at", { ascending: false })
-    .limit(8)
+  const [{ data: creator }, { data: upNextRows }] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, display_name, channel_name, avatar_url, is_verified")
+      .eq("id", video.creator_id)
+      .single(),
+    supabase
+      .from("videos")
+      .select(
+        "id, title, duration_secs, cloudflare_uid, thumbnail_url, users!creator_id (channel_name, display_name)",
+      )
+      .eq("status", "live")
+      .neq("id", videoId)
+      .order("created_at", { ascending: false })
+      .limit(8),
+  ])
 
   type UpNextRow = {
     id: string
