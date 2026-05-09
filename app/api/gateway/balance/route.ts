@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
         .getBalances({
           sources: [{ adapter, address: walletAddress, chains: "Arc_Testnet" }],
           networkType: "testnet",
+          includePending: true,
         })
         .catch((err: unknown) => {
           console.error("UBK getBalances failed:", err instanceof Error ? err.message : err);
@@ -50,11 +51,13 @@ export async function POST(req: NextRequest) {
     ]);
 
     const gatewayBalance = parseFloat(gatewayResult?.totalConfirmedBalance ?? "0");
+    const pendingBalance = parseFloat(gatewayResult?.totalPendingBalance ?? "0");
 
     return NextResponse.json({
       balance: gatewayBalance,
       wallet_balance: walletBalance,
       wallet_address: walletAddress,
+      pending_balance: pendingBalance,
     });
   } catch {
     return NextResponse.json({ error: "Failed to fetch balance" }, { status: 500 });

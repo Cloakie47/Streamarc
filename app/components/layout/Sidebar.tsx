@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   Home, Compass, PlayCircle, LayoutDashboard, Shield,
-  History, Heart, Clock, Settings, LogOut, Copy, Check,
+  History, Heart, Clock, Settings, LogOut, Copy, Check, Wallet,
 } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
 import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
@@ -348,6 +348,8 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
       router.push("/studio");
     } else if (page === "explore") {
       router.push("/explore");
+    } else if (page === "wallet") {
+      router.push("/wallet");
     } else {
       onPageChange?.(page);
     }
@@ -429,6 +431,12 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
                 onClick={() => navigateTo("explore")}
               />
               <SidebarItem icon={PlayCircle} label="Watch" active={currentPage === "watch"} onClick={() => navigateTo("watch")} />
+              <SidebarItem
+                icon={Wallet}
+                label="Wallet"
+                active={currentPage === "wallet" || pathname === "/wallet"}
+                onClick={() => navigateTo("wallet")}
+              />
             </div>
 
             <div aria-hidden className="my-3 mx-3 h-px bg-sa-border/50" />
