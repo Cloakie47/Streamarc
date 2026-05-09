@@ -21,12 +21,16 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
   const [depositTxHash, setDepositTxHash] = useState<string | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [copiedAddress, setCopiedAddress] = useState(false);
+  const [waitingForBalance, setWaitingForBalance] = useState(false);
 
   const handleDeposit = async () => {
     if (!userId) return;
     setDepositing(true);
     setDepositError(null);
     setDepositTxHash(null);
+
+    const previousBalance = gatewayBalance;
+
     try {
       const res = await fetch("/api/gateway/deposit", {
         method: "POST",
@@ -39,17 +43,46 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
       const data = await res.json();
       if (!res.ok) {
         setDepositError(data.error);
-      } else {
-        setDepositTxHash(data.tx_hash ?? null);
-        setTimeout(() => {
-          setDepositTxHash(null);
-          onDeposited();
-        }, 10000);
+        return;
       }
+
+      setDepositTxHash(data.tx_hash ?? null);
+      setWaitingForBalance(true);
+
+      const maxAttempts = 12;
+      const intervalMs = 5000;
+      let updated = false;
+
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, intervalMs));
+        try {
+          const balRes = await fetch("/api/gateway/balance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: userId }),
+          });
+          const balData = await balRes.json();
+          if (typeof balData.balance === "number" && balData.balance > previousBalance) {
+            updated = true;
+            break;
+          }
+        } catch {
+          // swallow and keep polling
+        }
+      }
+
+      setWaitingForBalance(false);
+      setDepositTxHash(null);
+
+      if (updated) {
+        window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
+      }
+      onDeposited();
     } catch {
       setDepositError("Deposit failed");
     } finally {
       setDepositing(false);
+      setWaitingForBalance(false);
     }
   };
 
@@ -99,11 +132,13 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
           <button
             type="button"
             onClick={handleDeposit}
-            disabled={depositing}
+            disabled={depositing || waitingForBalance}
             className="btn btn-accent btn-sm disabled:opacity-50"
           >
             {depositing ? (
               <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Moving...</>
+            ) : waitingForBalance ? (
+              <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Confirming...</>
             ) : "Move to Gateway"}
           </button>
         </div>
@@ -120,6 +155,12 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
               {depositTxHash.slice(0, 16)}...{depositTxHash.slice(-8)}
             </a>
           </div>
+        )}
+        {waitingForBalance && (
+          <p className="inline-flex items-center gap-2 text-xs text-sa-text-3">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-sa-text-3 border-t-transparent" />
+            Waiting for balance to update...
+          </p>
         )}
       </div>
 
