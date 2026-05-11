@@ -51,8 +51,15 @@ async function waitForTx(
 }
 
 export async function POST(req: NextRequest) {
+  // Lifted to the outer scope so the catch block can persist a "failed" audit row
+  // even when an error is thrown mid-flight.
+  let user_id: string | undefined
+  let chainId = "Arc_Testnet"
+  let sendAmount = 0
   try {
-    const { user_id, destination_address, amount, source_chain } = await req.json()
+    const body = await req.json()
+    user_id = body.user_id
+    const { destination_address, amount, source_chain } = body
 
     if (!user_id || !destination_address || !amount) {
       return NextResponse.json(
@@ -65,12 +72,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid destination address" }, { status: 400 })
     }
 
-    const sendAmount = parseFloat(amount)
+    sendAmount = parseFloat(amount)
     if (isNaN(sendAmount) || sendAmount <= 0) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
     }
 
-    const chainId = (source_chain as string | undefined) ?? "Arc_Testnet"
+    chainId = (source_chain as string | undefined) ?? "Arc_Testnet"
     const chain = SUPPORTED_CHAINS.find((c) => c.id === chainId)
     if (!chain) {
       return NextResponse.json({ error: `Unsupported source_chain: ${chainId}` }, { status: 400 })
@@ -218,6 +225,22 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error("External send failed:", message)
+    if (user_id) {
+      try {
+        await getSupabaseAdmin().from("transactions").insert({
+          user_id,
+          type: "send",
+          source_chain: chainId,
+          destination_chain: chainId,
+          amount: sendAmount,
+          fee: 0,
+          tx_hash: null,
+          status: "failed",
+        })
+      } catch {
+        // never throw from error handler
+      }
+    }
     return NextResponse.json({ error: "Send failed" }, { status: 500 })
   }
 }

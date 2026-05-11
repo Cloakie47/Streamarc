@@ -128,6 +128,18 @@ async function depositArc(
 
   console.log("UBK deposit complete:", { depositAmount, user_id, txHash: result.txHash })
 
+  await getSupabaseAdmin().from("transactions").insert({
+    user_id,
+    type: "deposit",
+    source_chain: "Arc_Testnet",
+    destination_chain: "Arc_Testnet",
+    amount: depositAmount,
+    fee: 0,
+    recipient_address: walletAddress,
+    tx_hash: result.txHash,
+    status: "completed",
+  })
+
   return NextResponse.json({
     success: true,
     amount: depositAmount,
@@ -250,6 +262,18 @@ async function depositCrossChain(
   console.log("deposit submitted:", { depositTxId })
   const depositTxHash = await pollTransactionToComplete(depositTxId)
   console.log("deposit complete:", { depositTxId, depositTxHash, user_id })
+
+  await getSupabaseAdmin().from("transactions").insert({
+    user_id,
+    type: "deposit",
+    source_chain: chain.id,
+    destination_chain: "Arc_Testnet",
+    amount: depositAmount,
+    fee: 0,
+    recipient_address: walletAddress,
+    tx_hash: depositTxHash,
+    status: "completed",
+  })
 
   return NextResponse.json({
     success: true,

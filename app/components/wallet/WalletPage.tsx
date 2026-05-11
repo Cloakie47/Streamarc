@@ -166,13 +166,20 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
     setChainRows(next);
   }, [refreshChainRow]);
 
+  const filtersActive = historyChainFilter !== "all" || historyTypeFilter !== "all";
+
   const refreshTransactions = useCallback(async () => {
     setTxsLoading(true);
     try {
+      // When filters are active, fetch up to 50 rows and paginate/filter client-side.
+      // When the view is unfiltered, page server-side a single PAGE_SIZE window at a time.
+      const body = filtersActive
+        ? { user_id: userId, limit: 50 }
+        : { user_id: userId, limit: PAGE_SIZE, offset: (historyPage - 1) * PAGE_SIZE };
       const res = await fetch("/api/wallet/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, limit: 50 }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         setTxs([]);
@@ -185,7 +192,7 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
     } finally {
       setTxsLoading(false);
     }
-  }, [userId]);
+  }, [userId, filtersActive, historyPage]);
 
   const refreshAll = useCallback(async () => {
     setRefreshingTopBar(true);
@@ -392,20 +399,36 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
   };
 
   const filteredTxs = useMemo(() => {
+    if (!filtersActive) return txs;
+    // Per-type chain matching: deposits anchor to source (where USDC came FROM),
+    // withdrawals anchor to destination (where it went TO), sends use source.
+    // The loose `source OR destination` fallback only applies to unknown types.
+    const matchesChain = (tx: Transaction) => {
+      if (historyChainFilter === "all") return true;
+      if (tx.type === "deposit") return tx.source_chain === historyChainFilter;
+      if (tx.type === "withdraw") return tx.destination_chain === historyChainFilter;
+      if (tx.type === "send") return tx.source_chain === historyChainFilter;
+      return tx.source_chain === historyChainFilter || tx.destination_chain === historyChainFilter;
+    };
     return txs.filter((tx) => {
       if (historyTypeFilter !== "all" && tx.type !== historyTypeFilter) return false;
-      if (historyChainFilter !== "all") {
-        const inChain =
-          tx.source_chain === historyChainFilter || tx.destination_chain === historyChainFilter;
-        if (!inChain) return false;
-      }
+      if (!matchesChain(tx)) return false;
       return true;
     });
-  }, [txs, historyChainFilter, historyTypeFilter]);
+  }, [txs, historyChainFilter, historyTypeFilter, filtersActive]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredTxs.length / PAGE_SIZE));
-  const safePage = Math.min(historyPage, totalPages);
-  const pagedTxs = filteredTxs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  // Filtered view: classic client-side slice over up to 50 fetched rows.
+  // Unfiltered view: server already returned exactly one page; total count is unknown,
+  // so estimate totalPages from whether a full page came back.
+  const totalPages = filtersActive
+    ? Math.max(1, Math.ceil(filteredTxs.length / PAGE_SIZE))
+    : txs.length === PAGE_SIZE
+      ? historyPage + 1
+      : historyPage;
+  const safePage = filtersActive ? Math.min(historyPage, totalPages) : historyPage;
+  const pagedTxs = filtersActive
+    ? filteredTxs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+    : txs;
 
   useEffect(() => {
     setHistoryPage(1);
@@ -1059,7 +1082,14 @@ function TxRow({ tx }: { tx: Transaction }) {
         </span>
       </td>
       <td className="px-6 py-3 text-sa-text-3">
-        {chainCfg ? `${chainCfg.icon} ${chainCfg.name}` : chainId}
+        <div className="flex flex-col gap-0.5">
+          <span>{chainCfg ? `${chainCfg.icon} ${chainCfg.name}` : chainId}</span>
+          {(tx.type === "send" || tx.type === "withdraw") && tx.recipient_address && (
+            <span className="font-mono text-[10px] text-muted-foreground">
+              → {tx.recipient_address.slice(0, 6)}...{tx.recipient_address.slice(-4)}
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-6 py-3 font-mono tabular-nums">${(tx.amount ?? 0).toFixed(4)}</td>
       <td className="px-6 py-3 font-mono tabular-nums text-sa-text-3">

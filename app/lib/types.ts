@@ -74,17 +74,3 @@ export interface Withdrawal {
   requested_at: string;
   completed_at?: string;
 }
-
-export interface AdBanner {
-  id: string;
-  project_name: string;
-  logo_initials: string;
-  headline: string;
-  description: string;
-  destination_url: string;
-  domain: string;
-  arc_tag: string;
-  active: boolean;
-  starts_at: string;
-  ends_at?: string;
-}

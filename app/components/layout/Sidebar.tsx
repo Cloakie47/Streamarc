@@ -504,7 +504,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
         style={{ width: "var(--sidebar-width)" }}
       >
         <aside
-          className="flex h-full flex-col px-4 py-6 gap-5 overflow-y-auto no-scrollbar relative"
+          className="flex h-full flex-col px-4 py-6 gap-5 relative"
           style={{
             background: "hsla(213, 50%, 6%, 0.9)",
             borderRight: "1px solid hsla(198, 30%, 22%, 0.6)",
@@ -513,8 +513,8 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
           }}
         >
 
-          {/* Wordmark lockup */}
-          <div className="flex items-center px-1 py-1 relative z-10">
+          {/* Wordmark lockup — pinned at top */}
+          <div className="flex items-center px-1 py-1 relative z-10 shrink-0">
             <div className="flex flex-col leading-tight">
               <span className="text-lg font-display font-bold tracking-tight text-foreground">
                 Stream<span className="text-sa-blue">Arc</span>
@@ -525,7 +525,8 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
             </div>
           </div>
 
-          <nav className="flex flex-col gap-2">
+          {/* Scrollable middle region — nav + balance widget. Settings/Sign Out stay outside this. */}
+          <nav className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto no-scrollbar">
             {/* Balance widget */}
             <div className="panel shrink-0 mx-1 mb-4 p-4 space-y-3 relative overflow-hidden">
               <div className="relative">
@@ -617,9 +618,12 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
             </div>
           </nav>
 
-          <div className="flex flex-col gap-1.5 relative z-10">
-            <SidebarItem icon={Settings} label="Settings" onClick={() => router.push("/settings")} />
-            <SidebarItem icon={LogOut} label="Sign Out" onClick={() => signOut()} />
+          {/* Locked bottom block — always visible, regardless of nav scroll */}
+          <div className="shrink-0 relative z-10 pt-3 border-t border-sa-border/50">
+            <div className="flex flex-col gap-1.5">
+              <SidebarItem icon={Settings} label="Settings" onClick={() => router.push("/settings")} />
+              <SidebarItem icon={LogOut} label="Sign Out" onClick={() => signOut()} />
+            </div>
           </div>
         </aside>
       </motion.div>

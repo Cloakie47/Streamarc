@@ -6,13 +6,15 @@ const MAX_LIMIT = 50
 
 export async function POST(req: NextRequest) {
   try {
-    const { user_id, limit } = await req.json()
+    const { user_id, limit, offset } = await req.json()
     if (!user_id) {
       return NextResponse.json({ error: "user_id required" }, { status: 400 })
     }
 
     const requested = typeof limit === "number" ? limit : DEFAULT_LIMIT
     const safeLimit = Math.max(1, Math.min(MAX_LIMIT, requested))
+    const requestedOffset = typeof offset === "number" ? offset : 0
+    const safeOffset = Math.max(0, requestedOffset)
 
     const { data, error } = await getSupabaseAdmin()
       .from("transactions")
@@ -21,7 +23,7 @@ export async function POST(req: NextRequest) {
       )
       .eq("user_id", user_id)
       .order("created_at", { ascending: false })
-      .limit(safeLimit)
+      .range(safeOffset, safeOffset + safeLimit - 1)
 
     if (error) {
       console.error("Transactions query failed:", error.message)

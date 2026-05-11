@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { PlayCircle } from "lucide-react";
-import { motion } from "motion/react";
+import { VideoCard, mapRowToVideo, type ApiVideoRow, type Video } from "@/app/components/browse/VideoShelf";
 
 const CATEGORIES = [
   { id: "new-this-week", label: "🔥 New This Week" },
@@ -21,48 +20,6 @@ const CATEGORIES = [
   { id: "random", label: "🎲 Random" },
 ];
 
-interface Video {
-  id: string;
-  title: string;
-  duration_secs: number | null;
-  rate_per_sec: number | null;
-  views: number | null;
-  categories: string[] | null;
-}
-
-function formatDuration(secs: number | null): string {
-  if (!secs) return "0:00";
-  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
-}
-
-function VideoCard({ video, index, onClick }: { video: Video; index: number; onClick: () => void }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05 }}
-      className="group flex w-56 flex-shrink-0 cursor-pointer flex-col gap-2"
-      onClick={onClick}
-    >
-      <div className="relative aspect-video overflow-hidden rounded-xl border border-white/[0.06]">
-        <div className="absolute inset-0 bg-[#0c0d14]" />
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-          <PlayCircle size={32} className="fill-white/10 text-white" />
-        </div>
-        <span className="absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">
-          {formatDuration(video.duration_secs)}
-        </span>
-      </div>
-      <div className="flex flex-col gap-0.5 px-1">
-        <h3 className="line-clamp-2 text-xs font-medium transition-colors group-hover:text-sa-accent">{video.title}</h3>
-        <span className="text-[10px] font-mono tabular-nums text-sa-blue">
-          ${video.rate_per_sec ?? 0}/s
-        </span>
-      </div>
-    </motion.div>
-  );
-}
-
 function CategoryRow({
   category,
   onVideoClick,
@@ -78,8 +35,10 @@ function CategoryRow({
     setLoading(true);
     void fetch(`/api/videos?status=live&category=${encodeURIComponent(category.id)}`)
       .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setVideos(data.videos ?? []);
+      .then((data: { videos?: ApiVideoRow[] }) => {
+        if (cancelled) return;
+        const rows = data.videos ?? [];
+        setVideos(rows.map((r, i) => mapRowToVideo(r, i)));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -92,18 +51,27 @@ function CategoryRow({
   if (!loading && videos.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <h2 className="px-1 text-lg font-bold">{category.label}</h2>
       {loading ? (
-        <div className="flex gap-4 overflow-hidden">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="aspect-video w-56 flex-shrink-0 animate-pulse rounded-xl bg-sa-surface" />
+            <div key={i} className="flex flex-col gap-3">
+              <div className="aspect-video w-full animate-pulse rounded-xl bg-sa-surface" />
+              <div className="flex gap-3 px-1">
+                <div className="h-9 w-9 flex-shrink-0 animate-pulse rounded-full bg-sa-surface-2" />
+                <div className="flex flex-1 flex-col gap-2">
+                  <div className="h-3.5 w-4/5 animate-pulse rounded bg-sa-surface-2" />
+                  <div className="h-3 w-3/5 animate-pulse rounded bg-sa-surface-2" />
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       ) : (
-        <div className="no-scrollbar flex gap-4 overflow-x-auto pb-2">
-          {videos.map((v, i) => (
-            <VideoCard key={v.id} video={v} index={i} onClick={() => onVideoClick(v.id)} />
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+          {videos.map((v) => (
+            <VideoCard key={v.id} video={v} onPlay={() => onVideoClick(v.id)} />
           ))}
         </div>
       )}
@@ -127,8 +95,9 @@ export default function ExplorePage() {
     setFiltering(true);
     try {
       const res = await fetch(`/api/videos?status=live&category=${encodeURIComponent(categoryId)}`);
-      const data = (await res.json()) as { videos?: Video[] };
-      setFilteredVideos(data.videos ?? []);
+      const data = (await res.json()) as { videos?: ApiVideoRow[] };
+      const rows = data.videos ?? [];
+      setFilteredVideos(rows.map((r, i) => mapRowToVideo(r, i)));
     } finally {
       setFiltering(false);
     }
@@ -161,17 +130,26 @@ export default function ExplorePage() {
       {activeCategory && (
         <div className="flex flex-col gap-4">
           {filtering ? (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
               {[...Array(8)].map((_, i) => (
-                <div key={i} className="aspect-video animate-pulse rounded-xl bg-sa-surface" />
+                <div key={i} className="flex flex-col gap-3">
+                  <div className="aspect-video w-full animate-pulse rounded-xl bg-sa-surface" />
+                  <div className="flex gap-3 px-1">
+                    <div className="h-9 w-9 flex-shrink-0 animate-pulse rounded-full bg-sa-surface-2" />
+                    <div className="flex flex-1 flex-col gap-2">
+                      <div className="h-3.5 w-4/5 animate-pulse rounded bg-sa-surface-2" />
+                      <div className="h-3 w-3/5 animate-pulse rounded bg-sa-surface-2" />
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           ) : filteredVideos.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">No videos in this category yet.</p>
           ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {filteredVideos.map((v, i) => (
-                <VideoCard key={v.id} video={v} index={i} onClick={() => void router.push(`/watch/${v.id}`)} />
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+              {filteredVideos.map((v) => (
+                <VideoCard key={v.id} video={v} onPlay={(id) => void router.push(`/watch/${id}`)} />
               ))}
             </div>
           )}

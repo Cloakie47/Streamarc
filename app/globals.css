@@ -336,19 +336,19 @@
     border-radius: 1.1rem;
     clip-path: none;
     box-shadow: 0 12px 28px rgba(2, 8, 20, 0.32), inset 0 1px 0 hsla(188, 70%, 80%, 0.04);
-    transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 0.3s ease,
-                box-shadow 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
   .video-card:hover {
-    transform: translateY(-4px) scale(1.012);
-    border-color: hsla(188, 86%, 60%, 0.5);
+    transform: translateY(-4px);
+    border-color: hsla(188, 86%, 60%, 0.55);
     box-shadow:
-      0 22px 44px rgba(2, 8, 20, 0.42),
-      0 0 28px hsla(188, 90%, 58%, 0.22),
-      inset 0 1px 0 hsla(188, 70%, 80%, 0.08);
+      0 22px 44px rgba(2, 8, 20, 0.45),
+      0 0 32px hsla(188, 90%, 58%, 0.25),
+      inset 0 1px 0 hsla(188, 70%, 80%, 0.1);
   }
-  .video-card:active { transform: translateY(-2px) scale(1.005); }
+  .video-card:active { transform: translateY(-2px); }
   .video-card--placeholder { @apply cursor-default; }
   .video-card--placeholder:hover { transform: none; border-color: hsla(198, 30%, 22%, 0.55); box-shadow: 0 4px 24px rgba(0,0,0,0.35); }
   .video-card--placeholder:active { transform: none; }
@@ -530,6 +530,26 @@
     box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px var(--sa-blue);
   }
 
+  /* ── PREMIUM SKELETON SHIMMER ── */
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: hsla(213, 38%, 13%, 0.55);
+  }
+  .skeleton-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsla(188, 70%, 70%, 0.09) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s ease-in-out infinite;
+  }
+
   /* ── SCROLL REVEAL ── */
   .scroll-reveal { animation: reveal 0.6s cubic-bezier(0.16,1,0.3,1) both; }
   .scroll-reveal-delay-1 { animation-delay: 80ms; }
@@ -607,6 +627,12 @@
 
 @keyframes scan-sweep { from { left: -100%; } to { left: 100%; } }
 @keyframes scan-vertical { from { top: -50%; } to { top: 100%; } }
+
+@keyframes paying-pulse {
+  0%, 100% { box-shadow: 0 0 24px hsla(188, 86%, 56%, 0.32); }
+  50%      { box-shadow: 0 0 36px hsla(188, 86%, 56%, 0.55); }
+}
+.animate-paying-pulse { animation: paying-pulse 2.6s ease-in-out infinite; }
 
 @keyframes shimmer {
   0%   { background-position: -200% center; }

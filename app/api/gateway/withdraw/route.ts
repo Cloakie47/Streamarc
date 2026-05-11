@@ -8,16 +8,24 @@ import { SUPPORTED_CHAINS } from "@/app/lib/chains"
 const kit = new UnifiedBalanceKit()
 const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/
 const CROSS_CHAIN_PLATFORM_FEE = 0.10
+const GATEWAY_FEE_BPS = 0.00005 // 0.005% on cross-chain spend, matches the UI fee preview
 
 export async function POST(req: NextRequest) {
+  // Lifted to the outer scope so the catch block can persist a "failed" audit row
+  // even when an error is thrown mid-flight.
+  let user_id: string | undefined
+  let destChainId = "Arc_Testnet"
+  let withdrawAmount = 0
   try {
-    const { user_id, amount, destination_chain, destination_address } = await req.json()
+    const body = await req.json()
+    user_id = body.user_id
+    const { amount, destination_chain, destination_address } = body
 
     if (!user_id || !amount) {
       return NextResponse.json({ error: "user_id and amount required" }, { status: 400 })
     }
 
-    const destChainId = (destination_chain as string | undefined) ?? "Arc_Testnet"
+    destChainId = (destination_chain as string | undefined) ?? "Arc_Testnet"
     const destChain = SUPPORTED_CHAINS.find((c) => c.id === destChainId)
     if (!destChain) {
       return NextResponse.json({ error: `Unsupported destination_chain: ${destChainId}` }, { status: 400 })
@@ -25,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     const isCrossChain = destChainId !== "Arc_Testnet"
 
-    const withdrawAmount = parseFloat(amount)
+    withdrawAmount = parseFloat(amount)
     if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
     }
@@ -105,16 +113,21 @@ export async function POST(req: NextRequest) {
     })
 
     const platformFee = isCrossChain ? CROSS_CHAIN_PLATFORM_FEE : 0
-    const netAmount = withdrawAmount - platformFee
+    const gatewayFee = isCrossChain ? withdrawAmount * GATEWAY_FEE_BPS : 0
+    const totalFee = platformFee + gatewayFee
+    const netAmount = withdrawAmount - totalFee
 
     // New transactions table — drives the WalletPage history.
+    // `source_chain` is intentionally hardcoded to Arc_Testnet: Gateway funds
+    // are unified across all chains and conceptually anchored to the ARC ledger,
+    // regardless of which chain originally deposited the USDC.
     await getSupabaseAdmin().from("transactions").insert({
       user_id,
       type: "withdraw",
       source_chain: "Arc_Testnet",
       destination_chain: destChainId,
       amount: withdrawAmount,
-      fee: platformFee,
+      fee: totalFee, // platform $0.10 + 0.005% gateway fee on cross-chain
       recipient_address: recipient,
       tx_hash: txHash,
       status: "completed",
@@ -145,6 +158,22 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error("Withdrawal failed:", message)
+    if (user_id) {
+      try {
+        await getSupabaseAdmin().from("transactions").insert({
+          user_id,
+          type: "withdraw",
+          source_chain: "Arc_Testnet",
+          destination_chain: destChainId,
+          amount: withdrawAmount,
+          fee: 0,
+          tx_hash: null,
+          status: "failed",
+        })
+      } catch {
+        // never throw from error handler
+      }
+    }
     return NextResponse.json({ error: "Withdrawal failed" }, { status: 500 })
   }
 }

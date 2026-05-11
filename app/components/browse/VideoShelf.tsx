@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { Eye, Lock, Bookmark } from "lucide-react";
+import { Eye, Lock, Bookmark, Film } from "lucide-react";
 import { FrostedPlayMark } from "@/app/components/ui/FrostedPlayMark";
 import { useCurrentUser } from "@/app/lib/auth-client";
 
-interface Video {
+export interface Video {
   id: string;
   title: string;
   creatorId: string | null;
@@ -32,7 +32,7 @@ interface ApiCreator {
   avatar_url: string | null;
 }
 
-interface ApiVideoRow {
+export interface ApiVideoRow {
   id: string;
   title: string;
   creator_id: string | null;
@@ -100,7 +100,7 @@ function creatorProfileFromRow(row: ApiVideoRow): {
   };
 }
 
-function mapRowToVideo(row: ApiVideoRow, i: number): Video {
+export function mapRowToVideo(row: ApiVideoRow, i: number): Video {
   const c = creatorProfileFromRow(row);
   return {
     id: row.id,
@@ -127,7 +127,7 @@ function isPlaceholderId(id: string) {
 
 const NOISE_SVG = `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")`;
 
-function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) => void }) {
+export function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) => void }) {
   const { userId } = useCurrentUser();
   const [saved, setSaved] = useState(false);
   const placeholder = isPlaceholderId(video.id);
@@ -165,7 +165,7 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
         <div className="absolute inset-0 bg-[#182233]" />
         {previewUrl && hovered && !placeholder ? (
           <video
-            className="absolute inset-0 h-full w-full object-cover z-[1]"
+            className="absolute inset-0 h-full w-full object-cover z-[1] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105"
             src={previewUrl}
             muted
             autoPlay
@@ -176,13 +176,16 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
           <img
             src={video.thumbnailUrl}
             alt={video.title}
-            className={`absolute inset-0 h-full w-full object-cover z-[1] ${hovered && !placeholder ? "preview-kenburns" : ""}`}
+            className="absolute inset-0 h-full w-full object-cover z-[1] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105"
           />
         ) : (
-          <div className={`absolute inset-0 z-[1] bg-sa-blue/15 ${hovered && !placeholder ? "preview-kenburns" : ""}`} />
+          <div className="absolute inset-0 z-[1] bg-sa-blue/15 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105" />
         )}
         {/* Noise texture */}
         <div className="absolute inset-0 z-[2] mix-blend-overlay pointer-events-none opacity-40" style={{ backgroundImage: NOISE_SVG, backgroundRepeat: "repeat" }} />
+
+        {/* Bottom gradient overlay for legibility of pills and duration */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-2/5 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
 
         <div className="absolute top-3 left-3 flex gap-2 z-10">
           {placeholder ? (
@@ -195,7 +198,14 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
           )}
         </div>
 
-        <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-md z-10">
+        {/* Rate pill — always visible bottom-left, signature cyan */}
+        {!placeholder && (
+          <span className="absolute bottom-3 left-3 z-10 inline-flex items-center rounded-md bg-black/55 px-2 py-1 font-mono text-[11px] tabular-nums text-sa-blue backdrop-blur-md ring-1 ring-inset ring-sa-blue/30">
+            ${video.pricePerSecond}/s
+          </span>
+        )}
+
+        <div className="absolute bottom-3 right-3 z-10 rounded-md bg-black/65 backdrop-blur-md px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums text-white ring-1 ring-inset ring-white/10">
           {formatDuration(video.duration)}
         </div>
 
@@ -267,8 +277,6 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
                 </span>
               </>
             )}
-            <span className="w-1 h-1 rounded-full bg-sa-text-3" />
-            <span className="font-mono tabular-nums text-sa-blue">${video.pricePerSecond}/s</span>
           </div>
         </div>
       </div>
@@ -276,21 +284,30 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
   );
 }
 
+function SectionHeader({ title, seeAllHref }: { title: string; seeAllHref?: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <h2 className="flex items-center gap-3 text-2xl font-bold tracking-tight">
+        <span aria-hidden className="inline-block h-7 w-[3px] rounded-full bg-sa-blue shadow-[0_0_8px_hsla(188,86%,56%,0.55)]" />
+        {title}
+      </h2>
+      {seeAllHref && (
+        <Link
+          href={seeAllHref}
+          className="text-sm font-semibold text-sa-blue transition-colors hover:text-sa-cyan"
+        >
+          See all →
+        </Link>
+      )}
+    </div>
+  );
+}
+
 function FeaturedSection({ videos, onPlay }: { videos: Video[]; onPlay: (videoId: string) => void }) {
-  if (videos.length === 0) {
-    return (
-      <section className="flex flex-col gap-6 px-6">
-        <h2 className="text-2xl font-bold tracking-tight">Featured demos</h2>
-        <p className="text-sm text-sa-text-3">No videos yet. Be the first to upload.</p>
-      </section>
-    );
-  }
+  if (videos.length === 0) return null;
   return (
     <section className="flex flex-col gap-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold tracking-tight">Featured demos</h2>
-        <span className="text-sm text-sa-text-3">Trending and newly uploaded</span>
-      </div>
+      <SectionHeader title="Trending" seeAllHref="/explore" />
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {videos.map((v) => (
           <VideoCard key={v.id} video={v} onPlay={onPlay} />
@@ -301,25 +318,59 @@ function FeaturedSection({ videos, onPlay }: { videos: Video[]; onPlay: (videoId
 }
 
 function AllDemos({ videos, onPlay }: { videos: Video[]; onPlay: (videoId: string) => void }) {
-  if (videos.length === 0) {
-    return (
-      <section className="flex flex-col gap-6 px-6">
-        <h2 className="text-2xl font-bold tracking-tight">All demos</h2>
-        <p className="text-sm text-sa-text-3">No videos yet. Be the first to upload.</p>
-      </section>
-    );
-  }
+  if (videos.length === 0) return null;
   return (
     <section className="flex flex-col gap-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold tracking-tight">All demos</h2>
-        <span className="text-sm text-sa-text-3">{videos.length} videos</span>
-      </div>
+      <SectionHeader title="All demos" seeAllHref="/explore" />
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {videos.map((v) => (
           <VideoCard key={v.id} video={v} onPlay={onPlay} />
         ))}
       </div>
+    </section>
+  );
+}
+
+function ShelfSkeleton() {
+  return (
+    <div className="space-y-12 pb-8">
+      {[0, 1].map((s) => (
+        <section key={s} className="flex flex-col gap-5">
+          <div className="flex items-center justify-between">
+            <div className="h-8 w-48 skeleton-shimmer rounded-lg" />
+            <div className="h-4 w-16 skeleton-shimmer rounded" />
+          </div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex flex-col gap-3">
+                <div className="aspect-video skeleton-shimmer rounded-xl" />
+                <div className="flex gap-3 px-1">
+                  <div className="skeleton-shimmer h-9 w-9 flex-shrink-0 rounded-full" />
+                  <div className="flex flex-1 flex-col gap-2">
+                    <div className="skeleton-shimmer h-3.5 w-4/5 rounded" />
+                    <div className="skeleton-shimmer h-3 w-3/5 rounded" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ShelfEmpty() {
+  return (
+    <section className="flex flex-col items-center gap-4 py-20 px-6 text-center">
+      <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl border border-sa-blue/30 bg-sa-surface-2/60 shadow-[0_0_32px_hsla(188,86%,56%,0.15)]">
+        <Film size={32} className="text-sa-blue" />
+        <span aria-hidden className="absolute -bottom-1 -right-1 inline-flex h-3 w-3 animate-pulse rounded-full bg-sa-blue shadow-[0_0_8px_hsl(188,86%,56%)]" />
+      </div>
+      <h3 className="text-xl font-bold tracking-tight">No videos yet</h3>
+      <p className="max-w-sm text-sm text-sa-text-3">
+        Creators are on their way — check back soon or be the first to upload a demo.
+      </p>
     </section>
   );
 }
@@ -359,16 +410,11 @@ export default function VideoShelf({ onPlay }: { onPlay: (videoId: string) => vo
   const featured = videos.filter((v) => v.isLive || v.isNew).slice(0, 4);
   const featuredList = featured.length > 0 ? featured : videos;
 
-  if (loading) {
-    return (
-      <div className="py-12 text-center text-sm text-sa-text-3">
-        Loading demos...
-      </div>
-    );
-  }
+  if (loading) return <ShelfSkeleton />;
+  if (videos.length === 0) return <ShelfEmpty />;
 
   return (
-    <div className="space-y-10 pb-8">
+    <div className="space-y-12 pb-8">
       <FeaturedSection videos={featuredList} onPlay={onPlay} />
       <AllDemos videos={videos} onPlay={onPlay} />
     </div>

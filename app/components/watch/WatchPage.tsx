@@ -586,7 +586,13 @@ export default function WatchPage({
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4 }}
+          className="relative"
         >
+          {/* Ambient cyan glow beneath the player — makes it look like it's emanating light */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-12 -bottom-3 h-16 bg-sa-blue/[0.08] blur-[60px]"
+          />
           <div
             role={cloudflareUid ? undefined : "button"}
             tabIndex={cloudflareUid ? undefined : 0}
@@ -602,6 +608,12 @@ export default function WatchPage({
             {!cloudflareUid && (
               <div className="absolute inset-0 bg-[#0e1420]" />
             )}
+            {/* Cinematic vignette — subtle inset shadow darkening the edges */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-[6]"
+              style={{ boxShadow: "inset 0 0 140px 30px rgba(0,0,0,0.55)" }}
+            />
             {cloudflareUid && !isOwnVideo && balance < 0.001 && VIEWER_ID ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/80 backdrop-blur-sm">
                 <p className="text-lg font-bold text-white">Insufficient balance</p>
@@ -648,6 +660,23 @@ export default function WatchPage({
               </div>
             )}
 
+            {/* Floating PAYING pill — the platform's signature number, surfaced loud while playing */}
+            {playing && !isOwnVideo && !free && (
+              <div className="pointer-events-none absolute bottom-20 left-4 z-[15]">
+                <div className="inline-flex items-center gap-2.5 rounded-full border border-sa-blue/40 bg-black/65 px-4 py-2 backdrop-blur-md shadow-[0_0_24px_hsla(188,86%,56%,0.35)] animate-paying-pulse">
+                  <span className="relative inline-flex h-2 w-2">
+                    <span className="absolute inset-0 animate-ping rounded-full bg-sa-green opacity-80" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-sa-green shadow-[0_0_8px_rgba(60,217,160,0.9)]" />
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-sa-text-3">Paying</span>
+                  <span className="font-mono text-lg font-bold tabular-nums text-sa-blue drop-shadow-[0_0_8px_hsla(188,86%,56%,0.6)]">
+                    ${ratePerSecond.toFixed(5)}
+                    <span className="text-sm text-sa-blue/70">/s</span>
+                  </span>
+                </div>
+              </div>
+            )}
+
             {!cloudflareUid && (
               <div className="absolute bottom-0 inset-x-0 p-4 bg-black/70 flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                 <div className="relative h-1 w-full cursor-pointer overflow-hidden rounded-full bg-white/20">
@@ -691,10 +720,16 @@ export default function WatchPage({
           transition={{ delay: 0.2 }}
           className="mt-5 flex flex-col gap-4"
         >
-          {/* Title */}
-          <h1 className="text-2xl font-semibold tracking-tight leading-snug">{title}</h1>
+          {/* Title + prominent rate pill */}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-3xl font-bold tracking-tight leading-tight">{title}</h1>
+            <span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-sa-blue/30 bg-sa-blue/10 px-4 py-2 font-mono text-sm tabular-nums shadow-[0_0_18px_hsla(188,86%,56%,0.15)]">
+              <span className={`h-1.5 w-1.5 rounded-full ${playing ? "bg-sa-green animate-pulse shadow-[0_0_6px_rgba(60,217,160,0.8)]" : "bg-sa-text-3"}`} />
+              <span className="text-sa-blue">{rateStatusLabel}</span>
+            </span>
+          </div>
 
-          {/* Creator identity row: avatar + name + follow, rate pill on the right */}
+          {/* Creator identity row: avatar + name + follow */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div
               className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity min-w-0"
@@ -744,11 +779,6 @@ export default function WatchPage({
               )}
             </div>
 
-            {/* Live rate indicator — small surface pill so it stops floating top-right */}
-            <span className="inline-flex items-center gap-2 rounded-full border border-sa-border/60 bg-sa-surface-2/60 px-3 py-1.5 font-mono text-[11px] tabular-nums text-sa-text-3">
-              <span className={`h-1.5 w-1.5 rounded-full ${playing ? "bg-sa-green animate-pulse shadow-[0_0_6px_rgba(60,217,160,0.8)]" : "bg-sa-text-3"}`} />
-              <span className="font-mono tabular-nums text-sa-blue">{rateStatusLabel}</span>
-            </span>
           </div>
 
           {/* Action row — contained in a subtle surface so pills stop floating in negative space */}
@@ -897,11 +927,11 @@ export default function WatchPage({
               { label: "Session Cost", value: `$${cost.toFixed(4)}`, color: "text-sa-accent" },
               { label: "Seconds Paid", value: `${paidSecs}s`, color: "text-foreground" },
               { label: "Balance", value: `$${balance.toFixed(4)}`, color: "text-sa-green" },
-              { label: "Current Rate", value: rateStatusLabel, color: "text-sa-blue font-mono" },
+              { label: "Current Rate", value: rateStatusLabel, color: "text-sa-blue" },
             ].map((stat) => (
               <div key={stat.label} className="panel-muted px-4 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">{stat.label}</p>
-                <p className={`mt-1.5 text-base font-bold tabular-nums ${stat.color}`}>{stat.value}</p>
+                <p className={`mt-1.5 font-mono text-base font-bold tabular-nums ${stat.color}`}>{stat.value}</p>
               </div>
             ))}
           </div>
@@ -1081,18 +1111,18 @@ export default function WatchPage({
                     key={i}
                     type="button"
                     onClick={() => handleChapterClick(chapter.time)}
-                    className={`flex w-full cursor-pointer items-center gap-3 rounded-lg border-none bg-transparent px-3 py-2 text-left text-sm transition-colors ${
+                    className={`flex w-full cursor-pointer items-center gap-3 rounded-lg bg-transparent px-3 py-2 text-left text-sm transition-all duration-200 border-l-2 ${
                       isActive
-                        ? "bg-sa-surface-2 text-foreground"
-                        : "text-sa-text-3 hover:bg-sa-surface-2/50 hover:text-foreground"
+                        ? "bg-sa-blue/10 text-foreground border-sa-blue shadow-[0_0_18px_hsla(188,86%,56%,0.12)_inset]"
+                        : "text-sa-text-3 border-transparent hover:bg-sa-surface-2/50 hover:text-foreground"
                     }`}
                   >
-                    <span className="w-9 flex-shrink-0 font-mono text-[11px] tabular-nums text-sa-accent">
+                    <span className={`w-9 flex-shrink-0 font-mono text-[11px] tabular-nums ${isActive ? "text-sa-blue" : "text-sa-text-3"}`}>
                       {mm}:{ss}
                     </span>
                     <span className="font-medium leading-snug">{chapter.title}</span>
                     {isActive && (
-                      <span className="ml-auto h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-sa-accent" />
+                      <span className="ml-auto h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-sa-blue shadow-[0_0_8px_hsl(188,86%,56%)]" />
                     )}
                   </button>
                 );
