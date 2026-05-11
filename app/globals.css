@@ -112,6 +112,7 @@
     --sa-border-light: hsl(198 24% 18%);
     --sa-border-hover: hsl(188 60% 38%);
     --sa-text: hsl(188 25% 96%);
+    --sa-text-2: hsl(198 18% 80%);
     --sa-text-3: hsl(198 14% 68%);
 
     /* Brand cyan from logo eyes */
@@ -521,6 +522,12 @@
   .sidebar-active-glow {
     background: hsla(188, 86%, 56%, 0.14);
     border: 1px solid hsla(188, 86%, 60%, 0.4);
+  }
+
+  /* ── ACCESSIBLE FOCUS RING ── */
+  .focus-ring:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px var(--sa-blue);
   }
 
   /* ── SCROLL REVEAL ── */

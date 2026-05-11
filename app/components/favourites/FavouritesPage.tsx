@@ -313,7 +313,7 @@ export default function FavouritesPage({ userId }: { userId: string }) {
                           <span className="mx-1.5 text-sa-border">·</span>
                           Added {formatSavedDate(item.created_at)}
                           <span className="mx-1.5 text-sa-border">·</span>
-                          <span className="font-mono tabular-nums text-sa-accent">
+                          <span className="font-mono tabular-nums text-sa-blue">
                             ${video.rate_per_sec ?? 0}/s
                           </span>
                         </p>

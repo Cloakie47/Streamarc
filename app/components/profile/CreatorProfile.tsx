@@ -409,7 +409,7 @@ export default function CreatorProfile({
                           {formatViews(video.views)}
                         </span>
                         <span className="w-1 h-1 rounded-full bg-sa-text-3" />
-                        <span className="payment-ticker text-sa-accent font-bold">
+                        <span className="font-mono tabular-nums text-sa-blue">
                           ${formatRate(video.rate_per_sec)}/s
                         </span>
                       </div>

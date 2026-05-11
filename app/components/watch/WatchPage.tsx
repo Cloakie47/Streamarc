@@ -747,7 +747,7 @@ export default function WatchPage({
             {/* Live rate indicator — small surface pill so it stops floating top-right */}
             <span className="inline-flex items-center gap-2 rounded-full border border-sa-border/60 bg-sa-surface-2/60 px-3 py-1.5 font-mono text-[11px] tabular-nums text-sa-text-3">
               <span className={`h-1.5 w-1.5 rounded-full ${playing ? "bg-sa-green animate-pulse shadow-[0_0_6px_rgba(60,217,160,0.8)]" : "bg-sa-text-3"}`} />
-              <span className="text-foreground">{rateStatusLabel}</span>
+              <span className="font-mono tabular-nums text-sa-blue">{rateStatusLabel}</span>
             </span>
           </div>
 
@@ -882,7 +882,11 @@ export default function WatchPage({
               {playing
                 ? isOwnVideo
                   ? "You're the creator. Playback is free."
-                  : `Paying $${formatSubCentsShows(ratePerSecond)}/sec · batch every ${intervalSeconds}s via Circle x402 · pause anytime`
+                  : (
+                    <>
+                      Paying <span className="font-mono tabular-nums text-sa-blue">${formatSubCentsShows(ratePerSecond)}/sec</span> · batch every {intervalSeconds}s via Circle x402 · pause anytime
+                    </>
+                  )
                 : "Paused. Charges stopped instantly."}
             </p>
           )}
@@ -893,7 +897,7 @@ export default function WatchPage({
               { label: "Session Cost", value: `$${cost.toFixed(4)}`, color: "text-sa-accent" },
               { label: "Seconds Paid", value: `${paidSecs}s`, color: "text-foreground" },
               { label: "Balance", value: `$${balance.toFixed(4)}`, color: "text-sa-green" },
-              { label: "Current Rate", value: rateStatusLabel, color: "text-foreground" },
+              { label: "Current Rate", value: rateStatusLabel, color: "text-sa-blue font-mono" },
             ].map((stat) => (
               <div key={stat.label} className="panel-muted px-4 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">{stat.label}</p>

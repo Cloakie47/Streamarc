@@ -221,7 +221,7 @@ export default function Navbar({
                     style={{ background: "transparent" }}
                   >
                     <span className="line-clamp-1 font-medium group-hover/item:text-sa-cyan transition-colors">{video.title}</span>
-                    <span className="font-mono text-xs text-sa-text-3 flex-shrink-0">${video.rate_per_sec}/s</span>
+                    <span className="font-mono tabular-nums text-sa-blue text-xs flex-shrink-0">${video.rate_per_sec}/s</span>
                   </button>
                 ))}
               </motion.div>

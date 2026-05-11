@@ -55,7 +55,7 @@ function VideoCard({ video, index, onClick }: { video: Video; index: number; onC
       </div>
       <div className="flex flex-col gap-0.5 px-1">
         <h3 className="line-clamp-2 text-xs font-medium transition-colors group-hover:text-sa-accent">{video.title}</h3>
-        <span className="text-[10px] text-sa-accent">
+        <span className="text-[10px] font-mono tabular-nums text-sa-blue">
           ${video.rate_per_sec ?? 0}/s
         </span>
       </div>

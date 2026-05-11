@@ -5,37 +5,47 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Send,
-  Copy,
-  Check,
   ExternalLink,
   RefreshCw,
   Wallet,
-  ChevronDown,
+  Copy,
+  Check,
+  ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import ChainSelector from "./ChainSelector";
-import { SUPPORTED_CHAINS } from "@/app/lib/chains";
+import { createPublicClient, http, erc20Abi, type Chain } from "viem";
+import { arcTestnet, baseSepolia, avalancheFuji, sepolia } from "viem/chains";
+import { SUPPORTED_CHAINS, type ChainOption } from "@/app/lib/chains";
 
 const ARC_TESTNET = "Arc_Testnet";
 const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const GATEWAY_FEE_BPS = 0.00005; // 0.005% on cross-chain spend
+const CROSS_CHAIN_PLATFORM_FEE = 0.10;
+const PAGE_SIZE = 10;
+
+const VIEM_CHAINS: Record<string, Chain> = {
+  Arc_Testnet: arcTestnet,
+  Base_Sepolia: baseSepolia,
+  Avalanche_Fuji: avalancheFuji,
+  Ethereum_Sepolia: sepolia,
+};
 
 const EXPLORER_BASE: Record<string, string> = {
   Arc_Testnet: "https://testnet.arcscan.app/tx",
   Base_Sepolia: "https://sepolia.basescan.org/tx",
-  Arbitrum_Sepolia: "https://sepolia.arbiscan.io/tx",
   Avalanche_Fuji: "https://testnet.snowtrace.io/tx",
   Ethereum_Sepolia: "https://sepolia.etherscan.io/tx",
-  Optimism_Sepolia: "https://sepolia-optimism.etherscan.io/tx",
-  Polygon_Amoy_Testnet: "https://amoy.polygonscan.com/tx",
 };
+
+function publicClientFor(chainId: string) {
+  const chain = VIEM_CHAINS[chainId];
+  if (!chain) return null;
+  return createPublicClient({ chain, transport: http() });
+}
 
 function explorerUrl(chainId: string, txHash: string) {
   const base = EXPLORER_BASE[chainId] ?? EXPLORER_BASE.Arc_Testnet;
   return `${base}/${txHash}`;
-}
-
-function chainName(chainId: string) {
-  return SUPPORTED_CHAINS.find((c) => c.id === chainId)?.name ?? chainId;
 }
 
 function timeAgo(iso: string) {
@@ -47,21 +57,6 @@ function timeAgo(iso: string) {
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
   return `${d}d ago`;
-}
-
-// Inline fee math (mirrors the fallback values from /api/wallet/estimate).
-// kept as a module constant so the breakdown updates instantly as inputs change.
-const GATEWAY_FEE_BPS = 0.00005; // 0.005% on cross-chain spend
-const FORWARDING_FEE_USDC = 0;
-const GAS_ESTIMATE_USDC = 0;
-
-interface FeeBreakdown {
-  spend_amount: number;
-  platform_fee: number;
-  gateway_fee: number;
-  forwarding_fee: number;
-  gas_estimate: number;
-  you_receive: number;
 }
 
 interface Transaction {
@@ -77,80 +72,57 @@ interface Transaction {
   created_at: string;
 }
 
-interface ChainBalance {
-  chain: string;
-  confirmed: number;
-  pending: number;
+interface ChainRow {
+  chainId: string;
+  gasBalance: bigint | null;
+  usdcBalance: bigint | null;
+  loading: boolean;
 }
-
-function chainIcon(chainId: string) {
-  return SUPPORTED_CHAINS.find((c) => c.id === chainId)?.icon ?? "•";
-}
-
-const SEND_DISABLED_CHAINS = SUPPORTED_CHAINS
-  .filter((c) => c.id !== ARC_TESTNET)
-  .map((c) => c.id);
 
 export default function WalletPage({ userId, walletAddress }: { userId: string; walletAddress: string }) {
   const [gatewayBalance, setGatewayBalance] = useState(0);
-  const [walletUsdc, setWalletUsdc] = useState(0);
-  const [pendingBalance, setPendingBalance] = useState(0);
+  const [refreshingTopBar, setRefreshingTopBar] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const [chainRows, setChainRows] = useState<ChainRow[]>(() =>
+    SUPPORTED_CHAINS.map((c) => ({ chainId: c.id, gasBalance: null, usdcBalance: null, loading: true })),
+  );
+
+  // Deposit state
+  const [depositChain, setDepositChain] = useState(ARC_TESTNET);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositing, setDepositing] = useState(false);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [depositGasError, setDepositGasError] = useState<
+    | null
+    | { nativeToken: string; walletAddress: string; faucetUrl: string; chainName: string }
+  >(null);
+  const [depositResult, setDepositResult] = useState<{ hash: string; chain: string; explorer: string } | null>(null);
+
   // Withdraw state
-  const [wdAmount, setWdAmount] = useState("");
   const [wdChain, setWdChain] = useState(ARC_TESTNET);
+  const [wdAmount, setWdAmount] = useState("");
   const [wdDestination, setWdDestination] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
-  const [withdrawTx, setWithdrawTx] = useState<{ hash: string; chain: string } | null>(null);
+  const [withdrawResult, setWithdrawResult] = useState<{ hash: string; chain: string } | null>(null);
 
   // Send state
+  const [sendChain, setSendChain] = useState(ARC_TESTNET);
   const [sendAddress, setSendAddress] = useState("");
   const [sendAmount, setSendAmount] = useState("");
-  const [sendChain, setSendChain] = useState(ARC_TESTNET);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [sendTx, setSendTx] = useState<string | null>(null);
+  const [sendResult, setSendResult] = useState<{ hash: string; explorer: string } | null>(null);
 
-  // Transactions
+  // Transactions state
   const [txs, setTxs] = useState<Transaction[]>([]);
-  const [loadingTxs, setLoadingTxs] = useState(true);
+  const [txsLoading, setTxsLoading] = useState(true);
+  const [historyChainFilter, setHistoryChainFilter] = useState("all");
+  const [historyTypeFilter, setHistoryTypeFilter] = useState("all");
+  const [historyPage, setHistoryPage] = useState(1);
 
-  // Per-chain Gateway balance breakdown
-  const [chainBalances, setChainBalances] = useState<ChainBalance[]>([]);
-  const [showByChain, setShowByChain] = useState(false);
-
-  const wdIsCrossChain = wdChain !== ARC_TESTNET;
-  const wdMinimum = wdIsCrossChain ? 0.5 : 0.1;
-  const wdAmountNum = parseFloat(wdAmount);
-  const wdAmountValid = !isNaN(wdAmountNum) && wdAmountNum >= wdMinimum && wdAmountNum <= gatewayBalance;
-  const wdDestValid = wdIsCrossChain
-    ? EVM_ADDRESS_RE.test(wdDestination)
-    : !wdDestination || EVM_ADDRESS_RE.test(wdDestination);
-
-  const wdChainConfig = useMemo(
-    () => SUPPORTED_CHAINS.find((c) => c.id === wdChain),
-    [wdChain],
-  );
-
-  const fees: FeeBreakdown = useMemo(() => {
-    const amt = isNaN(wdAmountNum) ? 0 : Math.max(0, wdAmountNum);
-    const platform = wdChainConfig?.feeUsdc ?? 0;
-    const gateway = wdIsCrossChain ? amt * GATEWAY_FEE_BPS : 0;
-    const forwarding = wdIsCrossChain ? FORWARDING_FEE_USDC : 0;
-    const gas = GAS_ESTIMATE_USDC;
-    return {
-      spend_amount: amt,
-      platform_fee: platform,
-      gateway_fee: gateway,
-      forwarding_fee: forwarding,
-      gas_estimate: gas,
-      you_receive: amt - platform - gateway - forwarding - gas,
-    };
-  }, [wdAmountNum, wdIsCrossChain, wdChainConfig]);
-
-  const refreshBalance = useCallback(async () => {
+  const refreshGatewayBalance = useCallback(async () => {
     try {
       const res = await fetch("/api/gateway/balance", {
         method: "POST",
@@ -159,38 +131,48 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
       });
       const data = await res.json();
       if (typeof data.balance === "number") setGatewayBalance(data.balance);
-      if (typeof data.wallet_balance === "number") setWalletUsdc(data.wallet_balance);
-      if (typeof data.pending_balance === "number") setPendingBalance(data.pending_balance);
     } catch {
-      // keep stale values
+      // keep stale
     }
   }, [userId]);
 
-  const refreshChainBalances = useCallback(async () => {
-    try {
-      const res = await fetch("/api/wallet/balances", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId }),
-      });
-      if (!res.ok) {
-        setChainBalances([]);
-        return;
+  const refreshChainRow = useCallback(
+    async (chain: ChainOption): Promise<ChainRow> => {
+      const client = publicClientFor(chain.id);
+      if (!client || !walletAddress || !EVM_ADDRESS_RE.test(walletAddress)) {
+        return { chainId: chain.id, gasBalance: null, usdcBalance: null, loading: false };
       }
-      const data = await res.json();
-      setChainBalances(Array.isArray(data.per_chain) ? data.per_chain : []);
-    } catch {
-      setChainBalances([]);
-    }
-  }, [userId]);
+      try {
+        const [gas, usdc] = await Promise.all([
+          client.getBalance({ address: walletAddress as `0x${string}` }),
+          client.readContract({
+            address: chain.usdcAddress as `0x${string}`,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [walletAddress as `0x${string}`],
+          }) as Promise<bigint>,
+        ]);
+        return { chainId: chain.id, gasBalance: gas, usdcBalance: usdc, loading: false };
+      } catch {
+        return { chainId: chain.id, gasBalance: null, usdcBalance: null, loading: false };
+      }
+    },
+    [walletAddress],
+  );
 
-  const refreshTxs = useCallback(async () => {
-    setLoadingTxs(true);
+  const refreshAllChainRows = useCallback(async () => {
+    setChainRows((rows) => rows.map((r) => ({ ...r, loading: true })));
+    const next = await Promise.all(SUPPORTED_CHAINS.map(refreshChainRow));
+    setChainRows(next);
+  }, [refreshChainRow]);
+
+  const refreshTransactions = useCallback(async () => {
+    setTxsLoading(true);
     try {
       const res = await fetch("/api/wallet/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, limit: 10 }),
+        body: JSON.stringify({ user_id: userId, limit: 50 }),
       });
       if (!res.ok) {
         setTxs([]);
@@ -201,29 +183,110 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
     } catch {
       setTxs([]);
     } finally {
-      setLoadingTxs(false);
+      setTxsLoading(false);
     }
   }, [userId]);
 
+  const refreshAll = useCallback(async () => {
+    setRefreshingTopBar(true);
+    await Promise.all([refreshGatewayBalance(), refreshAllChainRows(), refreshTransactions()]);
+    setRefreshingTopBar(false);
+  }, [refreshGatewayBalance, refreshAllChainRows, refreshTransactions]);
+
   useEffect(() => {
-    refreshBalance();
-    refreshTxs();
-    refreshChainBalances();
-  }, [refreshBalance, refreshTxs, refreshChainBalances]);
+    refreshAll();
+  }, [refreshAll]);
 
   useEffect(() => {
     const handler = () => {
-      refreshBalance();
-      refreshChainBalances();
+      refreshGatewayBalance();
+      refreshAllChainRows();
+      refreshTransactions();
     };
     window.addEventListener("gateway-balance-updated", handler);
     return () => window.removeEventListener("gateway-balance-updated", handler);
-  }, [refreshBalance, refreshChainBalances]);
+  }, [refreshGatewayBalance, refreshAllChainRows, refreshTransactions]);
+
+  // Map chainId → last tx status (for chain table column)
+  const lastTxStatusByChain = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tx of txs) {
+      const ids = [tx.destination_chain, tx.source_chain].filter(Boolean) as string[];
+      for (const id of ids) {
+        if (!map.has(id)) map.set(id, tx.status);
+      }
+    }
+    return map;
+  }, [txs]);
+
+  const usdcBalanceFor = (chainId: string): number => {
+    const row = chainRows.find((r) => r.chainId === chainId);
+    if (!row || row.usdcBalance === null) return 0;
+    return Number(row.usdcBalance) / 1e6;
+  };
+
+  const handleDeposit = async () => {
+    if (!userId) return;
+    setDepositing(true);
+    setDepositError(null);
+    setDepositGasError(null);
+    setDepositResult(null);
+
+    const previousGateway = gatewayBalance;
+
+    try {
+      const res = await fetch("/api/gateway/deposit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          amount: depositAmount || undefined,
+          source_chain: depositChain,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data?.native_token && data?.wallet_address) {
+          setDepositGasError({
+            nativeToken: data.native_token,
+            walletAddress: data.wallet_address,
+            faucetUrl: data.faucet_url ?? "https://faucet.circle.com",
+            chainName: data.chain_name ?? SUPPORTED_CHAINS.find((c) => c.id === depositChain)?.name ?? depositChain,
+          });
+        } else {
+          setDepositError(data?.error ?? "Deposit failed");
+        }
+        return;
+      }
+      const hash = data.tx_hash ?? data.deposit_tx ?? null;
+      if (hash) {
+        setDepositResult({
+          hash,
+          chain: data.chain ?? depositChain,
+          explorer: data.explorer_url ?? EXPLORER_BASE[depositChain] ?? EXPLORER_BASE.Arc_Testnet,
+        });
+      }
+      setDepositAmount("");
+      window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
+      // Poll Gateway balance briefly so the headline number updates if indexing is quick
+      void pollUntil(async () => {
+        await refreshGatewayBalance();
+        return gatewayBalance > previousGateway;
+      }, 6, 5000);
+      refreshAllChainRows();
+      refreshTransactions();
+    } catch {
+      setDepositError("Deposit failed");
+    } finally {
+      setDepositing(false);
+    }
+  };
 
   const handleWithdraw = async () => {
+    if (!userId) return;
     setWithdrawing(true);
     setWithdrawError(null);
-    setWithdrawTx(null);
+    setWithdrawResult(null);
     try {
       const body: Record<string, string> = {
         user_id: userId,
@@ -231,7 +294,6 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
         destination_chain: wdChain,
       };
       if (wdDestination) body.destination_address = wdDestination;
-
       const res = await fetch("/api/gateway/withdraw", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -239,15 +301,17 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
       });
       const data = await res.json();
       if (!res.ok) {
-        setWithdrawError(data.error ?? "Withdrawal failed");
+        setWithdrawError(data?.error ?? "Withdrawal failed");
         return;
       }
-      setWithdrawTx({ hash: data.tx_hash, chain: wdChain });
+      const hash = data.tx_hash ?? null;
+      if (hash) setWithdrawResult({ hash, chain: wdChain });
       setWdAmount("");
       setWdDestination("");
       window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
-      refreshBalance();
-      refreshTxs();
+      refreshGatewayBalance();
+      refreshAllChainRows();
+      refreshTransactions();
     } catch {
       setWithdrawError("Withdrawal failed");
     } finally {
@@ -256,9 +320,33 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
   };
 
   const handleSend = async () => {
-    setSending(true);
+    if (!userId) return;
     setSendError(null);
-    setSendTx(null);
+    setSendResult(null);
+
+    if (!EVM_ADDRESS_RE.test(sendAddress)) {
+      setSendError("Recipient address must be a valid 0x… address");
+      return;
+    }
+    const sendAmountNum = parseFloat(sendAmount);
+    if (isNaN(sendAmountNum) || sendAmountNum <= 0) {
+      setSendError("Amount must be greater than 0");
+      return;
+    }
+    // Only enforce the on-chain balance ceiling when we have a confirmed reading
+    // from the chain table for the SELECTED chain — if Section 2's balanceOf hasn't
+    // resolved (or failed), let the server reject rather than blocking the user.
+    const selectedRow = chainRows.find((r) => r.chainId === sendChain);
+    const selectedChainName = SUPPORTED_CHAINS.find((c) => c.id === sendChain)?.name ?? sendChain;
+    if (selectedRow && selectedRow.usdcBalance !== null) {
+      const onChainBalance = Number(selectedRow.usdcBalance) / 1e6;
+      if (sendAmountNum > onChainBalance) {
+        setSendError(`Amount exceeds ${selectedChainName} wallet USDC balance ($${onChainBalance.toFixed(4)})`);
+        return;
+      }
+    }
+
+    setSending(true);
     try {
       const res = await fetch("/api/gateway/send-external", {
         method: "POST",
@@ -267,18 +355,24 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
           user_id: userId,
           destination_address: sendAddress,
           amount: sendAmount,
+          source_chain: sendChain,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setSendError(data.error ?? "Send failed");
+        setSendError(data?.error ?? "Send failed");
         return;
       }
-      setSendTx(data.tx_hash);
+      if (data.tx_hash) {
+        setSendResult({
+          hash: data.tx_hash,
+          explorer: data.explorer_url ?? EXPLORER_BASE[sendChain] ?? EXPLORER_BASE.Arc_Testnet,
+        });
+      }
       setSendAddress("");
       setSendAmount("");
-      refreshBalance();
-      refreshTxs();
+      refreshAllChainRows();
+      refreshTransactions();
     } catch {
       setSendError("Send failed");
     } finally {
@@ -286,7 +380,8 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
     }
   };
 
-  const handleCopy = async () => {
+  const handleCopyAddress = async () => {
+    if (!walletAddress) return;
     try {
       await navigator.clipboard.writeText(walletAddress);
       setCopied(true);
@@ -296,103 +391,330 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
     }
   };
 
+  const filteredTxs = useMemo(() => {
+    return txs.filter((tx) => {
+      if (historyTypeFilter !== "all" && tx.type !== historyTypeFilter) return false;
+      if (historyChainFilter !== "all") {
+        const inChain =
+          tx.source_chain === historyChainFilter || tx.destination_chain === historyChainFilter;
+        if (!inChain) return false;
+      }
+      return true;
+    });
+  }, [txs, historyChainFilter, historyTypeFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTxs.length / PAGE_SIZE));
+  const safePage = Math.min(historyPage, totalPages);
+  const pagedTxs = filteredTxs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historyChainFilter, historyTypeFilter]);
+
+  // Deposit form helpers
+  const depositChainCfg = SUPPORTED_CHAINS.find((c) => c.id === depositChain);
+  const depositAvailable = usdcBalanceFor(depositChain);
+  const depositIsNonArc = depositChain !== ARC_TESTNET;
+
+  // Withdraw form helpers
+  const wdChainCfg = SUPPORTED_CHAINS.find((c) => c.id === wdChain);
+  const wdIsCrossChain = wdChain !== ARC_TESTNET;
+  const wdAmountNum = parseFloat(wdAmount) || 0;
+  const wdPlatformFee = wdIsCrossChain ? CROSS_CHAIN_PLATFORM_FEE : 0;
+  const wdGatewayFee = wdIsCrossChain ? wdAmountNum * GATEWAY_FEE_BPS : 0;
+  const wdYouReceive = Math.max(0, wdAmountNum - wdPlatformFee - wdGatewayFee);
+  const wdMinimum = wdIsCrossChain ? 0.5 : 0.1;
+  const wdAmountValid = wdAmountNum >= wdMinimum && wdAmountNum <= gatewayBalance;
+  const wdDestValid = wdIsCrossChain
+    ? EVM_ADDRESS_RE.test(wdDestination)
+    : !wdDestination || EVM_ADDRESS_RE.test(wdDestination);
+
   return (
     <div className="flex flex-col gap-8 pb-20">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Wallet</h1>
         <p className="mt-2 text-sm text-sa-text-3">
-          Manage your Gateway balance, withdraw to any supported chain, and send USDC.
+          Manage your Gateway balance, multi-chain wallet, deposits, withdrawals, and history.
         </p>
       </div>
 
-      {/* Section 1: Gateway Balance + Withdraw */}
-      <section className="flex flex-col gap-6">
-        <div className="glass p-6 rounded-sa-card flex flex-col gap-4 hover-lift">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-                Gateway balance
-              </span>
-              <span className="font-mono text-4xl font-bold tracking-tight text-sa-green tabular-nums">
-                ${gatewayBalance.toFixed(4)}
-              </span>
-              {pendingBalance > 0 && (
-                <span className="text-xs text-sa-text-3 font-mono">
-                  + ${pendingBalance.toFixed(4)} pending
-                </span>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => window.dispatchEvent(new CustomEvent("open-top-up"))}
-              className="btn btn-primary"
+      {/* Section 1 — Gateway Balance */}
+      <section className="glass rounded-sa-card p-6 hover-lift">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
+              Gateway balance
+            </span>
+            <span className="font-mono text-4xl font-bold tracking-tight text-sa-green tabular-nums">
+              ${gatewayBalance.toFixed(4)}
+            </span>
+            <span className="text-xs text-sa-text-3">Unified balance across all chains</span>
+          </div>
+          <button
+            type="button"
+            onClick={refreshAll}
+            disabled={refreshingTopBar}
+            className="inline-flex items-center gap-2 rounded-xl border border-sa-border bg-sa-surface px-3 py-2 text-xs hover:border-sa-border-hover disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={refreshingTopBar ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </div>
+      </section>
+
+      {/* Wallet address ribbon */}
+      <section className="glass rounded-sa-card p-4 flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-semibold uppercase tracking-wider text-sa-text-3 shrink-0">
+          Circle wallet
+        </span>
+        <span className="font-mono tabular-nums text-xs text-foreground break-all">
+          {walletAddress || "—"}
+        </span>
+        {walletAddress && (
+          <button
+            type="button"
+            onClick={handleCopyAddress}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-sa-border px-2 py-1 text-[11px] text-sa-text-3 hover:text-foreground"
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        )}
+      </section>
+
+      {/* Section 2 — Chain Table */}
+      <section className="glass rounded-sa-card overflow-hidden">
+        <div className="flex items-center justify-between border-b border-sa-border px-6 py-4">
+          <h3 className="font-bold inline-flex items-center gap-2">
+            <Wallet size={16} className="text-sa-accent" />
+            Wallet balances by chain
+          </h3>
+          <button
+            type="button"
+            onClick={refreshAllChainRows}
+            className="inline-flex items-center gap-1 text-xs text-sa-text-3 hover:text-foreground"
+          >
+            <RefreshCw size={12} />
+            Refresh
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-sa-border/50 text-xs uppercase tracking-wider text-sa-text-3">
+                <th className="px-6 py-3 font-bold">Chain</th>
+                <th className="px-6 py-3 font-bold">Gas token</th>
+                <th className="px-6 py-3 font-bold text-right">Gas balance</th>
+                <th className="px-6 py-3 font-bold text-right">USDC balance</th>
+                <th className="px-6 py-3 font-bold">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-sa-border/40">
+              {SUPPORTED_CHAINS.map((chain) => {
+                const row = chainRows.find((r) => r.chainId === chain.id);
+                const loading = row?.loading ?? true;
+                const gas = row?.gasBalance ?? null;
+                const usdc = row?.usdcBalance ?? null;
+                const lastStatus = lastTxStatusByChain.get(chain.id) ?? null;
+                return (
+                  <tr key={chain.id} className="hover:bg-sa-surface transition-colors">
+                    <td className="px-6 py-3">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="text-base leading-none" aria-hidden>{chain.icon}</span>
+                        <span className="text-foreground">{chain.name}</span>
+                      </span>
+                    </td>
+                    <td className="px-6 py-3 text-sa-text-3">{chain.nativeToken}</td>
+                    <td className="px-6 py-3 text-right font-mono tabular-nums">
+                      {loading ? (
+                        <span className="inline-block h-3 w-16 rounded bg-sa-surface-2 animate-pulse" />
+                      ) : gas === null ? (
+                        <span className="text-sa-text-3">—</span>
+                      ) : (
+                        `${(Number(gas) / 1e18).toFixed(6)} ${chain.nativeToken}`
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-right font-mono tabular-nums">
+                      {loading ? (
+                        <span className="inline-block h-3 w-20 rounded bg-sa-surface-2 animate-pulse" />
+                      ) : usdc === null ? (
+                        <span className="text-sa-text-3">—</span>
+                      ) : (
+                        `$${(Number(usdc) / 1e6).toFixed(4)}`
+                      )}
+                    </td>
+                    <td className="px-6 py-3">
+                      <StatusCell status={lastStatus} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Section 3 — Deposit */}
+      <section className="glass rounded-sa-card p-6 flex flex-col gap-5 hover-lift">
+        <div className="flex flex-col gap-1">
+          <h3 className="font-bold inline-flex items-center gap-2">
+            <ArrowDownToLine size={16} className="text-sa-green" />
+            Deposit to Gateway
+          </h3>
+          <p className="text-xs text-sa-text-3">
+            Move USDC from a source chain into your unified Gateway balance.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
+              Source chain
+            </label>
+            <select
+              value={depositChain}
+              onChange={(e) => {
+                setDepositChain(e.target.value);
+                setDepositError(null);
+                setDepositGasError(null);
+                setDepositResult(null);
+              }}
+              className="field-surface h-11 px-3 text-sm"
             >
-              Top up
-            </button>
+              {SUPPORTED_CHAINS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.icon} {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
+              Amount (USDC)
+            </label>
+            <input
+              type="number"
+              min="0.01"
+              step="0.0001"
+              placeholder={`Max $${depositAvailable.toFixed(4)}`}
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value)}
+              className="field-surface h-11 px-3 text-sm"
+            />
           </div>
         </div>
 
-        {/* Per-chain breakdown */}
-        {chainBalances.some((c) => c.confirmed > 0) && (
-          <div className="glass rounded-sa-card overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setShowByChain((v) => !v)}
-              className="w-full flex items-center justify-between gap-3 px-6 py-4 text-left hover:bg-sa-surface transition-colors"
-              aria-expanded={showByChain}
+        <div className="flex flex-col gap-1 text-[11px] text-sa-text-3">
+          <span>
+            Available:{" "}
+            <span className="font-mono text-foreground">${depositAvailable.toFixed(4)}</span>{" "}
+            USDC on {depositChainCfg?.name ?? depositChain}
+          </span>
+          {depositIsNonArc && depositChainCfg && depositChainCfg.finalitySeconds >= 60 && (
+            <span className="text-amber-400">
+              ~{Math.round(depositChainCfg.finalitySeconds / 60)} min finality — Gateway balance
+              updates after block finality on {depositChainCfg.name}.
+            </span>
+          )}
+          {depositIsNonArc && depositChainCfg && (
+            <span>
+              Need {depositChainCfg.nativeToken} or testnet USDC?{" "}
+              <a
+                href="https://faucet.circle.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                faucet.circle.com
+              </a>
+            </span>
+          )}
+        </div>
+
+        {depositError && <p className="text-xs text-sa-red">{depositError}</p>}
+        {depositGasError && (
+          <div className="rounded-xl border border-sa-red/40 bg-sa-red/[0.06] p-3 space-y-1">
+            <p className="text-xs font-semibold text-sa-red">
+              Insufficient {depositGasError.nativeToken} for gas on {depositGasError.chainName}
+            </p>
+            <p className="text-[11px] text-sa-text-3 break-all">
+              Fund <span className="font-mono text-foreground">{depositGasError.walletAddress}</span>{" "}
+              with {depositGasError.nativeToken} at{" "}
+              <a
+                href={depositGasError.faucetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                faucet.circle.com
+              </a>
+              .
+            </p>
+          </div>
+        )}
+        {depositResult && (
+          <div className="space-y-1">
+            <p className="text-xs text-sa-green">Deposit submitted on {depositResult.chain}.</p>
+            <a
+              href={`${depositResult.explorer}/${depositResult.hash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
             >
-              <span className="inline-flex items-center gap-2">
-                {showByChain ? (
-                  <ChevronDown size={14} className="text-sa-text-3" />
-                ) : (
-                  <ChevronRight size={14} className="text-sa-text-3" />
-                )}
-                <span className="text-sm font-semibold">Deposited from</span>
-                <span className="text-xs text-sa-text-3">
-                  {chainBalances.filter((c) => c.confirmed > 0).length} chain
-                  {chainBalances.filter((c) => c.confirmed > 0).length !== 1 ? "s" : ""}
-                </span>
-              </span>
-            </button>
-            {showByChain && (
-              <div className="border-t border-sa-border divide-y divide-sa-border/40">
-                {chainBalances
-                  .filter((c) => c.confirmed > 0)
-                  .map((c) => (
-                    <div
-                      key={c.chain}
-                      className="flex items-center justify-between gap-3 px-6 py-3"
-                    >
-                      <span className="inline-flex items-center gap-2 min-w-0">
-                        <span className="text-base leading-none" aria-hidden>
-                          {chainIcon(c.chain)}
-                        </span>
-                        <span className="text-sm text-foreground truncate">
-                          {chainName(c.chain)}
-                        </span>
-                      </span>
-                      <span className="font-mono text-sm tabular-nums text-foreground">
-                        ${c.confirmed.toFixed(4)}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            )}
+              <ExternalLink size={12} />
+              {depositResult.hash.slice(0, 16)}…{depositResult.hash.slice(-8)}
+            </a>
           </div>
         )}
 
-        {/* Withdraw card */}
-        <div className="glass p-6 rounded-sa-card flex flex-col gap-5 hover-lift">
-          <div className="flex flex-col gap-1">
-            <h3 className="font-bold inline-flex items-center gap-2">
-              <ArrowUpFromLine size={16} className="text-sa-accent" />
-              Withdraw from Gateway
-            </h3>
-            <p className="text-xs text-sa-text-3">
-              Pulls USDC from your Gateway balance. Same-chain Arc is free; cross-chain uses Circle&apos;s
-              Forwarding Service.
-            </p>
+        <button
+          type="button"
+          onClick={handleDeposit}
+          disabled={depositing || !(parseFloat(depositAmount) > 0)}
+          className="btn btn-primary self-start disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {depositing ? (
+            <>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Depositing…
+            </>
+          ) : (
+            "Deposit"
+          )}
+        </button>
+      </section>
+
+      {/* Section 4 — Withdraw */}
+      <section className="glass rounded-sa-card p-6 flex flex-col gap-5 hover-lift">
+        <div className="flex flex-col gap-1">
+          <h3 className="font-bold inline-flex items-center gap-2">
+            <ArrowUpFromLine size={16} className="text-sa-accent" />
+            Withdraw from Gateway
+          </h3>
+          <p className="text-xs text-sa-text-3">
+            Pull USDC from your Gateway balance. Same-chain Arc is free; cross-chain uses Circle&apos;s
+            Forwarding Service.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
+              Destination chain
+            </label>
+            <select
+              value={wdChain}
+              onChange={(e) => setWdChain(e.target.value)}
+              className="field-surface h-11 px-3 text-sm"
+            >
+              {SUPPORTED_CHAINS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.icon} {c.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -409,148 +731,109 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
               className="field-surface h-11 px-3 text-sm"
             />
           </div>
+        </div>
 
-          {wdAmountNum > 0 && (
-            <div className="panel-muted p-4 space-y-1.5 text-sm font-mono">
-              <FeeRow label="Amount" value={`$${fees.spend_amount.toFixed(4)}`} />
-              {fees.platform_fee > 0 && (
-                <FeeRow label="Platform fee" value={`$${fees.platform_fee.toFixed(4)}`} />
-              )}
-              {fees.gateway_fee > 0 && (
-                <FeeRow label="Gateway fee" value={`$${fees.gateway_fee.toFixed(6)}`} />
-              )}
-              {fees.forwarding_fee > 0 && (
-                <FeeRow label="Forwarding fee" value={`$${fees.forwarding_fee.toFixed(4)}`} />
-              )}
-              {fees.gas_estimate > 0 && (
-                <FeeRow label="Gas estimate" value={`~$${fees.gas_estimate.toFixed(4)}`} />
-              )}
-              <div className="my-1 h-px bg-sa-border" />
-              <FeeRow
-                label="You receive"
-                value={`$${Math.max(0, fees.you_receive).toFixed(4)}`}
-                emphasis
-              />
-              {fees.you_receive <= 0 && (
-                <p className="mt-2 text-xs text-sa-red font-sans">
-                  Amount is too small to cover fees. Increase the amount.
-                </p>
-              )}
-            </div>
-          )}
-
-          <ChainSelector
-            label="Destination chain"
-            selected={wdChain}
-            onSelect={setWdChain}
-          />
-
+        {wdIsCrossChain && (
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              {wdIsCrossChain
-                ? "Destination address (required)"
-                : "Destination address (optional — defaults to your wallet)"}
+              Destination address (required)
             </label>
             <input
               type="text"
-              placeholder={wdIsCrossChain ? "0x…" : walletAddress}
+              placeholder="0x…"
               value={wdDestination}
               onChange={(e) => setWdDestination(e.target.value)}
               className="field-surface h-11 px-3 text-sm font-mono"
             />
           </div>
+        )}
 
-          {withdrawError && <p className="text-xs text-sa-red">{withdrawError}</p>}
-          {withdrawTx && (
-            <div className="space-y-1">
-              <p className="text-xs text-sa-green">Withdrawal successful!</p>
-              <a
-                href={explorerUrl(withdrawTx.chain, withdrawTx.hash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
-              >
-                <ExternalLink size={12} />
-                {withdrawTx.hash.slice(0, 16)}…{withdrawTx.hash.slice(-8)}
-              </a>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleWithdraw}
-            disabled={
-              withdrawing ||
-              !wdAmountValid ||
-              !wdDestValid ||
-              fees.you_receive <= 0
-            }
-            className="btn btn-accent self-start disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {withdrawing ? (
-              <>
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Confirming…
-              </>
-            ) : (
-              "Confirm withdrawal"
+        {wdAmountNum > 0 && (
+          <div className="panel-muted p-4 space-y-1.5 text-sm font-mono">
+            <FeeRow label="Amount" value={`$${wdAmountNum.toFixed(4)}`} />
+            <FeeRow
+              label={`Platform fee${wdIsCrossChain ? "" : " (Arc)"}`}
+              value={`$${wdPlatformFee.toFixed(4)}`}
+            />
+            {wdIsCrossChain && (
+              <FeeRow
+                label="Gateway fee (0.005% cross-chain)"
+                value={`$${wdGatewayFee.toFixed(6)}`}
+              />
             )}
-          </button>
-        </div>
+            <div className="my-1 h-px bg-sa-border" />
+            <FeeRow label="You receive" value={`$${wdYouReceive.toFixed(4)}`} emphasis />
+            {wdYouReceive <= 0 && wdAmountNum > 0 && (
+              <p className="mt-2 text-xs text-sa-red font-sans">
+                Amount is too small to cover fees. Increase the amount.
+              </p>
+            )}
+          </div>
+        )}
+
+        {withdrawError && <p className="text-xs text-sa-red">{withdrawError}</p>}
+        {withdrawResult && (
+          <div className="space-y-1">
+            <p className="text-xs text-sa-green">Withdrawal submitted on {wdChainCfg?.name ?? withdrawResult.chain}.</p>
+            <a
+              href={explorerUrl(withdrawResult.chain, withdrawResult.hash)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
+            >
+              <ExternalLink size={12} />
+              {withdrawResult.hash.slice(0, 16)}…{withdrawResult.hash.slice(-8)}
+            </a>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleWithdraw}
+          disabled={
+            withdrawing || !wdAmountValid || !wdDestValid || wdYouReceive <= 0
+          }
+          className="btn btn-accent self-start disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {withdrawing ? (
+            <>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Confirming…
+            </>
+          ) : (
+            "Withdraw"
+          )}
+        </button>
       </section>
 
-      {/* Section 2: Circle Wallet + Send */}
-      <section className="flex flex-col gap-6">
-        <div className="glass p-6 rounded-sa-card flex flex-col gap-4 hover-lift">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-                Circle wallet balance · Arc Testnet
-              </span>
-              <span className="font-mono text-4xl font-bold tracking-tight text-foreground tabular-nums">
-                ${walletUsdc.toFixed(4)}
-              </span>
-            </div>
-            <div className="panel-muted p-3 flex items-center gap-2">
-              <span className="font-mono text-xs break-all text-foreground">
-                {walletAddress.slice(0, 10)}…{walletAddress.slice(-6)}
-              </span>
-              <button
-                type="button"
-                onClick={handleCopy}
-                aria-label="Copy wallet address"
-                className="inline-flex items-center gap-1 rounded-lg border border-sa-border px-2 py-1 text-[11px] text-sa-text-3 hover:text-foreground"
-              >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
-          </div>
+      {/* Section 5 — Send (Circle Wallet → External) */}
+      <section className="glass rounded-sa-card p-6 flex flex-col gap-5 hover-lift">
+        <div className="flex flex-col gap-1">
+          <h3 className="font-bold inline-flex items-center gap-2">
+            <Send size={16} className="text-sa-blue" />
+            Send USDC
+          </h3>
+          <p className="text-xs text-sa-text-3">
+            Sends USDC from your Circle wallet to an external address on the selected chain.
+          </p>
         </div>
 
-        <div className="glass p-6 rounded-sa-card flex flex-col gap-5 hover-lift">
-          <div className="flex flex-col gap-1">
-            <h3 className="font-bold inline-flex items-center gap-2">
-              <Send size={16} className="text-sa-accent" />
-              Send USDC
-            </h3>
-            <p className="text-xs text-sa-text-3">
-              Sends from your Circle wallet (not Gateway). Same-chain Arc only — for cross-chain transfers
-              use Withdraw.
-            </p>
-          </div>
-
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              Recipient address
+              Chain
             </label>
-            <input
-              type="text"
-              placeholder="0x…"
-              value={sendAddress}
-              onChange={(e) => setSendAddress(e.target.value)}
-              className="field-surface h-11 px-3 text-sm font-mono"
-            />
+            <select
+              value={sendChain}
+              onChange={(e) => setSendChain(e.target.value)}
+              className="field-surface h-11 px-3 text-sm"
+            >
+              {SUPPORTED_CHAINS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.icon} {c.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -561,121 +844,196 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
               type="number"
               min="0.0001"
               step="0.0001"
-              placeholder={`Max $${walletUsdc.toFixed(4)}`}
+              placeholder={`Max $${usdcBalanceFor(sendChain).toFixed(4)}`}
               value={sendAmount}
               onChange={(e) => setSendAmount(e.target.value)}
               className="field-surface h-11 px-3 text-sm"
             />
           </div>
-
-          <ChainSelector
-            label="Destination chain"
-            selected={sendChain}
-            onSelect={setSendChain}
-            disabledChains={SEND_DISABLED_CHAINS}
-            disabledLabel="Coming soon"
-          />
-
-          {sendError && <p className="text-xs text-sa-red">{sendError}</p>}
-          {sendTx && (
-            <div className="space-y-1">
-              <p className="text-xs text-sa-green">Send successful!</p>
-              <a
-                href={explorerUrl(ARC_TESTNET, sendTx)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
-              >
-                <ExternalLink size={12} />
-                {sendTx.slice(0, 16)}…{sendTx.slice(-8)}
-              </a>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={
-              sending ||
-              !EVM_ADDRESS_RE.test(sendAddress) ||
-              !(parseFloat(sendAmount) > 0) ||
-              walletUsdc <= 0
-            }
-            className="btn btn-primary self-start disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {sending ? (
-              <>
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Sending…
-              </>
-            ) : (
-              "Send"
-            )}
-          </button>
         </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
+            Recipient address
+          </label>
+          <input
+            type="text"
+            placeholder="0x…"
+            value={sendAddress}
+            onChange={(e) => setSendAddress(e.target.value)}
+            className="field-surface h-11 px-3 text-sm font-mono"
+          />
+        </div>
+
+        {sendError && <p className="text-xs text-sa-red">{sendError}</p>}
+        {sendResult && (
+          <div className="space-y-1">
+            <p className="text-xs text-sa-green">Send submitted.</p>
+            <a
+              href={`${sendResult.explorer}/${sendResult.hash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
+            >
+              <ExternalLink size={12} />
+              {sendResult.hash.slice(0, 16)}…{sendResult.hash.slice(-8)}
+            </a>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={
+            sending ||
+            !EVM_ADDRESS_RE.test(sendAddress) ||
+            !(parseFloat(sendAmount) > 0)
+          }
+          className="btn btn-primary self-start disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {sending ? (
+            <>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Sending…
+            </>
+          ) : (
+            "Send"
+          )}
+        </button>
       </section>
 
-      {/* Section 3: Transaction history */}
+      {/* Section 6 — Transaction History */}
       <section className="glass rounded-sa-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-sa-border p-6">
+        <div className="flex items-center justify-between border-b border-sa-border px-6 py-4 flex-wrap gap-3">
           <h3 className="font-bold inline-flex items-center gap-2">
             <Wallet size={16} className="text-sa-accent" />
             Transaction history
           </h3>
-          <button
-            type="button"
-            onClick={refreshTxs}
-            className="inline-flex items-center gap-1 text-xs text-sa-text-3 hover:text-foreground"
-          >
-            <RefreshCw size={12} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={historyChainFilter}
+              onChange={(e) => setHistoryChainFilter(e.target.value)}
+              className="field-surface h-9 px-2 text-xs"
+            >
+              <option value="all">All chains</option>
+              {SUPPORTED_CHAINS.map((c) => (
+                <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+              ))}
+            </select>
+            <select
+              value={historyTypeFilter}
+              onChange={(e) => setHistoryTypeFilter(e.target.value)}
+              className="field-surface h-9 px-2 text-xs"
+            >
+              <option value="all">All types</option>
+              <option value="deposit">Deposit</option>
+              <option value="withdraw">Withdraw</option>
+              <option value="send">Send</option>
+            </select>
+            <button
+              type="button"
+              onClick={refreshTransactions}
+              className="inline-flex items-center gap-1 text-xs text-sa-text-3 hover:text-foreground"
+            >
+              <RefreshCw size={12} />
+              Refresh
+            </button>
+          </div>
         </div>
-        {loadingTxs ? (
+        {txsLoading ? (
           <div className="p-8 text-center text-sm text-sa-text-3">Loading…</div>
-        ) : txs.length === 0 ? (
+        ) : filteredTxs.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-12">
             <div className="w-12 h-12 rounded-2xl bg-sa-surface-2 flex items-center justify-center">
               <Wallet size={20} className="text-sa-text-3" />
             </div>
             <p className="text-sm text-sa-text-3">No transactions yet</p>
             <p className="text-xs text-sa-text-3/70">
-              Top up, withdraw, or send to see activity here
+              Deposit, withdraw, or send to see activity here
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-sa-border/50 text-xs uppercase tracking-wider text-sa-text-3">
-                  <th className="px-6 py-3 font-bold">Type</th>
-                  <th className="px-6 py-3 font-bold">Chain</th>
-                  <th className="px-6 py-3 font-bold">Amount</th>
-                  <th className="px-6 py-3 font-bold">Fee</th>
-                  <th className="px-6 py-3 font-bold">Status</th>
-                  <th className="px-6 py-3 font-bold text-right">When</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-sa-border/40">
-                {txs.map((t) => (
-                  <TxRow key={t.id} tx={t} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-sa-border/50 text-xs uppercase tracking-wider text-sa-text-3">
+                    <th className="px-6 py-3 font-bold">Type</th>
+                    <th className="px-6 py-3 font-bold">Chain</th>
+                    <th className="px-6 py-3 font-bold">Amount</th>
+                    <th className="px-6 py-3 font-bold">Fee</th>
+                    <th className="px-6 py-3 font-bold">Status</th>
+                    <th className="px-6 py-3 font-bold text-right">When</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-sa-border/40">
+                  {pagedTxs.map((t) => (
+                    <TxRow key={t.id} tx={t} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between border-t border-sa-border px-6 py-3 text-xs">
+              <span className="text-sa-text-3">
+                Page {safePage} of {totalPages}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage <= 1}
+                  className="inline-flex items-center gap-1 rounded-lg border border-sa-border px-2 py-1 hover:border-sa-border-hover disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={12} />
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                  className="inline-flex items-center gap-1 rounded-lg border border-sa-border px-2 py-1 hover:border-sa-border-hover disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next
+                  <ChevronRight size={12} />
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </section>
     </div>
   );
 }
 
+async function pollUntil(check: () => Promise<boolean>, attempts: number, intervalMs: number) {
+  for (let i = 0; i < attempts; i++) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    try {
+      if (await check()) return;
+    } catch {
+      // keep polling
+    }
+  }
+}
+
+function StatusCell({ status }: { status: string | null }) {
+  if (!status) return <span className="text-sa-text-3">—</span>;
+  const norm = status.toLowerCase();
+  if (norm === "completed" || norm === "complete") {
+    return <span className="text-sa-green">✅ Complete</span>;
+  }
+  if (norm === "pending" || norm === "processing") {
+    return <span className="text-amber-400">⏳ Pending</span>;
+  }
+  if (norm === "failed" || norm === "denied" || norm === "cancelled") {
+    return <span className="text-sa-red">❌ Failed</span>;
+  }
+  return <span className="text-sa-text-3 capitalize">{status}</span>;
+}
+
 function FeeRow({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <div
-      className={`flex items-center justify-between ${
-        emphasis ? "font-bold text-foreground" : "text-sa-text-3"
-      }`}
-    >
+    <div className={`flex items-center justify-between ${emphasis ? "font-bold text-foreground" : "text-sa-text-3"}`}>
       <span>{label}</span>
       <span className="tabular-nums">{value}</span>
     </div>
@@ -683,23 +1041,15 @@ function FeeRow({ label, value, emphasis }: { label: string; value: string; emph
 }
 
 function TxRow({ tx }: { tx: Transaction }) {
-  const Icon =
-    tx.type === "deposit" ? ArrowDownToLine : tx.type === "withdraw" ? ArrowUpFromLine : Send;
+  const Icon = tx.type === "deposit" ? ArrowDownToLine : tx.type === "withdraw" ? ArrowUpFromLine : Send;
   const iconColor =
     tx.type === "deposit"
       ? "text-sa-green"
       : tx.type === "withdraw"
       ? "text-sa-accent"
       : "text-sa-blue";
-  const statusColor =
-    tx.status === "completed"
-      ? "bg-sa-green/10 text-sa-green"
-      : tx.status === "pending"
-      ? "bg-amber-500/10 text-amber-400"
-      : "bg-sa-red/10 text-sa-red";
-  const chainLabel = chainName(tx.destination_chain ?? tx.source_chain ?? "");
-  const explorerChain = tx.destination_chain ?? tx.source_chain ?? ARC_TESTNET;
-
+  const chainId = tx.destination_chain ?? tx.source_chain ?? ARC_TESTNET;
+  const chainCfg = SUPPORTED_CHAINS.find((c) => c.id === chainId);
   return (
     <tr className="hover:bg-sa-surface transition-colors">
       <td className="px-6 py-3">
@@ -708,22 +1058,20 @@ function TxRow({ tx }: { tx: Transaction }) {
           <span className="capitalize text-foreground">{tx.type}</span>
         </span>
       </td>
-      <td className="px-6 py-3 text-sa-text-3">{chainLabel}</td>
+      <td className="px-6 py-3 text-sa-text-3">
+        {chainCfg ? `${chainCfg.icon} ${chainCfg.name}` : chainId}
+      </td>
       <td className="px-6 py-3 font-mono tabular-nums">${(tx.amount ?? 0).toFixed(4)}</td>
       <td className="px-6 py-3 font-mono tabular-nums text-sa-text-3">
         ${(tx.fee ?? 0).toFixed(4)}
       </td>
       <td className="px-6 py-3">
-        <span
-          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium capitalize ${statusColor}`}
-        >
-          {tx.status}
-        </span>
+        <StatusCell status={tx.status} />
       </td>
       <td className="px-6 py-3 text-right text-sa-text-3 text-xs">
         {tx.tx_hash ? (
           <a
-            href={explorerUrl(explorerChain, tx.tx_hash)}
+            href={explorerUrl(chainId, tx.tx_hash)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 hover:text-foreground"

@@ -5,10 +5,20 @@ import { AnimatePresence, motion } from "motion/react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   Home, Compass, PlayCircle, LayoutDashboard, Shield,
-  History, Heart, Clock, Settings, LogOut, Copy, Check,
+  History, Heart, Clock, Settings, LogOut, Copy, Check, Wallet,
 } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
 import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
+import ChainSelector from "@/app/components/wallet/ChainSelector";
+import { SUPPORTED_CHAINS } from "@/app/lib/chains";
+import { createPublicClient, http, erc20Abi, type Chain } from "viem";
+import { baseSepolia, avalancheFuji, sepolia } from "viem/chains";
+
+const VIEM_CHAINS: Record<string, Chain> = {
+  Base_Sepolia: baseSepolia,
+  Avalanche_Fuji: avalancheFuji,
+  Ethereum_Sepolia: sepolia,
+};
 function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gatewayBalance }: {
   userId: string | null;
   walletAddress: string | null;
@@ -18,16 +28,58 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
 }) {
   const [depositing, setDepositing] = useState(false);
   const [depositError, setDepositError] = useState<string | null>(null);
+  const [gasError, setGasError] = useState<
+    | null
+    | { nativeToken: string; walletAddress: string; faucetUrl: string; chainName: string }
+  >(null);
   const [depositTxHash, setDepositTxHash] = useState<string | null>(null);
+  const [depositExplorerUrl, setDepositExplorerUrl] = useState("https://testnet.arcscan.app/tx");
   const [depositAmount, setDepositAmount] = useState("");
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [waitingForBalance, setWaitingForBalance] = useState(false);
+  const [depositChain, setDepositChain] = useState("Arc_Testnet");
+  const [selectedChainWalletBalance, setSelectedChainWalletBalance] = useState<number | null>(null);
+  const [postDepositChain, setPostDepositChain] = useState<{ name: string; finalitySeconds: number } | null>(null);
+  const selectedChain = SUPPORTED_CHAINS.find((c) => c.id === depositChain);
+  const isNonArc = depositChain !== "Arc_Testnet";
+
+  useEffect(() => {
+    if (depositChain === "Arc_Testnet") {
+      setSelectedChainWalletBalance(null);
+      return;
+    }
+    const chain = SUPPORTED_CHAINS.find((c) => c.id === depositChain);
+    const viemChain = VIEM_CHAINS[depositChain];
+    if (!chain || !viemChain || !walletAddress) return;
+
+    let cancelled = false;
+    setSelectedChainWalletBalance(null);
+    const publicClient = createPublicClient({ chain: viemChain, transport: http() });
+    publicClient
+      .readContract({
+        address: chain.usdcAddress as `0x${string}`,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [walletAddress as `0x${string}`],
+      })
+      .then((balance) => {
+        if (!cancelled) setSelectedChainWalletBalance(Number(balance) / 1e6);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedChainWalletBalance(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [depositChain, walletAddress]);
 
   const handleDeposit = async () => {
     if (!userId) return;
     setDepositing(true);
     setDepositError(null);
+    setGasError(null);
     setDepositTxHash(null);
+    setPostDepositChain(null);
 
     const previousBalance = gatewayBalance;
 
@@ -38,15 +90,29 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
         body: JSON.stringify({
           user_id: userId,
           amount: depositAmount || undefined,
+          source_chain: depositChain,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setDepositError(data.error);
+        if (data?.native_token && data?.wallet_address) {
+          setGasError({
+            nativeToken: data.native_token,
+            walletAddress: data.wallet_address,
+            faucetUrl: data.faucet_url ?? "https://faucet.circle.com",
+            chainName: data.chain_name ?? selectedChain?.name ?? depositChain,
+          });
+        } else {
+          setDepositError(data?.error ?? "Deposit failed");
+        }
         return;
       }
 
       setDepositTxHash(data.tx_hash ?? null);
+      setDepositExplorerUrl(data.explorer_url ?? "https://testnet.arcscan.app/tx");
+      if (selectedChain) {
+        setPostDepositChain({ name: selectedChain.name, finalitySeconds: selectedChain.finalitySeconds });
+      }
       setWaitingForBalance(true);
 
       const maxAttempts = 12;
@@ -102,9 +168,18 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div className="panel-muted p-3 space-y-1">
-          <p className="text-[10px] text-sa-text-3 uppercase tracking-wider">Wallet USDC</p>
-          <p className="text-lg font-bold font-mono text-foreground">
-            ${walletBalance.toFixed(4)}
+          <p className="text-[10px] text-sa-text-3 uppercase tracking-wider">
+            {selectedChain ? `${selectedChain.name} Wallet` : "Wallet USDC"}
+          </p>
+          <p className="text-lg font-bold font-mono text-foreground inline-flex items-center gap-2">
+            {selectedChainWalletBalance === null && isNonArc ? (
+              <>
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-sa-text-3 border-t-transparent" />
+                <span className="text-sa-text-3">…</span>
+              </>
+            ) : (
+              `$${(selectedChainWalletBalance ?? walletBalance).toFixed(4)}`
+            )}
           </p>
         </div>
         <div className="panel-muted p-3 space-y-1">
@@ -119,6 +194,42 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
         <p className="text-xs text-sa-text-3">
           Move USDC from your wallet into the Gateway contract to enable nanopayments.
         </p>
+        <ChainSelector
+          label="Deposit from"
+          selected={depositChain}
+          onSelect={(id) => {
+            setDepositChain(id);
+            setDepositError(null);
+            setGasError(null);
+            setPostDepositChain(null);
+            setDepositTxHash(null);
+          }}
+        />
+        {selectedChain && (
+          <p className="text-[11px] text-sa-text-3">
+            Available:{" "}
+            <span className="font-mono text-foreground">
+              {selectedChainWalletBalance === null && isNonArc
+                ? "…"
+                : `$${(selectedChainWalletBalance ?? walletBalance).toFixed(4)}`}
+            </span>{" "}
+            USDC on {selectedChain.name}
+          </p>
+        )}
+        {isNonArc && selectedChain && (
+          <p className="text-[11px] text-sa-text-3">
+            Make sure you have {selectedChain.nativeToken} and USDC on {selectedChain.name}. Get testnet tokens at{" "}
+            <a
+              href="https://faucet.circle.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              faucet.circle.com
+            </a>
+            .
+          </p>
+        )}
         <div className="flex gap-2">
           <input
             type="number"
@@ -143,11 +254,31 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
           </button>
         </div>
         {depositError && <p className="text-xs text-sa-red">{depositError}</p>}
+        {gasError && (
+          <div className="rounded-xl border border-sa-red/40 bg-sa-red/[0.06] p-3 space-y-1">
+            <p className="text-xs font-semibold text-sa-red">
+              Insufficient {gasError.nativeToken} for gas on {gasError.chainName}
+            </p>
+            <p className="text-[11px] text-sa-text-3 break-all">
+              Fund <span className="font-mono text-foreground">{gasError.walletAddress}</span> with{" "}
+              {gasError.nativeToken} at{" "}
+              <a
+                href={gasError.faucetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                faucet.circle.com
+              </a>
+              .
+            </p>
+          </div>
+        )}
         {depositTxHash && (
           <div className="space-y-1">
             <p className="text-xs text-sa-green">Deposit successful!</p>
             <a
-              href={`https://testnet.arcscan.app/tx/${depositTxHash}`}
+              href={`${depositExplorerUrl}/${depositTxHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
@@ -156,12 +287,17 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
             </a>
           </div>
         )}
-        {waitingForBalance && (
+        {waitingForBalance && postDepositChain && postDepositChain.name !== "ARC Testnet" ? (
+          <p className="text-xs text-sa-text-3">
+            Deposit confirmed on {postDepositChain.name}. Gateway balance updates after block finality
+            (~15 min for Base/ETH Sepolia, ~8 sec for Avalanche).
+          </p>
+        ) : waitingForBalance ? (
           <p className="inline-flex items-center gap-2 text-xs text-sa-text-3">
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-sa-text-3 border-t-transparent" />
             Waiting for balance to update...
           </p>
-        )}
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2">
@@ -198,7 +334,7 @@ const SidebarItem = ({ icon: Icon, label, active = false, onClick }: {
   <button
     type="button"
     onClick={onClick}
-    className={`w-full relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-300 group cursor-pointer ${
+    className={`focus-ring w-full relative flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all duration-300 group cursor-pointer ${
       active
         ? "text-foreground"
         : "text-sa-text-3 hover:bg-sa-blue/[0.06] hover:text-foreground bg-transparent"
@@ -391,7 +527,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
 
           <nav className="flex flex-col gap-2">
             {/* Balance widget */}
-            <div className="panel shrink-0 mx-1 mb-3 p-4 space-y-3 relative overflow-hidden">
+            <div className="panel shrink-0 mx-1 mb-4 p-4 space-y-3 relative overflow-hidden">
               <div className="relative">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sa-text-3 inline-flex items-center gap-2">
                   USDC Balance
@@ -420,7 +556,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               </button>
             </div>
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <SidebarItem icon={Home} label="Browse" active={currentPage === "browse"} onClick={() => navigateTo("browse")} />
               <SidebarItem
                 icon={Compass}
@@ -431,9 +567,9 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               <SidebarItem icon={PlayCircle} label="Watch" active={currentPage === "watch"} onClick={() => navigateTo("watch")} />
             </div>
 
-            <div aria-hidden className="my-3 mx-3 h-px bg-sa-border/50" />
+            <div aria-hidden className="my-4 mx-3 h-px bg-sa-border/50" />
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <span className="px-4 text-[10px] font-semibold text-sa-text-3 uppercase tracking-[0.22em] mb-2">
                 Your activity
               </span>
@@ -455,11 +591,17 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
                 active={currentPage === "watchlater" || pathname === "/watchlater"}
                 onClick={() => router.push("/watchlater")}
               />
+              <SidebarItem
+                icon={Wallet}
+                label="Wallet"
+                active={currentPage === "wallet" || pathname === "/wallet"}
+                onClick={() => router.push("/wallet")}
+              />
             </div>
 
-            <div aria-hidden className="my-3 mx-3 h-px bg-sa-border/50" />
+            <div aria-hidden className="my-4 mx-3 h-px bg-sa-border/50" />
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <span className="px-4 text-[10px] font-semibold text-sa-text-3 uppercase tracking-[0.22em] mb-2">
                 Creator
               </span>
@@ -475,7 +617,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
             </div>
           </nav>
 
-          <div className="flex flex-col gap-1 relative z-10">
+          <div className="flex flex-col gap-1.5 relative z-10">
             <SidebarItem icon={Settings} label="Settings" onClick={() => router.push("/settings")} />
             <SidebarItem icon={LogOut} label="Sign Out" onClick={() => signOut()} />
           </div>

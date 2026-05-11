@@ -28,7 +28,7 @@ export default function FilterBar() {
           whileHover={{ y: -2 }}
           whileTap={{ scale: 0.97 }}
           transition={{ type: "spring", stiffness: 380, damping: 22 }}
-          className={`nav-tab whitespace-nowrap cursor-pointer ${
+          className={`focus-ring nav-tab whitespace-nowrap cursor-pointer ${
             active === c
               ? "nav-tab-active"
               : "nav-tab-inactive border border-sa-border bg-sa-surface/50 backdrop-blur hover:border-sa-blue/35 hover:bg-sa-surface/70"

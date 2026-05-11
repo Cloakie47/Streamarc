@@ -161,7 +161,7 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
     >
-      <div className={`video-card relative aspect-video hover-lift ${placeholder ? "" : "group-hover:border-sa-border-hover"}`}>
+      <div className={`focus-ring video-card relative aspect-video hover-lift ${placeholder ? "" : "group-hover:border-sa-border-hover"}`}>
         <div className="absolute inset-0 bg-[#182233]" />
         {previewUrl && hovered && !placeholder ? (
           <video
@@ -268,7 +268,7 @@ function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) 
               </>
             )}
             <span className="w-1 h-1 rounded-full bg-sa-text-3" />
-            <span className="font-medium text-sa-accent">${video.pricePerSecond}/s</span>
+            <span className="font-mono tabular-nums text-sa-blue">${video.pricePerSecond}/s</span>
           </div>
         </div>
       </div>
