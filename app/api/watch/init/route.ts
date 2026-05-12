@@ -60,8 +60,11 @@ async function getBalance(supabase: Supabase, user_id: string): Promise<number> 
 
   if (!user?.wallet_address || !user?.circle_wallet_id) return 0
 
+  // Settlement pulls from ARC domain 26 only, so the watch page should gate
+  // and display the ARC-spendable amount, not the unified total.
   const result = await fetchUnifiedGatewayBalance(user.wallet_address as string)
-  return result.total
+  const arcChain = result.chainBalances.find((b) => b.domain === 26)
+  return arcChain ? parseFloat(arcChain.balance || "0") : 0
 }
 
 export async function POST(req: NextRequest) {

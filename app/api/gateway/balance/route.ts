@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
     if (!user?.wallet_address || !user?.circle_wallet_id) {
       return NextResponse.json({
         balance: 0,
+        spendable: 0,
+        total: 0,
         pending_balance: 0,
         wallet_balance: 0,
         wallet_address: user?.wallet_address ?? null,
@@ -51,15 +53,21 @@ export async function POST(req: NextRequest) {
       fetchUnifiedGatewayBalance(walletAddress),
     ]);
 
+    // Nanopayment settlement on x402 pulls from the ARC domain (26) only —
+    // unified `total` is informational, but `spendable` is what gates playback.
+    const arcChain = gateway.chainBalances.find((b) => b.domain === 26);
+    const spendable = arcChain ? parseFloat(arcChain.balance || "0") : 0;
+
     console.log(
-      "Gateway balance:",
-      gateway.total,
+      "Gateway balance: spendable=", spendable, "total=", gateway.total,
       "chains:",
       gateway.chainBalances.map((b) => `d${b.domain}:${b.balance}`).join(" "),
     );
 
     return NextResponse.json({
-      balance: gateway.total,
+      balance: spendable,
+      spendable,
+      total: gateway.total,
       pending_balance: gateway.pending,
       wallet_balance: walletBalance,
       wallet_address: walletAddress,

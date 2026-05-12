@@ -13,39 +13,15 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { createPublicClient, http, erc20Abi, type Chain } from "viem";
-import { arcTestnet, baseSepolia, avalancheFuji, sepolia } from "viem/chains";
-import { SUPPORTED_CHAINS, type ChainOption } from "@/app/lib/chains";
+import { SUPPORTED_CHAINS } from "@/app/lib/chains";
 
 const ARC_TESTNET = "Arc_Testnet";
+const ARC_EXPLORER_BASE = "https://testnet.arcscan.app/tx";
 const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
-const GATEWAY_FEE_BPS = 0.00005; // 0.005% on cross-chain spend
-const CROSS_CHAIN_PLATFORM_FEE = 0.10;
 const PAGE_SIZE = 10;
 
-const VIEM_CHAINS: Record<string, Chain> = {
-  Arc_Testnet: arcTestnet,
-  Base_Sepolia: baseSepolia,
-  Avalanche_Fuji: avalancheFuji,
-  Ethereum_Sepolia: sepolia,
-};
-
-const EXPLORER_BASE: Record<string, string> = {
-  Arc_Testnet: "https://testnet.arcscan.app/tx",
-  Base_Sepolia: "https://sepolia.basescan.org/tx",
-  Avalanche_Fuji: "https://testnet.snowtrace.io/tx",
-  Ethereum_Sepolia: "https://sepolia.etherscan.io/tx",
-};
-
-function publicClientFor(chainId: string) {
-  const chain = VIEM_CHAINS[chainId];
-  if (!chain) return null;
-  return createPublicClient({ chain, transport: http() });
-}
-
-function explorerUrl(chainId: string, txHash: string) {
-  const base = EXPLORER_BASE[chainId] ?? EXPLORER_BASE.Arc_Testnet;
-  return `${base}/${txHash}`;
+function arcExplorerUrl(txHash: string) {
+  return `${ARC_EXPLORER_BASE}/${txHash}`;
 }
 
 function timeAgo(iso: string) {
@@ -72,53 +48,29 @@ interface Transaction {
   created_at: string;
 }
 
-interface ChainRow {
-  chainId: string;
-  gasBalance: bigint | null;
-  usdcBalance: bigint | null;
-  loading: boolean;
-}
-
 export default function WalletPage({ userId, walletAddress }: { userId: string; walletAddress: string }) {
   const [gatewayBalance, setGatewayBalance] = useState(0);
+  const [gatewayTotal, setGatewayTotal] = useState(0);
   const [refreshingTopBar, setRefreshingTopBar] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const [chainRows, setChainRows] = useState<ChainRow[]>(() =>
-    SUPPORTED_CHAINS.map((c) => ({ chainId: c.id, gasBalance: null, usdcBalance: null, loading: true })),
-  );
-
-  // Deposit state
-  const [depositChain, setDepositChain] = useState(ARC_TESTNET);
-  const [depositAmount, setDepositAmount] = useState("");
-  const [depositing, setDepositing] = useState(false);
-  const [depositError, setDepositError] = useState<string | null>(null);
-  const [depositGasError, setDepositGasError] = useState<
-    | null
-    | { nativeToken: string; walletAddress: string; faucetUrl: string; chainName: string }
-  >(null);
-  const [depositResult, setDepositResult] = useState<{ hash: string; chain: string; explorer: string } | null>(null);
-
-  // Withdraw state
-  const [wdChain, setWdChain] = useState(ARC_TESTNET);
+  // Withdraw state — Arc only
   const [wdAmount, setWdAmount] = useState("");
   const [wdDestination, setWdDestination] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
-  const [withdrawResult, setWithdrawResult] = useState<{ hash: string; chain: string } | null>(null);
+  const [withdrawResult, setWithdrawResult] = useState<{ hash: string } | null>(null);
 
-  // Send state
-  const [sendChain, setSendChain] = useState(ARC_TESTNET);
+  // Send state — Arc only
   const [sendAddress, setSendAddress] = useState("");
   const [sendAmount, setSendAmount] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [sendResult, setSendResult] = useState<{ hash: string; explorer: string } | null>(null);
+  const [sendResult, setSendResult] = useState<{ hash: string } | null>(null);
 
   // Transactions state
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [txsLoading, setTxsLoading] = useState(true);
-  const [historyChainFilter, setHistoryChainFilter] = useState("all");
   const [historyTypeFilter, setHistoryTypeFilter] = useState("all");
   const [historyPage, setHistoryPage] = useState(1);
 
@@ -131,48 +83,19 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
       });
       const data = await res.json();
       if (typeof data.balance === "number") setGatewayBalance(data.balance);
+      if (typeof data.total === "number") setGatewayTotal(data.total);
     } catch {
       // keep stale
     }
   }, [userId]);
 
-  const refreshChainRow = useCallback(
-    async (chain: ChainOption): Promise<ChainRow> => {
-      const client = publicClientFor(chain.id);
-      if (!client || !walletAddress || !EVM_ADDRESS_RE.test(walletAddress)) {
-        return { chainId: chain.id, gasBalance: null, usdcBalance: null, loading: false };
-      }
-      try {
-        const [gas, usdc] = await Promise.all([
-          client.getBalance({ address: walletAddress as `0x${string}` }),
-          client.readContract({
-            address: chain.usdcAddress as `0x${string}`,
-            abi: erc20Abi,
-            functionName: "balanceOf",
-            args: [walletAddress as `0x${string}`],
-          }) as Promise<bigint>,
-        ]);
-        return { chainId: chain.id, gasBalance: gas, usdcBalance: usdc, loading: false };
-      } catch {
-        return { chainId: chain.id, gasBalance: null, usdcBalance: null, loading: false };
-      }
-    },
-    [walletAddress],
-  );
-
-  const refreshAllChainRows = useCallback(async () => {
-    setChainRows((rows) => rows.map((r) => ({ ...r, loading: true })));
-    const next = await Promise.all(SUPPORTED_CHAINS.map(refreshChainRow));
-    setChainRows(next);
-  }, [refreshChainRow]);
-
-  const filtersActive = historyChainFilter !== "all" || historyTypeFilter !== "all";
+  const filtersActive = historyTypeFilter !== "all";
 
   const refreshTransactions = useCallback(async () => {
     setTxsLoading(true);
     try {
-      // When filters are active, fetch up to 50 rows and paginate/filter client-side.
-      // When the view is unfiltered, page server-side a single PAGE_SIZE window at a time.
+      // When the type filter is active, fetch a larger window and slice client-side.
+      // When unfiltered, page server-side a single PAGE_SIZE window at a time.
       const body = filtersActive
         ? { user_id: userId, limit: 50 }
         : { user_id: userId, limit: PAGE_SIZE, offset: (historyPage - 1) * PAGE_SIZE };
@@ -196,9 +119,9 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
 
   const refreshAll = useCallback(async () => {
     setRefreshingTopBar(true);
-    await Promise.all([refreshGatewayBalance(), refreshAllChainRows(), refreshTransactions()]);
+    await Promise.all([refreshGatewayBalance(), refreshTransactions()]);
     setRefreshingTopBar(false);
-  }, [refreshGatewayBalance, refreshAllChainRows, refreshTransactions]);
+  }, [refreshGatewayBalance, refreshTransactions]);
 
   useEffect(() => {
     refreshAll();
@@ -207,87 +130,11 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
   useEffect(() => {
     const handler = () => {
       refreshGatewayBalance();
-      refreshAllChainRows();
       refreshTransactions();
     };
     window.addEventListener("gateway-balance-updated", handler);
     return () => window.removeEventListener("gateway-balance-updated", handler);
-  }, [refreshGatewayBalance, refreshAllChainRows, refreshTransactions]);
-
-  // Map chainId → last tx status (for chain table column)
-  const lastTxStatusByChain = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const tx of txs) {
-      const ids = [tx.destination_chain, tx.source_chain].filter(Boolean) as string[];
-      for (const id of ids) {
-        if (!map.has(id)) map.set(id, tx.status);
-      }
-    }
-    return map;
-  }, [txs]);
-
-  const usdcBalanceFor = (chainId: string): number => {
-    const row = chainRows.find((r) => r.chainId === chainId);
-    if (!row || row.usdcBalance === null) return 0;
-    return Number(row.usdcBalance) / 1e6;
-  };
-
-  const handleDeposit = async () => {
-    if (!userId) return;
-    setDepositing(true);
-    setDepositError(null);
-    setDepositGasError(null);
-    setDepositResult(null);
-
-    const previousGateway = gatewayBalance;
-
-    try {
-      const res = await fetch("/api/gateway/deposit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId,
-          amount: depositAmount || undefined,
-          source_chain: depositChain,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (data?.native_token && data?.wallet_address) {
-          setDepositGasError({
-            nativeToken: data.native_token,
-            walletAddress: data.wallet_address,
-            faucetUrl: data.faucet_url ?? "https://faucet.circle.com",
-            chainName: data.chain_name ?? SUPPORTED_CHAINS.find((c) => c.id === depositChain)?.name ?? depositChain,
-          });
-        } else {
-          setDepositError(data?.error ?? "Deposit failed");
-        }
-        return;
-      }
-      const hash = data.tx_hash ?? data.deposit_tx ?? null;
-      if (hash) {
-        setDepositResult({
-          hash,
-          chain: data.chain ?? depositChain,
-          explorer: data.explorer_url ?? EXPLORER_BASE[depositChain] ?? EXPLORER_BASE.Arc_Testnet,
-        });
-      }
-      setDepositAmount("");
-      window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
-      // Poll Gateway balance briefly so the headline number updates if indexing is quick
-      void pollUntil(async () => {
-        await refreshGatewayBalance();
-        return gatewayBalance > previousGateway;
-      }, 6, 5000);
-      refreshAllChainRows();
-      refreshTransactions();
-    } catch {
-      setDepositError("Deposit failed");
-    } finally {
-      setDepositing(false);
-    }
-  };
+  }, [refreshGatewayBalance, refreshTransactions]);
 
   const handleWithdraw = async () => {
     if (!userId) return;
@@ -298,7 +145,7 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
       const body: Record<string, string> = {
         user_id: userId,
         amount: wdAmount,
-        destination_chain: wdChain,
+        destination_chain: ARC_TESTNET,
       };
       if (wdDestination) body.destination_address = wdDestination;
       const res = await fetch("/api/gateway/withdraw", {
@@ -312,12 +159,11 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
         return;
       }
       const hash = data.tx_hash ?? null;
-      if (hash) setWithdrawResult({ hash, chain: wdChain });
+      if (hash) setWithdrawResult({ hash });
       setWdAmount("");
       setWdDestination("");
       window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
       refreshGatewayBalance();
-      refreshAllChainRows();
       refreshTransactions();
     } catch {
       setWithdrawError("Withdrawal failed");
@@ -340,18 +186,6 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
       setSendError("Amount must be greater than 0");
       return;
     }
-    // Only enforce the on-chain balance ceiling when we have a confirmed reading
-    // from the chain table for the SELECTED chain — if Section 2's balanceOf hasn't
-    // resolved (or failed), let the server reject rather than blocking the user.
-    const selectedRow = chainRows.find((r) => r.chainId === sendChain);
-    const selectedChainName = SUPPORTED_CHAINS.find((c) => c.id === sendChain)?.name ?? sendChain;
-    if (selectedRow && selectedRow.usdcBalance !== null) {
-      const onChainBalance = Number(selectedRow.usdcBalance) / 1e6;
-      if (sendAmountNum > onChainBalance) {
-        setSendError(`Amount exceeds ${selectedChainName} wallet USDC balance ($${onChainBalance.toFixed(4)})`);
-        return;
-      }
-    }
 
     setSending(true);
     try {
@@ -362,7 +196,7 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
           user_id: userId,
           destination_address: sendAddress,
           amount: sendAmount,
-          source_chain: sendChain,
+          source_chain: ARC_TESTNET,
         }),
       });
       const data = await res.json();
@@ -371,14 +205,10 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
         return;
       }
       if (data.tx_hash) {
-        setSendResult({
-          hash: data.tx_hash,
-          explorer: data.explorer_url ?? EXPLORER_BASE[sendChain] ?? EXPLORER_BASE.Arc_Testnet,
-        });
+        setSendResult({ hash: data.tx_hash });
       }
       setSendAddress("");
       setSendAmount("");
-      refreshAllChainRows();
       refreshTransactions();
     } catch {
       setSendError("Send failed");
@@ -400,22 +230,8 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
 
   const filteredTxs = useMemo(() => {
     if (!filtersActive) return txs;
-    // Per-type chain matching: deposits anchor to source (where USDC came FROM),
-    // withdrawals anchor to destination (where it went TO), sends use source.
-    // The loose `source OR destination` fallback only applies to unknown types.
-    const matchesChain = (tx: Transaction) => {
-      if (historyChainFilter === "all") return true;
-      if (tx.type === "deposit") return tx.source_chain === historyChainFilter;
-      if (tx.type === "withdraw") return tx.destination_chain === historyChainFilter;
-      if (tx.type === "send") return tx.source_chain === historyChainFilter;
-      return tx.source_chain === historyChainFilter || tx.destination_chain === historyChainFilter;
-    };
-    return txs.filter((tx) => {
-      if (historyTypeFilter !== "all" && tx.type !== historyTypeFilter) return false;
-      if (!matchesChain(tx)) return false;
-      return true;
-    });
-  }, [txs, historyChainFilter, historyTypeFilter, filtersActive]);
+    return txs.filter((tx) => tx.type === historyTypeFilter);
+  }, [txs, historyTypeFilter, filtersActive]);
 
   // Filtered view: classic client-side slice over up to 50 fetched rows.
   // Unfiltered view: server already returned exactly one page; total count is unknown,
@@ -432,25 +248,15 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
 
   useEffect(() => {
     setHistoryPage(1);
-  }, [historyChainFilter, historyTypeFilter]);
+  }, [historyTypeFilter]);
 
-  // Deposit form helpers
-  const depositChainCfg = SUPPORTED_CHAINS.find((c) => c.id === depositChain);
-  const depositAvailable = usdcBalanceFor(depositChain);
-  const depositIsNonArc = depositChain !== ARC_TESTNET;
+  const openTopUp = () => {
+    window.dispatchEvent(new CustomEvent("open-top-up"));
+  };
 
-  // Withdraw form helpers
-  const wdChainCfg = SUPPORTED_CHAINS.find((c) => c.id === wdChain);
-  const wdIsCrossChain = wdChain !== ARC_TESTNET;
   const wdAmountNum = parseFloat(wdAmount) || 0;
-  const wdPlatformFee = wdIsCrossChain ? CROSS_CHAIN_PLATFORM_FEE : 0;
-  const wdGatewayFee = wdIsCrossChain ? wdAmountNum * GATEWAY_FEE_BPS : 0;
-  const wdYouReceive = Math.max(0, wdAmountNum - wdPlatformFee - wdGatewayFee);
-  const wdMinimum = wdIsCrossChain ? 0.5 : 0.1;
-  const wdAmountValid = wdAmountNum >= wdMinimum && wdAmountNum <= gatewayBalance;
-  const wdDestValid = wdIsCrossChain
-    ? EVM_ADDRESS_RE.test(wdDestination)
-    : !wdDestination || EVM_ADDRESS_RE.test(wdDestination);
+  const wdAmountValid = wdAmountNum >= 0.1 && wdAmountNum <= gatewayBalance;
+  const wdDestValid = !wdDestination || EVM_ADDRESS_RE.test(wdDestination);
 
   return (
     <div className="flex flex-col gap-8 pb-20">
@@ -458,7 +264,7 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Wallet</h1>
         <p className="mt-2 text-sm text-sa-text-3">
-          Manage your Gateway balance, multi-chain wallet, deposits, withdrawals, and history.
+          Manage your Gateway balance, deposits, withdrawals, and history.
         </p>
       </div>
 
@@ -472,17 +278,30 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
             <span className="font-mono text-4xl font-bold tracking-tight text-sa-green tabular-nums">
               ${gatewayBalance.toFixed(4)}
             </span>
-            <span className="text-xs text-sa-text-3">Unified balance across all chains</span>
+            {gatewayTotal > gatewayBalance + 0.0001 && (
+              <span className="text-xs text-sa-text-3 tabular-nums">
+                Total across all chains: ${gatewayTotal.toFixed(4)}
+              </span>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={refreshAll}
-            disabled={refreshingTopBar}
-            className="inline-flex items-center gap-2 rounded-xl border border-sa-border bg-sa-surface px-3 py-2 text-xs hover:border-sa-border-hover disabled:opacity-50"
-          >
-            <RefreshCw size={12} className={refreshingTopBar ? "animate-spin" : ""} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openTopUp}
+              className="btn btn-primary btn-sm btn-shine"
+            >
+              Top up
+            </button>
+            <button
+              type="button"
+              onClick={refreshAll}
+              disabled={refreshingTopBar}
+              className="inline-flex items-center gap-2 rounded-xl border border-sa-border bg-sa-surface px-3 py-2 text-xs hover:border-sa-border-hover disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={refreshingTopBar ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
         </div>
       </section>
 
@@ -506,210 +325,7 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
         )}
       </section>
 
-      {/* Section 2 — Chain Table */}
-      <section className="glass rounded-sa-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-sa-border px-6 py-4">
-          <h3 className="font-bold inline-flex items-center gap-2">
-            <Wallet size={16} className="text-sa-accent" />
-            Wallet balances by chain
-          </h3>
-          <button
-            type="button"
-            onClick={refreshAllChainRows}
-            className="inline-flex items-center gap-1 text-xs text-sa-text-3 hover:text-foreground"
-          >
-            <RefreshCw size={12} />
-            Refresh
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-sa-border/50 text-xs uppercase tracking-wider text-sa-text-3">
-                <th className="px-6 py-3 font-bold">Chain</th>
-                <th className="px-6 py-3 font-bold">Gas token</th>
-                <th className="px-6 py-3 font-bold text-right">Gas balance</th>
-                <th className="px-6 py-3 font-bold text-right">USDC balance</th>
-                <th className="px-6 py-3 font-bold">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-sa-border/40">
-              {SUPPORTED_CHAINS.map((chain) => {
-                const row = chainRows.find((r) => r.chainId === chain.id);
-                const loading = row?.loading ?? true;
-                const gas = row?.gasBalance ?? null;
-                const usdc = row?.usdcBalance ?? null;
-                const lastStatus = lastTxStatusByChain.get(chain.id) ?? null;
-                return (
-                  <tr key={chain.id} className="hover:bg-sa-surface transition-colors">
-                    <td className="px-6 py-3">
-                      <span className="inline-flex items-center gap-2">
-                        <span className="text-base leading-none" aria-hidden>{chain.icon}</span>
-                        <span className="text-foreground">{chain.name}</span>
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 text-sa-text-3">{chain.nativeToken}</td>
-                    <td className="px-6 py-3 text-right font-mono tabular-nums">
-                      {loading ? (
-                        <span className="inline-block h-3 w-16 rounded bg-sa-surface-2 animate-pulse" />
-                      ) : gas === null ? (
-                        <span className="text-sa-text-3">—</span>
-                      ) : (
-                        `${(Number(gas) / 1e18).toFixed(6)} ${chain.nativeToken}`
-                      )}
-                    </td>
-                    <td className="px-6 py-3 text-right font-mono tabular-nums">
-                      {loading ? (
-                        <span className="inline-block h-3 w-20 rounded bg-sa-surface-2 animate-pulse" />
-                      ) : usdc === null ? (
-                        <span className="text-sa-text-3">—</span>
-                      ) : (
-                        `$${(Number(usdc) / 1e6).toFixed(4)}`
-                      )}
-                    </td>
-                    <td className="px-6 py-3">
-                      <StatusCell status={lastStatus} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Section 3 — Deposit */}
-      <section className="glass rounded-sa-card p-6 flex flex-col gap-5 hover-lift">
-        <div className="flex flex-col gap-1">
-          <h3 className="font-bold inline-flex items-center gap-2">
-            <ArrowDownToLine size={16} className="text-sa-green" />
-            Deposit to Gateway
-          </h3>
-          <p className="text-xs text-sa-text-3">
-            Move USDC from a source chain into your unified Gateway balance.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              Source chain
-            </label>
-            <select
-              value={depositChain}
-              onChange={(e) => {
-                setDepositChain(e.target.value);
-                setDepositError(null);
-                setDepositGasError(null);
-                setDepositResult(null);
-              }}
-              className="field-surface h-11 px-3 text-sm"
-            >
-              {SUPPORTED_CHAINS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.icon} {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              Amount (USDC)
-            </label>
-            <input
-              type="number"
-              min="0.01"
-              step="0.0001"
-              placeholder={`Max $${depositAvailable.toFixed(4)}`}
-              value={depositAmount}
-              onChange={(e) => setDepositAmount(e.target.value)}
-              className="field-surface h-11 px-3 text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1 text-[11px] text-sa-text-3">
-          <span>
-            Available:{" "}
-            <span className="font-mono text-foreground">${depositAvailable.toFixed(4)}</span>{" "}
-            USDC on {depositChainCfg?.name ?? depositChain}
-          </span>
-          {depositIsNonArc && depositChainCfg && depositChainCfg.finalitySeconds >= 60 && (
-            <span className="text-amber-400">
-              ~{Math.round(depositChainCfg.finalitySeconds / 60)} min finality — Gateway balance
-              updates after block finality on {depositChainCfg.name}.
-            </span>
-          )}
-          {depositIsNonArc && depositChainCfg && (
-            <span>
-              Need {depositChainCfg.nativeToken} or testnet USDC?{" "}
-              <a
-                href="https://faucet.circle.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline underline-offset-2 hover:text-foreground"
-              >
-                faucet.circle.com
-              </a>
-            </span>
-          )}
-        </div>
-
-        {depositError && <p className="text-xs text-sa-red">{depositError}</p>}
-        {depositGasError && (
-          <div className="rounded-xl border border-sa-red/40 bg-sa-red/[0.06] p-3 space-y-1">
-            <p className="text-xs font-semibold text-sa-red">
-              Insufficient {depositGasError.nativeToken} for gas on {depositGasError.chainName}
-            </p>
-            <p className="text-[11px] text-sa-text-3 break-all">
-              Fund <span className="font-mono text-foreground">{depositGasError.walletAddress}</span>{" "}
-              with {depositGasError.nativeToken} at{" "}
-              <a
-                href={depositGasError.faucetUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline underline-offset-2 hover:text-foreground"
-              >
-                faucet.circle.com
-              </a>
-              .
-            </p>
-          </div>
-        )}
-        {depositResult && (
-          <div className="space-y-1">
-            <p className="text-xs text-sa-green">Deposit submitted on {depositResult.chain}.</p>
-            <a
-              href={`${depositResult.explorer}/${depositResult.hash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
-            >
-              <ExternalLink size={12} />
-              {depositResult.hash.slice(0, 16)}…{depositResult.hash.slice(-8)}
-            </a>
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={handleDeposit}
-          disabled={depositing || !(parseFloat(depositAmount) > 0)}
-          className="btn btn-primary self-start disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {depositing ? (
-            <>
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              Depositing…
-            </>
-          ) : (
-            "Deposit"
-          )}
-        </button>
-      </section>
-
-      {/* Section 4 — Withdraw */}
+      {/* Section 2 — Withdraw (Gateway → Arc wallet) */}
       <section className="glass rounded-sa-card p-6 flex flex-col gap-5 hover-lift">
         <div className="flex flex-col gap-1">
           <h3 className="font-bold inline-flex items-center gap-2">
@@ -717,89 +333,31 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
             Withdraw from Gateway
           </h3>
           <p className="text-xs text-sa-text-3">
-            Pull USDC from your Gateway balance. Same-chain Arc is free; cross-chain uses Circle&apos;s
-            Forwarding Service.
+            Pull USDC from your Gateway balance back to your Arc wallet.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              Destination chain
-            </label>
-            <select
-              value={wdChain}
-              onChange={(e) => setWdChain(e.target.value)}
-              className="field-surface h-11 px-3 text-sm"
-            >
-              {SUPPORTED_CHAINS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.icon} {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              Amount (USDC)
-            </label>
-            <input
-              type="number"
-              min={wdMinimum.toFixed(2)}
-              step="0.0001"
-              placeholder={`Min $${wdMinimum.toFixed(2)} · Max $${gatewayBalance.toFixed(4)}`}
-              value={wdAmount}
-              onChange={(e) => setWdAmount(e.target.value)}
-              className="field-surface h-11 px-3 text-sm"
-            />
-          </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
+            Amount (USDC)
+          </label>
+          <input
+            type="number"
+            min="0.10"
+            step="0.0001"
+            placeholder={`Min $0.10 · Max $${gatewayBalance.toFixed(4)}`}
+            value={wdAmount}
+            onChange={(e) => setWdAmount(e.target.value)}
+            className="field-surface h-11 px-3 text-sm"
+          />
         </div>
-
-        {wdIsCrossChain && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              Destination address (required)
-            </label>
-            <input
-              type="text"
-              placeholder="0x…"
-              value={wdDestination}
-              onChange={(e) => setWdDestination(e.target.value)}
-              className="field-surface h-11 px-3 text-sm font-mono"
-            />
-          </div>
-        )}
-
-        {wdAmountNum > 0 && (
-          <div className="panel-muted p-4 space-y-1.5 text-sm font-mono">
-            <FeeRow label="Amount" value={`$${wdAmountNum.toFixed(4)}`} />
-            <FeeRow
-              label={`Platform fee${wdIsCrossChain ? "" : " (Arc)"}`}
-              value={`$${wdPlatformFee.toFixed(4)}`}
-            />
-            {wdIsCrossChain && (
-              <FeeRow
-                label="Gateway fee (0.005% cross-chain)"
-                value={`$${wdGatewayFee.toFixed(6)}`}
-              />
-            )}
-            <div className="my-1 h-px bg-sa-border" />
-            <FeeRow label="You receive" value={`$${wdYouReceive.toFixed(4)}`} emphasis />
-            {wdYouReceive <= 0 && wdAmountNum > 0 && (
-              <p className="mt-2 text-xs text-sa-red font-sans">
-                Amount is too small to cover fees. Increase the amount.
-              </p>
-            )}
-          </div>
-        )}
 
         {withdrawError && <p className="text-xs text-sa-red">{withdrawError}</p>}
         {withdrawResult && (
           <div className="space-y-1">
-            <p className="text-xs text-sa-green">Withdrawal submitted on {wdChainCfg?.name ?? withdrawResult.chain}.</p>
+            <p className="text-xs text-sa-green">Withdrawal submitted on Arc Testnet.</p>
             <a
-              href={explorerUrl(withdrawResult.chain, withdrawResult.hash)}
+              href={arcExplorerUrl(withdrawResult.hash)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
@@ -813,9 +371,7 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
         <button
           type="button"
           onClick={handleWithdraw}
-          disabled={
-            withdrawing || !wdAmountValid || !wdDestValid || wdYouReceive <= 0
-          }
+          disabled={withdrawing || !wdAmountValid || !wdDestValid}
           className="btn btn-accent self-start disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {withdrawing ? (
@@ -829,7 +385,7 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
         </button>
       </section>
 
-      {/* Section 5 — Send (Circle Wallet → External) */}
+      {/* Section 3 — Send (Circle Wallet → External) */}
       <section className="glass rounded-sa-card p-6 flex flex-col gap-5 hover-lift">
         <div className="flex flex-col gap-1">
           <h3 className="font-bold inline-flex items-center gap-2">
@@ -837,42 +393,8 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
             Send USDC
           </h3>
           <p className="text-xs text-sa-text-3">
-            Sends USDC from your Circle wallet to an external address on the selected chain.
+            Send USDC from your Arc Circle wallet to an external address.
           </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              Chain
-            </label>
-            <select
-              value={sendChain}
-              onChange={(e) => setSendChain(e.target.value)}
-              className="field-surface h-11 px-3 text-sm"
-            >
-              {SUPPORTED_CHAINS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.icon} {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
-              Amount (USDC)
-            </label>
-            <input
-              type="number"
-              min="0.0001"
-              step="0.0001"
-              placeholder={`Max $${usdcBalanceFor(sendChain).toFixed(4)}`}
-              value={sendAmount}
-              onChange={(e) => setSendAmount(e.target.value)}
-              className="field-surface h-11 px-3 text-sm"
-            />
-          </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -888,12 +410,27 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
           />
         </div>
 
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-sa-text-3">
+            Amount (USDC)
+          </label>
+          <input
+            type="number"
+            min="0.0001"
+            step="0.0001"
+            placeholder="0.0000"
+            value={sendAmount}
+            onChange={(e) => setSendAmount(e.target.value)}
+            className="field-surface h-11 px-3 text-sm"
+          />
+        </div>
+
         {sendError && <p className="text-xs text-sa-red">{sendError}</p>}
         {sendResult && (
           <div className="space-y-1">
             <p className="text-xs text-sa-green">Send submitted.</p>
             <a
-              href={`${sendResult.explorer}/${sendResult.hash}`}
+              href={arcExplorerUrl(sendResult.hash)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
@@ -925,7 +462,7 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
         </button>
       </section>
 
-      {/* Section 6 — Transaction History */}
+      {/* Section 4 — Transaction History */}
       <section className="glass rounded-sa-card overflow-hidden">
         <div className="flex items-center justify-between border-b border-sa-border px-6 py-4 flex-wrap gap-3">
           <h3 className="font-bold inline-flex items-center gap-2">
@@ -933,16 +470,6 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
             Transaction history
           </h3>
           <div className="flex items-center gap-2 flex-wrap">
-            <select
-              value={historyChainFilter}
-              onChange={(e) => setHistoryChainFilter(e.target.value)}
-              className="field-surface h-9 px-2 text-xs"
-            >
-              <option value="all">All chains</option>
-              {SUPPORTED_CHAINS.map((c) => (
-                <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-              ))}
-            </select>
             <select
               value={historyTypeFilter}
               onChange={(e) => setHistoryTypeFilter(e.target.value)}
@@ -1028,17 +555,6 @@ export default function WalletPage({ userId, walletAddress }: { userId: string; 
   );
 }
 
-async function pollUntil(check: () => Promise<boolean>, attempts: number, intervalMs: number) {
-  for (let i = 0; i < attempts; i++) {
-    await new Promise((r) => setTimeout(r, intervalMs));
-    try {
-      if (await check()) return;
-    } catch {
-      // keep polling
-    }
-  }
-}
-
 function StatusCell({ status }: { status: string | null }) {
   if (!status) return <span className="text-sa-text-3">—</span>;
   const norm = status.toLowerCase();
@@ -1052,15 +568,6 @@ function StatusCell({ status }: { status: string | null }) {
     return <span className="text-sa-red">❌ Failed</span>;
   }
   return <span className="text-sa-text-3 capitalize">{status}</span>;
-}
-
-function FeeRow({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
-  return (
-    <div className={`flex items-center justify-between ${emphasis ? "font-bold text-foreground" : "text-sa-text-3"}`}>
-      <span>{label}</span>
-      <span className="tabular-nums">{value}</span>
-    </div>
-  );
 }
 
 function TxRow({ tx }: { tx: Transaction }) {
@@ -1101,7 +608,7 @@ function TxRow({ tx }: { tx: Transaction }) {
       <td className="px-6 py-3 text-right text-sa-text-3 text-xs">
         {tx.tx_hash ? (
           <a
-            href={explorerUrl(chainId, tx.tx_hash)}
+            href={arcExplorerUrl(tx.tx_hash)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 hover:text-foreground"

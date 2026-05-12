@@ -660,23 +660,6 @@ export default function WatchPage({
               </div>
             )}
 
-            {/* Floating PAYING pill — the platform's signature number, surfaced loud while playing */}
-            {playing && !isOwnVideo && !free && (
-              <div className="pointer-events-none absolute bottom-20 left-4 z-[15]">
-                <div className="inline-flex items-center gap-2.5 rounded-full border border-sa-blue/40 bg-black/65 px-4 py-2 backdrop-blur-md shadow-[0_0_24px_hsla(188,86%,56%,0.35)] animate-paying-pulse">
-                  <span className="relative inline-flex h-2 w-2">
-                    <span className="absolute inset-0 animate-ping rounded-full bg-sa-green opacity-80" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-sa-green shadow-[0_0_8px_rgba(60,217,160,0.9)]" />
-                  </span>
-                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-sa-text-3">Paying</span>
-                  <span className="font-mono text-lg font-bold tabular-nums text-sa-blue drop-shadow-[0_0_8px_hsla(188,86%,56%,0.6)]">
-                    ${ratePerSecond.toFixed(5)}
-                    <span className="text-sm text-sa-blue/70">/s</span>
-                  </span>
-                </div>
-              </div>
-            )}
-
             {!cloudflareUid && (
               <div className="absolute bottom-0 inset-x-0 p-4 bg-black/70 flex flex-col gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                 <div className="relative h-1 w-full cursor-pointer overflow-hidden rounded-full bg-white/20">

@@ -9,77 +9,27 @@ import {
 } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
 import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
-import ChainSelector from "@/app/components/wallet/ChainSelector";
-import { SUPPORTED_CHAINS } from "@/app/lib/chains";
-import { createPublicClient, http, erc20Abi, type Chain } from "viem";
-import { baseSepolia, avalancheFuji, sepolia } from "viem/chains";
 
-const VIEM_CHAINS: Record<string, Chain> = {
-  Base_Sepolia: baseSepolia,
-  Avalanche_Fuji: avalancheFuji,
-  Ethereum_Sepolia: sepolia,
-};
-function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gatewayBalance }: {
+function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gatewayBalance, gatewayTotal }: {
   userId: string | null;
   walletAddress: string | null;
   onDeposited: () => void;
   walletBalance: number;
   gatewayBalance: number;
+  gatewayTotal: number;
 }) {
   const [depositing, setDepositing] = useState(false);
   const [depositError, setDepositError] = useState<string | null>(null);
-  const [gasError, setGasError] = useState<
-    | null
-    | { nativeToken: string; walletAddress: string; faucetUrl: string; chainName: string }
-  >(null);
   const [depositTxHash, setDepositTxHash] = useState<string | null>(null);
-  const [depositExplorerUrl, setDepositExplorerUrl] = useState("https://testnet.arcscan.app/tx");
   const [depositAmount, setDepositAmount] = useState("");
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [waitingForBalance, setWaitingForBalance] = useState(false);
-  const [depositChain, setDepositChain] = useState("Arc_Testnet");
-  const [selectedChainWalletBalance, setSelectedChainWalletBalance] = useState<number | null>(null);
-  const [postDepositChain, setPostDepositChain] = useState<{ name: string; finalitySeconds: number } | null>(null);
-  const selectedChain = SUPPORTED_CHAINS.find((c) => c.id === depositChain);
-  const isNonArc = depositChain !== "Arc_Testnet";
-
-  useEffect(() => {
-    if (depositChain === "Arc_Testnet") {
-      setSelectedChainWalletBalance(null);
-      return;
-    }
-    const chain = SUPPORTED_CHAINS.find((c) => c.id === depositChain);
-    const viemChain = VIEM_CHAINS[depositChain];
-    if (!chain || !viemChain || !walletAddress) return;
-
-    let cancelled = false;
-    setSelectedChainWalletBalance(null);
-    const publicClient = createPublicClient({ chain: viemChain, transport: http() });
-    publicClient
-      .readContract({
-        address: chain.usdcAddress as `0x${string}`,
-        abi: erc20Abi,
-        functionName: "balanceOf",
-        args: [walletAddress as `0x${string}`],
-      })
-      .then((balance) => {
-        if (!cancelled) setSelectedChainWalletBalance(Number(balance) / 1e6);
-      })
-      .catch(() => {
-        if (!cancelled) setSelectedChainWalletBalance(0);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [depositChain, walletAddress]);
 
   const handleDeposit = async () => {
     if (!userId) return;
     setDepositing(true);
     setDepositError(null);
-    setGasError(null);
     setDepositTxHash(null);
-    setPostDepositChain(null);
 
     const previousBalance = gatewayBalance;
 
@@ -90,29 +40,16 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
         body: JSON.stringify({
           user_id: userId,
           amount: depositAmount || undefined,
-          source_chain: depositChain,
+          source_chain: "Arc_Testnet",
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        if (data?.native_token && data?.wallet_address) {
-          setGasError({
-            nativeToken: data.native_token,
-            walletAddress: data.wallet_address,
-            faucetUrl: data.faucet_url ?? "https://faucet.circle.com",
-            chainName: data.chain_name ?? selectedChain?.name ?? depositChain,
-          });
-        } else {
-          setDepositError(data?.error ?? "Deposit failed");
-        }
+        setDepositError(data?.error ?? "Deposit failed");
         return;
       }
 
       setDepositTxHash(data.tx_hash ?? null);
-      setDepositExplorerUrl(data.explorer_url ?? "https://testnet.arcscan.app/tx");
-      if (selectedChain) {
-        setPostDepositChain({ name: selectedChain.name, finalitySeconds: selectedChain.finalitySeconds });
-      }
       setWaitingForBalance(true);
 
       const maxAttempts = 12;
@@ -168,18 +105,9 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div className="panel-muted p-3 space-y-1">
-          <p className="text-[10px] text-sa-text-3 uppercase tracking-wider">
-            {selectedChain ? `${selectedChain.name} Wallet` : "Wallet USDC"}
-          </p>
-          <p className="text-lg font-bold font-mono text-foreground inline-flex items-center gap-2">
-            {selectedChainWalletBalance === null && isNonArc ? (
-              <>
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-sa-text-3 border-t-transparent" />
-                <span className="text-sa-text-3">…</span>
-              </>
-            ) : (
-              `$${(selectedChainWalletBalance ?? walletBalance).toFixed(4)}`
-            )}
+          <p className="text-[10px] text-sa-text-3 uppercase tracking-wider">Arc Wallet USDC</p>
+          <p className="text-lg font-bold font-mono text-foreground">
+            ${walletBalance.toFixed(4)}
           </p>
         </div>
         <div className="panel-muted p-3 space-y-1">
@@ -187,49 +115,18 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
           <p className="text-lg font-bold font-mono text-sa-green">
             ${gatewayBalance.toFixed(4)}
           </p>
+          {gatewayTotal > gatewayBalance + 0.0001 && (
+            <p className="text-[10px] text-sa-text-3 tabular-nums">
+              Total across all chains: ${gatewayTotal.toFixed(4)}
+            </p>
+          )}
         </div>
       </div>
 
       <div className="space-y-2">
         <p className="text-xs text-sa-text-3">
-          Move USDC from your wallet into the Gateway contract to enable nanopayments.
+          Move USDC from your Arc wallet into the Gateway contract to enable nanopayments.
         </p>
-        <ChainSelector
-          label="Deposit from"
-          selected={depositChain}
-          onSelect={(id) => {
-            setDepositChain(id);
-            setDepositError(null);
-            setGasError(null);
-            setPostDepositChain(null);
-            setDepositTxHash(null);
-          }}
-        />
-        {selectedChain && (
-          <p className="text-[11px] text-sa-text-3">
-            Available:{" "}
-            <span className="font-mono text-foreground">
-              {selectedChainWalletBalance === null && isNonArc
-                ? "…"
-                : `$${(selectedChainWalletBalance ?? walletBalance).toFixed(4)}`}
-            </span>{" "}
-            USDC on {selectedChain.name}
-          </p>
-        )}
-        {isNonArc && selectedChain && (
-          <p className="text-[11px] text-sa-text-3">
-            Make sure you have {selectedChain.nativeToken} and USDC on {selectedChain.name}. Get testnet tokens at{" "}
-            <a
-              href="https://faucet.circle.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-2 hover:text-foreground"
-            >
-              faucet.circle.com
-            </a>
-            .
-          </p>
-        )}
         <div className="flex gap-2">
           <input
             type="number"
@@ -254,31 +151,11 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
           </button>
         </div>
         {depositError && <p className="text-xs text-sa-red">{depositError}</p>}
-        {gasError && (
-          <div className="rounded-xl border border-sa-red/40 bg-sa-red/[0.06] p-3 space-y-1">
-            <p className="text-xs font-semibold text-sa-red">
-              Insufficient {gasError.nativeToken} for gas on {gasError.chainName}
-            </p>
-            <p className="text-[11px] text-sa-text-3 break-all">
-              Fund <span className="font-mono text-foreground">{gasError.walletAddress}</span> with{" "}
-              {gasError.nativeToken} at{" "}
-              <a
-                href={gasError.faucetUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline underline-offset-2 hover:text-foreground"
-              >
-                faucet.circle.com
-              </a>
-              .
-            </p>
-          </div>
-        )}
         {depositTxHash && (
           <div className="space-y-1">
             <p className="text-xs text-sa-green">Deposit successful!</p>
             <a
-              href={`${depositExplorerUrl}/${depositTxHash}`}
+              href={`https://testnet.arcscan.app/tx/${depositTxHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs text-emerald-400 hover:text-emerald-300 font-mono break-all underline underline-offset-2"
@@ -287,17 +164,12 @@ function WalletBalances({ userId, walletAddress, onDeposited, walletBalance, gat
             </a>
           </div>
         )}
-        {waitingForBalance && postDepositChain && postDepositChain.name !== "ARC Testnet" ? (
-          <p className="text-xs text-sa-text-3">
-            Deposit confirmed on {postDepositChain.name}. Gateway balance updates after block finality
-            (~15 min for Base/ETH Sepolia, ~8 sec for Avalanche).
-          </p>
-        ) : waitingForBalance ? (
+        {waitingForBalance && (
           <p className="inline-flex items-center gap-2 text-xs text-sa-text-3">
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-sa-text-3 border-t-transparent" />
             Waiting for balance to update...
           </p>
-        ) : null}
+        )}
       </div>
 
       <div className="flex items-center gap-2">
@@ -376,6 +248,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   const router = useRouter();
   const pathname = usePathname();
   const [balance, setBalance] = useState(initialBalance);
+  const [gatewayTotal, setGatewayTotal] = useState<number>(initialBalance);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
   const [liveBalanceActive, setLiveBalanceActive] = useState(false);
@@ -412,6 +285,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
           setBalance(data.balance);
           onBalanceChange?.(data.balance);
         }
+        if (typeof data.total === "number") setGatewayTotal(data.total);
         if (data.wallet_balance !== undefined) setWalletBalance(data.wallet_balance);
         if (data.wallet_address) setWalletAddress(data.wallet_address);
       })
@@ -432,6 +306,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
             setBalance(data.balance);
             onBalanceChange?.(data.balance);
           }
+          if (typeof data.total === "number") setGatewayTotal(data.total);
           if (data.wallet_balance !== undefined) setWalletBalance(data.wallet_balance);
         })
         .catch(() => {});
@@ -492,7 +367,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   const displayedBalance =
     liveBalanceActive && typeof liveBalance === "number"
       ? liveBalance.toFixed(4)
-      : balance.toFixed(2);
+      : balance.toFixed(4);
 
   return (
     <>
@@ -592,12 +467,6 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
                 active={currentPage === "watchlater" || pathname === "/watchlater"}
                 onClick={() => router.push("/watchlater")}
               />
-              <SidebarItem
-                icon={Wallet}
-                label="Wallet"
-                active={currentPage === "wallet" || pathname === "/wallet"}
-                onClick={() => router.push("/wallet")}
-              />
             </div>
 
             <div aria-hidden className="my-4 mx-3 h-px bg-sa-border/50" />
@@ -611,6 +480,12 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
                 label="Studio"
                 active={currentPage === "studio" || pathname === "/studio"}
                 onClick={() => navigateTo("studio")}
+              />
+              <SidebarItem
+                icon={Wallet}
+                label="Wallet"
+                active={currentPage === "wallet" || pathname === "/wallet"}
+                onClick={() => router.push("/wallet")}
               />
               {isAdmin && (
                 <SidebarItem icon={Shield} label="Admin" active={currentPage === "admin"} onClick={() => navigateTo("admin")} />
@@ -645,6 +520,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
               walletAddress={walletAddress ?? null}
               walletBalance={walletBalance}
               gatewayBalance={balance}
+              gatewayTotal={gatewayTotal}
               onDeposited={() => {
                 window.dispatchEvent(new CustomEvent("gateway-balance-updated"))
                 setShowTopUp(false)
