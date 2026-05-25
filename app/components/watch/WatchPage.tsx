@@ -107,6 +107,7 @@ export default function WatchPage({
 }: WatchPageProps) {
   const router = useRouter();
   const [playing, setPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
   const [secs, setSecs] = useState(0);
   const [free, setFree] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -304,7 +305,7 @@ export default function WatchPage({
   }, []);
 
   useEffect(() => {
-    if (playing) {
+    if (playing && !buffering) {
       intervalRef.current = setInterval(() => {
         setSecs((s) => {
           const next = s + 1;
@@ -341,7 +342,7 @@ export default function WatchPage({
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [playing, free, fireBatch, onBalanceChange, isOwnVideo, ratePerSecond, intervalSeconds]);
+  }, [playing, buffering, free, fireBatch, onBalanceChange, isOwnVideo, ratePerSecond, intervalSeconds]);
 
   useEffect(() => {
     if (!videoId) return;
@@ -632,9 +633,12 @@ export default function WatchPage({
                 src={cloudflareUid}
                 className="absolute inset-0 w-full h-full z-[1]"
                 controls
-                onPlaying={() => setPlaying(true)}
+                onPlaying={() => {
+                  setBuffering(false)
+                  setPlaying(true)
+                }}
                 onPause={() => setPlaying(false)}
-                onWaiting={() => setPlaying(false)}
+                onWaiting={() => setBuffering(true)}
                 onEnded={() => setPlaying(false)}
                 onSeeking={() => setPlaying(false)}
                 onSeeked={() => setPlaying(true)}

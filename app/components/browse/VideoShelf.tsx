@@ -192,7 +192,6 @@ export function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: s
             <span className="rounded-md bg-sa-blue/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--primary-foreground))]">Soon</span>
           ) : (
             <>
-              {video.isLive && <span className="rounded-md bg-sa-red px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">Live</span>}
               {video.isNew && <span className="rounded-md bg-[hsl(216_24%_24%/0.92)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">New</span>}
             </>
           )}
