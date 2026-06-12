@@ -12,7 +12,8 @@
     "agent:setup": "node scripts/agent-setup.ts",
     "agent:deposit": "node scripts/agent-deposit.ts",
     "agent:test-settle": "node scripts/test-settle.ts",
-    "agent:run": "node scripts/agent-run.ts"
+    "agent:run": "node scripts/agent-run.ts",
+    "agent:worker": "node worker/index.ts"
   },
   "dependencies": {
     "@aptos-labs/ts-sdk": "^6.2.0",

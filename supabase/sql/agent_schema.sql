@@ -10,6 +10,7 @@ create table if not exists public.agent_jobs (
   id            uuid primary key default gen_random_uuid(),
   video_id      uuid,
   budget_usdc   numeric,
+  goal          text,
   status        text default 'queued',
   decision_log  jsonb,
   receipt       jsonb,
@@ -18,6 +19,9 @@ create table if not exists public.agent_jobs (
   created_at    timestamptz default now(),
   updated_at    timestamptz
 );
+
+-- If agent_jobs already exists from an earlier run, add the goal column:
+alter table public.agent_jobs add column if not exists goal text;
 
 -- The worker polls for the oldest queued job every 5s; this index keeps that cheap.
 create index if not exists agent_jobs_status_created_idx
