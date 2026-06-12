@@ -21,6 +21,8 @@ import { createWatchSession, endWatchSession, settleWatchSession } from "@/app/l
 import { PAYMENT_CONFIG } from "@/app/lib/constants";
 import { useCurrentUser } from "@/app/lib/auth-client";
 import { FROSTED_PLAY_CLASSES, FrostedPauseSvg, FrostedPlayMark, FrostedPlaySvg } from "@/app/components/ui/FrostedPlayMark";
+import GenerateClips from "@/app/components/agent/GenerateClips";
+import AgentClipsRow, { type AgentClipCard } from "@/app/components/agent/AgentClipsRow";
 
 const { intervalSeconds, freePreviewSeconds } = PAYMENT_CONFIG;
 
@@ -90,6 +92,8 @@ export interface WatchPageProps {
   chapters?: { time: number; title: string }[] | null;
   onBalanceChange?: (bal: number) => void;
   upNextVideos?: UpNextVideo[];
+  canGenerateClips?: boolean;
+  agentClips?: AgentClipCard[];
 }
 
 export default function WatchPage({
@@ -104,6 +108,8 @@ export default function WatchPage({
   chapters,
   onBalanceChange,
   upNextVideos = [],
+  canGenerateClips = false,
+  agentClips = [],
 }: WatchPageProps) {
   const router = useRouter();
   const [playing, setPlaying] = useState(false);
@@ -892,6 +898,17 @@ export default function WatchPage({
               <p className="text-sm text-sa-text-3 leading-relaxed">{description}</p>
             </div>
           )}
+
+          {/* Clip Agent: owner/admin control + this video's auto-generated clips */}
+          {canGenerateClips && (
+            <GenerateClips
+              videoId={videoId}
+              ratePerSecond={ratePerSecond}
+              durationSecs={durationSecs}
+              videoTitle={title}
+            />
+          )}
+          {agentClips.length > 0 && <AgentClipsRow clips={agentClips} />}
 
           {/* Disclaimer (hidden during free preview; no “first N seconds free” copy) */}
           {!free && (

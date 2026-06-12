@@ -27,12 +27,46 @@ export default async function WatchVideoPage({ params }: Props) {
 
   const { data: video } = await supabase
     .from("videos")
-    .select("id, creator_id, title, description, status, rate_per_sec, duration_secs, cloudflare_uid, chapters")
+    .select("id, creator_id, owner_id, title, description, status, rate_per_sec, duration_secs, cloudflare_uid, chapters")
     .eq("id", videoId)
     .eq("status", "live")
     .single()
 
   if (!video) notFound()
+
+  // Clip Agent: who may generate clips, and this video's already-published clips.
+  const ownerId = (video as { owner_id?: string | null }).owner_id ?? video.creator_id
+  const role = (session.user as { role?: string }).role
+  const canGenerateClips = session.user.id === ownerId || role === "admin"
+
+  const { data: agentJobs } = await supabase
+    .from("agent_jobs")
+    .select("clips")
+    .eq("video_id", videoId)
+    .eq("status", "done")
+    .order("created_at", { ascending: false })
+    .limit(20)
+
+  type RawAgentClip = { uid?: string; video_row_id?: string; title?: string; hook?: string; confidence?: number }
+  const rawClips: RawAgentClip[] = ((agentJobs ?? []) as Array<{ clips: unknown }>).flatMap((j) =>
+    Array.isArray(j.clips) ? (j.clips as RawAgentClip[]) : [],
+  )
+  const clipRowIds = rawClips.map((c) => c.video_row_id).filter(Boolean) as string[]
+  let liveIds = new Set<string>()
+  if (clipRowIds.length > 0) {
+    const { data: liveRows } = await supabase.from("videos").select("id").in("id", clipRowIds).eq("status", "live")
+    liveIds = new Set((liveRows ?? []).map((r) => r.id))
+  }
+  const seenClip = new Set<string>()
+  const agentClips = rawClips
+    .filter((c) => c.uid && c.video_row_id && liveIds.has(c.video_row_id) && !seenClip.has(c.video_row_id) && seenClip.add(c.video_row_id))
+    .map((c) => ({
+      video_row_id: c.video_row_id!,
+      uid: c.uid!,
+      title: c.title ?? "Clip",
+      hook: c.hook ?? "",
+      confidence: Number(c.confidence) || 0,
+    }))
 
   const [{ data: creator }, { data: upNextRows }] = await Promise.all([
     supabase
@@ -87,6 +121,8 @@ export default async function WatchVideoPage({ params }: Props) {
           : null
       }
       upNextVideos={upNextVideos}
+      canGenerateClips={canGenerateClips}
+      agentClips={agentClips}
     />
   )
 }
