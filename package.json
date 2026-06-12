@@ -8,7 +8,10 @@
     "dev:clean": "node scripts/clean-next.cjs && next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "agent:setup": "node scripts/agent-setup.ts",
+    "agent:deposit": "node scripts/agent-deposit.ts",
+    "agent:test-settle": "node scripts/test-settle.ts"
   },
   "dependencies": {
     "@aptos-labs/ts-sdk": "^6.2.0",
@@ -18,7 +21,7 @@
     "@circle-fin/circle-sdk": "^2.9.0",
     "@circle-fin/developer-controlled-wallets": "^10.2.0",
     "@circle-fin/unified-balance-kit": "^1.1.0",
-    "@circle-fin/x402-batching": "^2.0.4",
+    "@circle-fin/x402-batching": "2.0.4",
     "@cloudflare/stream-react": "^1.9.3",
     "@coral-xyz/anchor": "^0.32.1",
     "@heroui/react": "^2.8.10",
