@@ -3,7 +3,7 @@ import { createPublicClient, defineChain, formatEther, http, type EIP1193Provide
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets"
 
 const ARC_TESTNET_CHAIN_ID = 5042002
-const ARC_TESTNET_RPC_URL = process.env.ARC_TESTNET_RPC_URL ?? "https://rpc-testnet.arcscan.app"
+const ARC_TESTNET_RPC_URL = process.env.ARC_TESTNET_RPC_URL ?? "https://rpc.testnet.arc.network"
 
 export const arcTestnet = defineChain({
   id: ARC_TESTNET_CHAIN_ID,
