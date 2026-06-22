@@ -20,20 +20,19 @@ async function main() {
   const onLog = (e: DecisionEntry) =>
     console.log(`  [${e.action}] ${e.reason}${e.cost ? ` (cost ${e.cost.toFixed(6)}, left ${e.budget_remaining.toFixed(6)})` : ""}`)
 
-  const result = await runClipAgent({ videoId, budgetUsdc: budget, onLog, createClips: true })
+  const result = await runClipAgent({ videoId, budgetUsdc: budget, onLog })
 
-  console.log("\n=== CLIPS CREATED ===")
+  console.log("\n=== PROPOSED CLIPS (pending review — nothing created on Cloudflare) ===")
   if (result.clips.length === 0) {
     console.log("(none)")
   } else {
     result.clips.forEach((c, i) => {
-      console.log(`\n  Clip ${i + 1}: ${c.title}`)
-      console.log(`    Range:      ${c.start}s–${c.end}s`)
-      console.log(`    Clip uid:   ${c.uid}`)
-      console.log(`    Video row:  ${c.video_row_id}`)
+      console.log(`\n  Clip ${i + 1}: ${c.suggested_title}  [${c.status}]`)
+      console.log(`    Range:      ${c.start}s–${c.end}s (analyzed ${c.analyzed_start}s–${c.analyzed_end}s)`)
       console.log(`    Confidence: ${c.confidence.toFixed(2)}`)
       console.log(`    Hook:       ${c.hook}`)
     })
+    console.log("\n  (Approve/edit each in the job view UI to publish.)")
   }
 
   console.log("\n=== RECEIPT ===")

@@ -31,9 +31,11 @@ export default function AgentClipsRow({ clips }: { clips: AgentClipCard[] }) {
                 alt={c.title}
                 className="w-full h-full object-cover transition-transform group-hover:scale-105"
               />
-              <span className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold">
-                {Math.round(c.confidence * 100)}%
-              </span>
+              {c.confidence > 0 && (
+                <span className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold">
+                  {Math.round(c.confidence * 100)}%
+                </span>
+              )}
             </div>
             <p className="mt-1.5 text-xs font-medium leading-snug line-clamp-2 group-hover:text-primary transition-colors">{c.title}</p>
           </Link>

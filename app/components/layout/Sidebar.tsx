@@ -488,6 +488,12 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
                 onClick={() => navigateTo("studio")}
               />
               <SidebarItem
+                icon={Scissors}
+                label="Clips"
+                active={currentPage === "studio-clips" || (pathname?.startsWith("/studio/clips") ?? false)}
+                onClick={() => router.push("/studio/clips")}
+              />
+              <SidebarItem
                 icon={Wallet}
                 label="Wallet"
                 active={currentPage === "wallet" || pathname === "/wallet"}

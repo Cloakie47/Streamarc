@@ -70,9 +70,27 @@ export async function createCloudflareClip(
     const statusData = (await statusRes.json()) as { result?: { readyToStream?: boolean; duration?: number } }
     if (statusData.result?.readyToStream) {
       const reported = Number(statusData.result.duration)
+      // Give the clip a representative poster (a frame from its midpoint) so every
+      // clip shows a distinct still instead of the default first frame. Best-effort.
+      await setClipThumbnail(uid).catch((e) => console.warn(`clip ${uid} thumbnail set failed:`, e?.message ?? e))
       return { uid, durationSecs: reported > 0 ? Math.round(reported) : end - start }
     }
   }
+}
+
+/**
+ * Point the clip's poster at a frame from WITHIN it (default: the midpoint). The
+ * clip is a fresh video that starts at 0, so pct 0.5 = the clip's middle. This
+ * makes the Cloudflare-generated thumbnail.jpg distinct and representative per
+ * clip, with no manual upload. Used by both the agent and manual clip paths.
+ */
+export async function setClipThumbnail(uid: string, pct = 0.5): Promise<void> {
+  const res = await cfFetch(`/${uid}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ thumbnailTimestampPct: pct }),
+  })
+  if (!res.ok) throw new Error(`set thumbnail failed: ${res.status} ${await res.text()}`)
 }
 
 /**
@@ -100,24 +118,37 @@ export interface ClipVideoRowInput {
   title: string
   durationSecs: number
   cloudflareUid: string
+  /** Creator-chosen watch price (USDC/sec). Defaults to 0 if omitted. */
+  ratePerSec?: number
+  /** Creator-chosen description. */
+  description?: string
+  /** Source video this clip was cut from (set for manual clips so the surfaces can group them). */
+  clippedFrom?: string
+  /** How the clip was created — 'agent' or 'manual'. Left unset (NULL) for legacy/agent rows. */
+  clipOrigin?: "agent" | "manual"
 }
 
 /** Insert a videos row for a newly-created clip and return its id. */
 export async function insertClipVideoRow(supabase: SupabaseClient, input: ClipVideoRowInput): Promise<string> {
-  const { data, error } = await supabase
-    .from("videos")
-    .insert({
-      creator_id: input.creatorId,
-      title: input.title,
-      rate_per_sec: 0,
-      status: "live",
-      duration_secs: input.durationSecs,
-      cloudflare_uid: input.cloudflareUid,
-      views: 0,
-      total_earned: 0,
-    })
-    .select("id")
-    .single()
+  const row: Record<string, unknown> = {
+    creator_id: input.creatorId,
+    title: input.title,
+    description: input.description ?? null,
+    rate_per_sec: input.ratePerSec ?? 0,
+    status: "live",
+    duration_secs: input.durationSecs,
+    cloudflare_uid: input.cloudflareUid,
+    // Poster the card surfaces render. createCloudflareClip set thumbnailTimestampPct
+    // to the clip midpoint, so this still is distinct/representative per clip.
+    thumbnail_url: `https://videodelivery.net/${input.cloudflareUid}/thumbnails/thumbnail.jpg`,
+    views: 0,
+    total_earned: 0,
+  }
+  // Only set when provided so the agent path's rows are unchanged (NULL).
+  if (input.clippedFrom) row.clipped_from = input.clippedFrom
+  if (input.clipOrigin) row.clip_origin = input.clipOrigin
+
+  const { data, error } = await supabase.from("videos").insert(row).select("id").single()
   if (error || !data) throw new Error(`clip video row insert failed: ${error?.message ?? "no row"}`)
   return data.id as string
 }

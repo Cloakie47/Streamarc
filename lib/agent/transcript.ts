@@ -63,8 +63,11 @@ async function getCaptionState(uid: string): Promise<CaptionState> {
  * Ensure English captions exist and are ready. Idempotent: if they're already
  * `ready` we return immediately without regenerating; if generation is already
  * in progress we just poll it.
+ *
+ * Exported for reuse by the paid-subtitles feature (English source track). The
+ * agent pipeline's behaviour is unchanged.
  */
-async function ensureCaptions(uid: string): Promise<void> {
+export async function ensureCaptions(uid: string): Promise<void> {
   let state = await getCaptionState(uid)
 
   if (state === "ready") return // already generated — do not regenerate
@@ -88,8 +91,8 @@ async function ensureCaptions(uid: string): Promise<void> {
   }
 }
 
-/** Download the raw VTT for the English caption track. */
-async function fetchVtt(uid: string): Promise<string> {
+/** Download the raw VTT for the English caption track. Exported for reuse by the paid-subtitles feature. */
+export async function fetchVtt(uid: string): Promise<string> {
   const res = await cfFetch(`/${uid}/captions/${LANG}/vtt`)
   if (!res.ok) throw new Error(`vtt download failed: ${res.status} ${await res.text()}`)
   return res.text()

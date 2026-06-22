@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react"
 import { X, Upload, CheckCircle, Loader2 } from "lucide-react"
+import { Upload as TusUpload } from "tus-js-client"
 
 const CATEGORIES = [
   { id: "project-demo", label: "🏗️ Project Demo" },
@@ -102,6 +103,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
           description: description.trim(),
           rate_per_sec: rate,
           categories: selectedCategories,
+          file_size: file.size,
         }),
       })
 
@@ -112,26 +114,23 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
 
       const { uploadURL, videoUID, videoId } = await res.json()
 
-      // Upload directly via fetch (for files under 200MB)
-      const formData = new FormData()
-      formData.append("file", file)
-
-      const xhr = new XMLHttpRequest()
-      xhr.open("POST", uploadURL, true)
-
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          setProgress(Math.round((e.loaded / e.total) * 100))
-        }
-      }
-
+      // Resumable upload via tus. The route already provisioned the upload, so
+      // we point tus at that one-time URL (no creation POST here). Chunked +
+      // auto-retrying, so large files (well over 200MB) and flaky networks work.
       await new Promise<void>((resolve, reject) => {
-        xhr.onload = () => {
-          if (xhr.status === 200) resolve()
-          else reject(new Error(`Upload failed: ${xhr.status}`))
-        }
-        xhr.onerror = () => reject(new Error("Upload failed"))
-        xhr.send(formData)
+        const upload = new TusUpload(file, {
+          uploadUrl: uploadURL,
+          // Cloudflare requires a finite, 256KiB-aligned chunk size; 50 MiB
+          // keeps the upload resumable rather than one giant PATCH.
+          chunkSize: 50 * 1024 * 1024,
+          retryDelays: [0, 3000, 5000, 10000, 20000],
+          onProgress: (bytesSent, bytesTotal) => {
+            if (bytesTotal > 0) setProgress(Math.round((bytesSent / bytesTotal) * 100))
+          },
+          onError: (err) => reject(err instanceof Error ? err : new Error("Upload failed")),
+          onSuccess: () => resolve(),
+        })
+        upload.start()
       })
 
       // Poll until Cloudflare finishes processing
@@ -242,7 +241,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
               ) : (
                 <p className="text-sm text-muted-foreground">Click to select video file</p>
               )}
-              <p className="text-xs text-muted-foreground">MP4, MOV, WebM. Max 200MB</p>
+              <p className="text-xs text-muted-foreground">MP4, MOV, WebM. Long-form OK — up to 1 hour, large files supported.</p>
             </div>
             <input
               ref={fileInputRef}

@@ -26,3 +26,26 @@ alter table public.agent_jobs add column if not exists goal text;
 -- The worker polls for the oldest queued job every 5s; this index keeps that cheap.
 create index if not exists agent_jobs_status_created_idx
   on public.agent_jobs (status, created_at);
+
+-- clip_payments — queryable ledger of clip SERVICE-FEE money movements.
+-- This is NOT creator earnings (the creator is PAYING for a service). It is
+-- intentionally separate from payment_batches/earnings; the studio income query
+-- reads `earnings` only, so this table never affects studio totals.
+--   direction 'prepay'  — creator funded the full budget → platform (real circle_tx)
+--   direction 'consume' — a metered charge against the prepay (no own tx; circle_tx null)
+--   direction 'refund'  — platform refunded the unused remainder → creator (real circle_tx)
+create table if not exists public.clip_payments (
+  id          uuid primary key default gen_random_uuid(),
+  job_id      uuid,
+  creator_id  uuid,
+  video_id    uuid,
+  direction   text,
+  amount      numeric,
+  circle_tx   text,
+  created_at  timestamptz default now()
+);
+
+create index if not exists clip_payments_creator_created_idx
+  on public.clip_payments (creator_id, created_at);
+create index if not exists clip_payments_job_idx
+  on public.clip_payments (job_id);

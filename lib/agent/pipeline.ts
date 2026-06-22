@@ -9,16 +9,24 @@
 //       the video, not a ~10% probe sample.
 //     • SAMPLING (low-budget fallback): the verified probe / re-probe / expand
 //       path, unchanged.
-//   -> final selection (semantic cuts) -> create clips + captions -> receipt.
+//   -> final selection (semantic cuts) -> PROPOSE clips (pending review; nothing
+//      is created on Cloudflare here) -> receipt. The creator approves/edits each
+//      proposal in the UI, which then creates + publishes it (see clips/approve).
 //
 // Every decision is appended to a decision_log and streamed to an optional
 // onLog callback (the worker persists a partial log if the job throws).
-// Payments reuse settle-core unchanged and record payment_batches + earnings
-// like scripts/test-settle.ts, with owner_id ?? creator_id resolution and one
-// idempotency key per settlement. The skim is paid BEFORE analysis.
+//
+// PAYMENT MODEL (service fee, not a faucet): generating clips is a paid service.
+// The CREATOR (owner_id ?? creator_id) is the paying customer — their Circle
+// wallet prepays the full budget to the PLATFORM (one settlement, creator ->
+// platform). Consumption is metered against that prepaid budget; at job end the
+// platform refunds the unused remainder to the creator (platform -> creator).
+// Net to platform = seconds consumed × rate. NO 80/20 split, NO creator
+// earnings row (the studio income query reads `earnings` only, so it is never
+// miscounted). The human-viewer flow (settle-session / settlePerSecond) is
+// untouched; this path uses settleServiceFee. Clips are inserted as the
+// creator's own videos (they own them).
 
-import { randomUUID } from "node:crypto"
-import { createGatewayWallet } from "./wallet.ts"
 import { getTranscript, textForInterval, totalWords, type Segment } from "./transcript.ts"
 import {
   scoreProbe,
@@ -30,12 +38,13 @@ import {
   type EditorialBrief,
   type ClipCritique,
 } from "./analyze.ts"
-import { createCloudflareClip, insertClipVideoRow, triggerClipCaptions } from "./clip.ts"
-import { settlePerSecond } from "../settle-core/index.ts"
+import { settleServiceFee } from "../settle-core/index.ts"
+import { fetchUnifiedGatewayBalance } from "../../app/lib/gateway-balance.ts"
 import { getSupabaseAdmin } from "../../app/lib/supabase-server.ts"
 
-const AGENT_REF = "clip-agent-001"
 const DEFAULT_GOAL = "maximize viewer interest and shareability"
+const ARC_DOMAIN = 26 // Circle Gateway domain for Arc — settlements pull from this balance
+const REFUND_DUST_USDC = 0.000001 // skip a refund settlement below this
 
 // --- Two-tier consumption ---
 const TRANSCRIPT_SKIM_FRACTION = 0.1 // reading the transcript costs 10% of the full per-second rate
@@ -72,31 +81,45 @@ export interface DecisionEntry {
   budget_remaining: number
 }
 
-/** A clip the agent created on Cloudflare and registered as a videos row. */
-export interface CreatedClip {
-  uid: string
-  video_row_id: string
+/**
+ * A clip the agent SELECTED but has NOT created on Cloudflare. It is written to
+ * agent_jobs.clips as a pending proposal; the creator approves/edits each one in
+ * the UI, and only then is it created on Cloudflare + published as a videos row.
+ */
+export interface PendingClip {
+  /** pending → awaiting creator review; approved → created + published; discarded → never created. */
+  status: "pending" | "approved" | "discarded"
+  /** Selected clip bounds (seconds). The creator may nudge within [analyzed_start, analyzed_end]. */
   start: number
   end: number
-  title: string
+  /** The purchased/analyzed region the clip sits in — nudge limits. */
+  analyzed_start: number
+  analyzed_end: number
+  suggested_title: string
   hook: string
   confidence: number
-  /** Source video this was clipped from (db id). */
-  clipped_from: string
+  transcript_excerpt: string
   opening_words: string
   closing_words: string
-}
-
-export interface XDraft {
-  clip_uid: string
-  video_row_id: string
-  text: string
+  // --- set on approval ---
+  video_row_id?: string
+  /** Cloudflare clip uid (set on approval). */
+  uid?: string
+  /** Creator's final title/description/price (set on approval). */
+  title?: string
+  description?: string
+  rate_per_sec?: number
 }
 
 export interface Receipt {
   strategy: "skim" | "sampling"
   goal: string
   budget_given: number
+  /** Service fee charged to the creator (consumed seconds × rate), creator → platform. */
+  service_fee_charged: number
+  /** Unused budget refunded to the creator, platform → creator. */
+  refunded: number
+  /** Net the creator paid for the service (== service_fee_charged). */
   total_paid: number
   /** Spend split by tier: 10%-rate transcript read vs full-rate footage. */
   tier_breakdown: { skim_spend: number; footage_spend: number }
@@ -107,38 +130,35 @@ export interface Receipt {
   editorial_brief: EditorialBrief | null
   /** Self-critique verdicts + any swap made before clip creation. */
   self_critique: { critiques: ClipCritique[]; swap: string | null } | null
+  /** Settlement tx ids: [prepay (creator→platform), refund (platform→creator)]. */
   settlements: string[]
-  clips: Array<{
-    uid: string
-    range: string
-    title: string
-    hook: string
-    confidence: number
-    video_row_id: string
-    opening_words: string
-    closing_words: string
-  }>
+  /** Set when the job was declined because the creator's Gateway balance < budget. */
+  insufficient_funds?: boolean
+  /** Proposed clips (summary only — nothing is created until the creator approves). */
+  proposed_clips: Array<{ range: string; title: string; confidence: number }>
   savings: number
   decision_count: number
-  x_drafts: XDraft[]
 }
 
 export interface PipelineResult {
   /** true when the agent declined with zero/partial spend (sparse captions, no clip-worthy moment, unpriced video). */
   declined: boolean
   decisionLog: DecisionEntry[]
-  clips: CreatedClip[]
+  /** Pending clip proposals (NOT yet created on Cloudflare). */
+  clips: PendingClip[]
   receipt: Receipt
 }
 
 export interface RunClipAgentParams {
   videoId: string
   budgetUsdc: number
+  /** agent_jobs row id, recorded on each clip_payments ledger row (null for CLI runs). */
+  jobId?: string
   /** The creator's goal for these clips; flows into both analysis passes. */
   goal?: string
   /** Called for each decision as it happens (live logging / partial-log capture). */
   onLog?: (entry: DecisionEntry) => void
-  /** Create real Cloudflare clips + videos rows (default true). */
+  /** Deprecated/ignored — clips are now proposed for creator review, never auto-created. */
   createClips?: boolean
 }
 
@@ -147,9 +167,6 @@ interface Purchase {
   end: number
   seconds: number
   cost: number
-  idempotencyKey: string
-  creatorTx: string
-  platformTx: string | null
 }
 
 function fmt(seconds: number): string {
@@ -183,8 +200,9 @@ function mergeRegions(purchases: Purchase[], segments: Segment[]): PurchasedRegi
  * unreachable Supabase, failed settlement); callers persist a terminal status.
  */
 export async function runClipAgent(params: RunClipAgentParams): Promise<PipelineResult> {
-  const { videoId, budgetUsdc: budget, onLog, createClips = true } = params
+  const { videoId, budgetUsdc: budget, onLog } = params
   const goal = (params.goal ?? "").trim() || DEFAULT_GOAL
+  const jobId: string | null = params.jobId ?? null
   if (!videoId || !Number.isFinite(budget) || budget <= 0) {
     throw new Error("runClipAgent: videoId and a positive budgetUsdc are required")
   }
@@ -194,15 +212,21 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   // --- Running state ---
   const decisionLog: DecisionEntry[] = []
   let budgetRemaining = budget
-  let totalSpent = 0
+  let totalSpent = 0 // metered consumption (service fee owed), drawn against the prepaid budget
   let skimSpend = 0
-  const purchases: Purchase[] = [] // FOOTAGE buys only (feed the regions); skim is tracked separately
-  const skimSettlements: string[] = []
+  const purchases: Purchase[] = [] // consumed windows (feed the regions)
   const securedRegions: Array<{ start: number; end: number; score: number }> = []
   let momentsFound = 0
   let strategyLabel: "skim" | "sampling" = "sampling"
   let editorialBrief: EditorialBrief | null = null
   let selfCritiqueResult: { critiques: ClipCritique[]; swap: string | null } | null = null
+  // Service-fee money flow: creator prepays the full budget → platform; platform
+  // refunds the unused remainder → creator at job end. Net to platform = consumed.
+  let prepaid = false
+  let prepayTx: string | null = null
+  let refundTx: string | null = null
+  let refundedAmount = 0
+  let insufficientFunds = false
 
   function log(action: string, reason: string, cost = 0) {
     const entry: DecisionEntry = { time: new Date().toISOString(), action, reason, cost: round6(cost), budget_remaining: round6(budgetRemaining) }
@@ -210,16 +234,7 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     onLog?.(entry)
   }
 
-  // --- Agent payer identity (Phase 1 wallet + users row) ---
-  const wallet = await createGatewayWallet(AGENT_REF)
-  if (!wallet) throw new Error("Agent Circle wallet not found — run agent-setup first")
-
-  const { data: agentUser, error: agentErr } = await supabase.from("users").select("id").eq("circle_wallet_id", wallet.id).maybeSingle()
-  if (agentErr) throw new Error(`agent users lookup failed: ${agentErr.message}`)
-  if (!agentUser?.id) throw new Error("Agent users row not found — run agent-setup first")
-  const viewerId: string = agentUser.id
-
-  // --- Load the video + resolve the earnings recipient (owner_id ?? creator_id) ---
+  // --- Load the video + resolve the CREATOR (owner_id ?? creator_id) — the paying customer ---
   const { data: video, error: videoErr } = await supabase
     .from("videos")
     .select("id, title, cloudflare_uid, rate_per_sec, duration_secs, creator_id, owner_id")
@@ -230,37 +245,54 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
 
   const rate = Number(video.rate_per_sec)
   const duration = Number(video.duration_secs)
-  const earningsRecipientId: string | null = video.owner_id ?? video.creator_id
-  if (!earningsRecipientId) throw new Error(`video ${videoId} has no creator_id/owner_id to pay`)
+  const creatorId: string | null = video.owner_id ?? video.creator_id
+  if (!creatorId) throw new Error(`video ${videoId} has no creator_id/owner_id`)
   if (!(duration > 0)) throw new Error(`video ${videoId} has no positive duration_secs (${video.duration_secs})`)
 
-  const { data: recipient, error: recipientErr } = await supabase.from("users").select("wallet_address").eq("id", earningsRecipientId).maybeSingle()
-  if (recipientErr) throw new Error(`earnings recipient lookup failed: ${recipientErr.message}`)
-  const creatorAddress: string | undefined = recipient?.wallet_address ?? undefined
-  if (!creatorAddress) throw new Error(`earnings recipient ${earningsRecipientId} has no wallet_address to receive payment`)
+  // The CREATOR is the payer — their Circle wallet funds the service fee. The
+  // agent's pre-funded wallet is no longer involved in the money flow.
+  const { data: creatorRow, error: creatorErr } = await supabase
+    .from("users")
+    .select("wallet_address, circle_wallet_id")
+    .eq("id", creatorId)
+    .maybeSingle()
+  if (creatorErr) throw new Error(`creator lookup failed: ${creatorErr.message}`)
+  if (!creatorRow?.wallet_address || !creatorRow?.circle_wallet_id) {
+    throw new Error(`creator ${creatorId} has no Circle wallet (wallet_address/circle_wallet_id) to pay the service fee`)
+  }
+
+  // The platform is the service-fee recipient AND the refund signer, so it must
+  // be a signable Circle wallet (env PLATFORM_WALLET_ID / PLATFORM_WALLET_ADDRESS).
+  const platformWalletId = process.env.PLATFORM_WALLET_ID
+  const platformAddress = process.env.PLATFORM_WALLET_ADDRESS
+  if (!platformWalletId || !platformAddress) {
+    throw new Error("PLATFORM_WALLET_ID and PLATFORM_WALLET_ADDRESS must be set (platform must be a signable Circle wallet for refunds)")
+  }
 
   // Narrowed, non-null locals for the nested closures.
-  const payerWalletId: string = wallet.id
-  const payerAddress: string = wallet.address
-  const creatorWallet: string = creatorAddress
+  const payerWalletId: string = creatorRow.circle_wallet_id
+  const payerAddress: string = creatorRow.wallet_address
+  const platformPayerWalletId: string = platformWalletId
+  const platformPayerAddress: string = platformAddress
   const videoIdResolved: string = video.id
   const videoTitle: string | undefined = video.title ?? undefined
-  const recipientId: string = earningsRecipientId
+  const recipientId: string = creatorId // clips are inserted as the creator's own videos
   const sourceCloudflareUid: string = video.cloudflare_uid
 
   log(
     "start",
-    `video "${videoTitle ?? videoIdResolved}" (${duration}s @ ${rate}/s), budget ${budget.toFixed(6)} — payer ${payerAddress.slice(0, 10)}…, paying ${earningsRecipientId.slice(0, 8)}…`,
+    `clip service for "${videoTitle ?? videoIdResolved}" (${duration}s @ ${rate}/s) — creator ${creatorId.slice(0, 8)}… funds up to ${budget.toFixed(6)} USDC; unused is refunded`,
     0,
   )
 
   // --- Receipt / finish helpers ---
-  function buildReceipt(created: CreatedClip[]): Receipt {
-    const footageSettlements = purchases.flatMap((p) => (p.platformTx ? [p.creatorTx, p.platformTx] : [p.creatorTx]))
+  function buildReceipt(clips: PendingClip[]): Receipt {
     return {
       strategy: strategyLabel,
       goal,
       budget_given: round6(budget),
+      service_fee_charged: round6(totalSpent),
+      refunded: round6(refundedAmount),
       total_paid: round6(totalSpent),
       tier_breakdown: { skim_spend: round6(skimSpend), footage_spend: round6(totalSpent - skimSpend) },
       seconds_bought: purchases.reduce((n, p) => n + p.seconds, 0),
@@ -268,89 +300,58 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
       moments_found: momentsFound,
       editorial_brief: editorialBrief,
       self_critique: selfCritiqueResult,
-      settlements: [...skimSettlements, ...footageSettlements],
-      clips: created.map((c) => ({
-        uid: c.uid,
-        range: `${fmt(c.start)}-${fmt(c.end)}`,
-        title: c.title,
-        hook: c.hook,
-        confidence: c.confidence,
-        video_row_id: c.video_row_id,
-        opening_words: c.opening_words,
-        closing_words: c.closing_words,
-      })),
-      savings: round6(budget - totalSpent),
+      settlements: [prepayTx, refundTx].filter((t): t is string => !!t),
+      insufficient_funds: insufficientFunds || undefined,
+      proposed_clips: clips.map((c) => ({ range: `${fmt(c.start)}-${fmt(c.end)}`, title: c.suggested_title, confidence: c.confidence })),
+      savings: round6(refundedAmount),
       decision_count: decisionLog.length,
-      x_drafts: created.map((c) => ({
-        clip_uid: c.uid,
-        video_row_id: c.video_row_id,
-        // Draft only — link + creator tag are placeholders; nothing is posted.
-        text: `${c.hook}\n\n▶ Watch on StreamArc: https://streamarc.app/watch/${c.video_row_id}\n\nvia [@creator] · #StreamArc`,
-      })),
     }
   }
 
-  function finish(created: CreatedClip[], declined: boolean): PipelineResult {
-    log("complete", `${created.length} clip(s) created; paid ${totalSpent.toFixed(6)} of ${budget.toFixed(6)} (saved ${(budget - totalSpent).toFixed(6)})`, 0)
-    const receipt = buildReceipt(created)
+  // Refund the unused remainder of the prepaid budget (platform → creator), then
+  // build the receipt. The refund only runs if the creator actually prepaid.
+  async function finish(clips: PendingClip[], declined: boolean): Promise<PipelineResult> {
+    if (prepaid && budgetRemaining > REFUND_DUST_USDC) {
+      try {
+        const r = await settleServiceFee({ payerWalletId: platformPayerWalletId, payerAddress: platformPayerAddress, toAddress: payerAddress, amountUsdc: budgetRemaining })
+        refundTx = r.tx
+        refundedAmount = budgetRemaining
+        log("refund", `job used ${totalSpent.toFixed(6)} of ${budget.toFixed(6)} budget — refunding ${budgetRemaining.toFixed(6)} to creator — tx ${r.tx.slice(0, 12)}…`, 0)
+        await recordClipPayment("refund", refundedAmount, r.tx)
+      } catch (err) {
+        log("refund-failed", `refund of ${budgetRemaining.toFixed(6)} to creator FAILED: ${(err as Error)?.message ?? String(err)} — creator is owed this; reconcile against prepay tx ${prepayTx ?? "(none)"}`, 0)
+      }
+    }
+    log("complete", `${clips.length} clip(s) proposed; charged creator ${totalSpent.toFixed(6)} service fee, refunded ${refundedAmount.toFixed(6)} of ${budget.toFixed(6)} budget`, 0)
+    const receipt = buildReceipt(clips)
     receipt.decision_count = decisionLog.length
-    return { declined, decisionLog, clips: created, receipt }
+    return { declined, decisionLog, clips, receipt }
   }
 
-  // --- settle + record (shared by footage buys and the skim read) ---
-  async function settleAndRecord(seconds: number, ratePerSecond: number): Promise<Awaited<ReturnType<typeof settlePerSecond>>> {
-    const result = await settlePerSecond({ payerWalletId, payerAddress, creatorAddress: creatorWallet, seconds, ratePerSecond })
-    await recordPurchase(result, seconds)
-    return result
-  }
-
-  // Mirror scripts/test-settle.ts: watch_sessions + payment_batches + earnings.
-  async function recordPurchase(result: Awaited<ReturnType<typeof settlePerSecond>>, seconds: number) {
-    const { data: existing } = await supabase.from("payment_batches").select("id").eq("circle_transaction_id", result.creatorTx).maybeSingle()
-    if (existing?.id) return // idempotent
-
-    const { data: session, error: sessionErr } = await supabase
-      .from("watch_sessions")
-      .insert({ viewer_id: viewerId, video_id: videoIdResolved, started_at: new Date().toISOString() })
-      .select("id")
-      .single()
-    if (sessionErr || !session) throw new Error(`watch_sessions insert failed: ${sessionErr?.message ?? "no row"}`)
-
-    await supabase
-      .from("watch_sessions")
-      .update({ actual_amount: result.amount, authorized_amount: result.amount, seconds_paid: seconds, total_cost: result.amount })
-      .eq("id", session.id)
-
-    const { data: batch, error: batchErr } = await supabase
-      .from("payment_batches")
-      .insert({
-        session_id: session.id,
-        viewer_id: viewerId,
-        creator_id: recipientId,
-        video_id: videoIdResolved,
-        amount: result.amount,
-        seconds_covered: seconds,
-        chain: "arcTestnet",
-        circle_transaction_id: result.creatorTx,
-        status: "settled",
-        settled_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single()
-    if (batchErr || !batch) throw new Error(`payment_batches insert failed: ${batchErr?.message ?? "no row"}`)
-
-    const { error: earningsErr } = await supabase.from("earnings").insert({
+  // --- Service-fee ledger (queryable clip_payments rows) ---
+  // Auditable record of the money flow, written with the service-role client.
+  // This is NOT creator earnings — it is never written to the `earnings` table
+  // (which the studio income query reads), so studio totals are unaffected.
+  // Best-effort: a ledger insert failure is logged but never fails the job.
+  // Consume rows carry circle_tx = null (metered against the prepay, no own tx);
+  // prepay and refund rows carry their real on-chain tx.
+  async function recordClipPayment(direction: "prepay" | "consume" | "refund", amount: number, circleTx: string | null) {
+    const { error } = await supabase.from("clip_payments").insert({
+      job_id: jobId,
       creator_id: recipientId,
       video_id: videoIdResolved,
-      batch_id: batch.id,
-      gross_amount: result.amount,
-      platform_fee: result.platformFee,
-      net_amount: result.netToCreator,
+      direction,
+      amount,
+      circle_tx: circleTx,
     })
-    if (earningsErr) throw new Error(`earnings insert failed: ${earningsErr.message}`)
+    if (error) log("ledger-warn", `clip_payments insert (${direction}) failed: ${error.message}`, 0)
   }
 
-  // --- Pay for [start, end) of FOOTAGE at full rate, then record it ---
+  // --- Meter consumption of [start, end) against the prepaid budget ---
+  // No per-window settlement: the creator prepaid the whole budget to the
+  // platform up front; here we only meter how many seconds are consumed (the
+  // service fee owed) and write a 'consume' ledger row. The unused remainder is
+  // refunded at the end. No earnings row is ever written — the creator is PAYING.
   async function buyWindow(rawStart: number, rawEnd: number, why: string): Promise<Purchase | null> {
     const start = Math.max(0, Math.min(duration, rawStart))
     const end = Math.max(0, Math.min(duration, rawEnd))
@@ -359,17 +360,16 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
 
     const cost = seconds * rate
     if (cost > budgetRemaining + 1e-9) {
-      log("skip-buy", `${why}: ${fmt(start)}–${fmt(end)} costs ${cost.toFixed(6)} but only ${budgetRemaining.toFixed(6)} left`, 0)
+      log("skip-buy", `${why}: ${fmt(start)}–${fmt(end)} needs ${cost.toFixed(6)} but only ${budgetRemaining.toFixed(6)} budget left`, 0)
       return null
     }
 
-    const idempotencyKey = randomUUID()
-    const result = await settleAndRecord(seconds, rate)
-    budgetRemaining -= result.amount
-    totalSpent += result.amount
-    const purchase: Purchase = { start, end, seconds, cost: result.amount, idempotencyKey, creatorTx: result.creatorTx, platformTx: result.platformTx }
+    budgetRemaining -= cost
+    totalSpent += cost
+    const purchase: Purchase = { start, end, seconds, cost }
     purchases.push(purchase)
-    log("buy", `${why}: bought ${fmt(start)}–${fmt(end)} (${seconds}s) — creatorTx ${result.creatorTx.slice(0, 12)}…`, result.amount)
+    log("consume", `${why}: consumed ${seconds}s (${fmt(start)}–${fmt(end)}) — charged creator ${cost.toFixed(6)} (service fee)`, cost)
+    await recordClipPayment("consume", cost, null)
     return purchase
   }
 
@@ -436,11 +436,22 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     securedRegions.push({ start: grown.start, end: grown.end, score })
   }
 
-  // ============================ TRANSCRIPT ============================
+  // ============================ FUNDING + TRANSCRIPT ============================
   if (!(rate > 0)) {
-    log("decline", `rate_per_sec is ${rate} — cannot run a paying agent on a non-priced video`, 0)
-    return finish([], true)
+    log("decline", `rate_per_sec is ${rate} — cannot price a clip job for a non-priced video`, 0)
+    return await finish([], true)
   }
+
+  // --- Funding check (before any money moves): the creator's Gateway balance
+  // must cover the budget. If not, decline cleanly (the UI offers a top-up). ---
+  const gateway = await fetchUnifiedGatewayBalance(payerAddress)
+  const spendable = parseFloat(gateway.chainBalances.find((b) => b.domain === ARC_DOMAIN)?.balance ?? "0")
+  if (spendable + 1e-9 < budget) {
+    insufficientFunds = true
+    log("insufficient-balance", `creator Gateway balance ${spendable.toFixed(6)} < budget ${budget.toFixed(6)} — insufficient balance, top up to run`, 0)
+    return await finish([], true)
+  }
+  log("funding-ok", `creator Gateway balance ${spendable.toFixed(6)} covers the ${budget.toFixed(6)} budget`, 0)
 
   const segments: Segment[] = await getTranscript(sourceCloudflareUid)
   const words = totalWords(segments)
@@ -454,7 +465,7 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
       `sparse captions (${words} words, ${wordsPerSecond.toFixed(2)} words/sec < ${MIN_WORDS_PER_SECOND}) — likely music/silent; declining with zero spend`,
       0,
     )
-    return finish([], true)
+    return await finish([], true)
   }
 
   // ====================== STRATEGY (two-tier consumption) ======================
@@ -464,15 +475,18 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
 
   // --- SKIM strategy: pay full-transcript read access, analyze whole video, buy best moments ---
   async function runSkimStrategy() {
-    // (a) pay for read access to the whole transcript BEFORE analyzing it.
+    // (a) meter read access to the whole transcript (at the 10% skim rate) BEFORE analyzing it.
     const skimSeconds = Math.round(duration)
-    const skim = await settleAndRecord(skimSeconds, skimRate)
-    budgetRemaining -= skim.amount
-    totalSpent += skim.amount
-    skimSpend += skim.amount
-    skimSettlements.push(skim.creatorTx)
-    if (skim.platformTx) skimSettlements.push(skim.platformTx)
-    log("buy-skim", `read access to full ${skimSeconds}s transcript at ${Math.round(TRANSCRIPT_SKIM_FRACTION * 100)}% rate — ${skim.amount.toFixed(6)}`, skim.amount)
+    const skimAmount = skimSeconds * skimRate
+    if (skimAmount > budgetRemaining + 1e-9) {
+      log("skip-buy", `skim of full transcript needs ${skimAmount.toFixed(6)} but only ${budgetRemaining.toFixed(6)} budget left`, 0)
+      return
+    }
+    budgetRemaining -= skimAmount
+    totalSpent += skimAmount
+    skimSpend += skimAmount
+    log("consume-skim", `read full ${skimSeconds}s transcript at ${Math.round(TRANSCRIPT_SKIM_FRACTION * 100)}% rate — charged creator ${skimAmount.toFixed(6)} (service fee)`, skimAmount)
+    await recordClipPayment("consume", skimAmount, null)
 
     // (b) PASS 1 — editorial brief: define what "important" means for THIS video.
     editorialBrief = await generateEditorialBrief({ segments, durationSecs: duration, videoTitle, goal })
@@ -583,6 +597,20 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     }
   }
 
+  // --- Prepay: the creator funds the full budget into the platform (escrow).
+  // Consumption is metered against this; the unused remainder is refunded at the end. ---
+  try {
+    const pre = await settleServiceFee({ payerWalletId, payerAddress, toAddress: platformAddress, amountUsdc: budget })
+    prepaid = true
+    prepayTx = pre.tx
+    log("fund-budget", `creator funded ${budget.toFixed(6)} budget to platform (service prepay) — tx ${pre.tx.slice(0, 12)}…`, 0)
+    await recordClipPayment("prepay", budget, pre.tx)
+  } catch (err) {
+    insufficientFunds = true
+    log("fund-failed", `creator prepay of ${budget.toFixed(6)} failed: ${(err as Error)?.message ?? String(err)} — top up and retry`, 0)
+    return await finish([], true)
+  }
+
   // --- Strategy decision (logged at preflight) ---
   if (budget >= skimCost + minFootageCost) {
     strategyLabel = "skim"
@@ -603,7 +631,7 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
           : `found ${momentsFound} moment(s) but could not secure footage within budget`
         : `sampled ${scoredProbes.length} window(s); none scored >= ${PROBE_SCORE_THRESHOLD}/10`
     log("skip-final-select", `${reason} — concluding with 0 clips, returning ${(budget - totalSpent).toFixed(6)} unspent`, 0)
-    return finish([], true)
+    return await finish([], true)
   }
 
   // --- Final selection: model proposes by exact opening/closing words, code cuts ---
@@ -658,41 +686,34 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     selected = crit.clips
   }
 
-  // ============================ CLIP CREATION ============================
-  const created: CreatedClip[] = []
-  if (!createClips) {
-    log("skip-clip-creation", `createClips disabled — ${selected.length} selection(s) not materialized`, 0)
-    return finish(created, false)
-  }
-
-  for (const clip of selected) {
-    const startWhole = Math.max(0, Math.floor(clip.start))
-    const endWhole = Math.min(Math.floor(duration), Math.max(startWhole + 1, Math.ceil(clip.end)))
-    try {
-      log("create-clip", `creating Cloudflare clip "${clip.title}" ${fmt(startWhole)}–${fmt(endWhole)} from ${sourceCloudflareUid.slice(0, 10)}…`, 0)
-      const { uid, durationSecs: clipDuration } = await createCloudflareClip(sourceCloudflareUid, startWhole, endWhole)
-      const videoRowId = await insertClipVideoRow(supabase, { creatorId: recipientId, title: clip.title, durationSecs: clipDuration, cloudflareUid: uid })
-      // Generate captions on the clip so it ships with CC (best-effort).
-      const capStatus = await triggerClipCaptions(uid)
-      log("clip-captions", `caption generation for clip ${uid}: ${capStatus}`, 0)
-      created.push({
-        uid,
-        video_row_id: videoRowId,
-        start: startWhole,
-        end: endWhole,
-        title: clip.title,
-        hook: clip.hook,
-        confidence: clip.confidence,
-        clipped_from: videoIdResolved,
-        opening_words: clip.opening_words,
-        closing_words: clip.closing_words,
-      })
-      log("clip-created", `"${clip.title}" — clip uid ${uid}, video row ${videoRowId} (${clipDuration}s)`, 0)
-    } catch (err) {
-      // Per-clip failures are non-fatal: keep the clips that succeeded.
-      log("clip-error", `failed to create clip "${clip.title}": ${(err as Error)?.message ?? String(err)}`, 0)
+  // ============================ CLIP PROPOSALS (no Cloudflare yet) ============================
+  // Do NOT create anything on Cloudflare here. Write pending proposals to the job;
+  // the creator reviews/edits/prices each one in the UI, and ONLY THEN is it
+  // created on Cloudflare + published (see /api/agent/clips/approve). Generation
+  // was paid for already; publishing is free and the creator's choice.
+  const regionsForBounds = mergeRegions(purchases, segments)
+  const proposals: PendingClip[] = selected.map((clip) => {
+    // Nudge limits = the purchased/analyzed region the clip sits in.
+    const region = regionsForBounds.find((r) => clip.start >= r.start - 0.5 && clip.end <= r.end + 0.5)
+    const analyzedStart = Math.max(0, Math.floor(region ? region.start : clip.start))
+    const analyzedEnd = Math.min(Math.floor(duration), Math.ceil(region ? region.end : clip.end))
+    return {
+      status: "pending" as const,
+      start: Math.max(0, Math.floor(clip.start)),
+      end: Math.min(Math.floor(duration), Math.ceil(clip.end)),
+      analyzed_start: analyzedStart,
+      analyzed_end: analyzedEnd,
+      suggested_title: clip.title,
+      hook: clip.hook,
+      confidence: clip.confidence,
+      transcript_excerpt: textForInterval(segments, clip.start, clip.end).slice(0, 600),
+      opening_words: clip.opening_words,
+      closing_words: clip.closing_words,
     }
+  })
+  for (const p of proposals) {
+    log("propose-clip", `"${p.suggested_title}" ${fmt(p.start)}–${fmt(p.end)} (confidence ${p.confidence.toFixed(2)}) — pending creator review`, 0)
   }
 
-  return finish(created, false)
+  return await finish(proposals, false)
 }

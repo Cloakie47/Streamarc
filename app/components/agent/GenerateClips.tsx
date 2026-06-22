@@ -1,58 +1,10 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { Stream } from "@cloudflare/stream-react"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Scissors, X, Loader2, Sparkles } from "lucide-react"
 
-interface DecisionEntry {
-  time: string
-  action: string
-  reason: string
-  cost: number
-  budget_remaining: number
-}
-
-interface JobClip {
-  uid: string
-  video_row_id: string
-  title: string
-  hook: string
-  confidence: number
-  start?: number
-  end?: number
-}
-
-interface Receipt {
-  strategy?: string
-  total_paid?: number
-  tier_breakdown?: { skim_spend: number; footage_spend: number }
-  seconds_bought?: number
-  windows?: number
-  settlements?: string[]
-  savings?: number
-  budget_given?: number
-  moments_found?: number
-}
-
-interface JobStatus {
-  status: string
-  decision_log?: DecisionEntry[]
-  receipt?: Receipt
-  clips?: JobClip[]
-  error?: string | null
-}
-
 const fmtUsd = (n: number | undefined) => `$${(n ?? 0).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`
-
-// Colour the terminal feed by action so the agent's reasoning is scannable.
-function actionClass(action: string): string {
-  if (action.startsWith("buy") || action === "extend-region") return "text-amber-400"
-  if (action === "accept-clip" || action === "clip-created" || action === "complete") return "text-emerald-400"
-  if (action === "reject-clip" || action === "decline" || action === "clip-error" || action.startsWith("skip") || action.startsWith("stop")) return "text-rose-400"
-  if (action === "moment-found" || action === "editorial-brief" || action === "strategy" || action === "candidates" || action === "moments-analyzed") return "text-cyan-400"
-  if (action === "self-critique" || action === "self-critique-swap" || action === "pause-snap" || action === "cap-flex") return "text-violet-400"
-  return "text-sa-text-3"
-}
 
 export interface GenerateClipsProps {
   videoId: string
@@ -61,13 +13,16 @@ export interface GenerateClipsProps {
   videoTitle: string
 }
 
+// Watch-page control (owner/admin only): starts a clip job and routes the
+// creator to the Studio review page. The job/review UI itself lives in Studio
+// (/studio/clips/[jobId]) — nothing is rendered inline on the public watch page.
 export default function GenerateClips({ videoId, ratePerSecond, durationSecs, videoTitle }: GenerateClipsProps) {
+  const router = useRouter()
   const [modalOpen, setModalOpen] = useState(false)
   const [budget, setBudget] = useState("0.60")
   const [goal, setGoal] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [jobId, setJobId] = useState<string | null>(null)
 
   const budgetNum = Number(budget) || 0
   const skimCost = durationSecs * ratePerSecond * 0.1
@@ -75,9 +30,7 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
   const willSkim = budgetNum >= skimThreshold
   const footageBudget = Math.max(0, budgetNum - skimCost)
   const estRegions = willSkim ? Math.min(3, Math.max(1, Math.floor(footageBudget / (ratePerSecond * 60)))) : 0
-  // 80% of agent spend returns to the creator as earnings, so net cost is ~20% of the budget.
-  const netCost = budgetNum * 0.2
-  // A comfortable budget: full-transcript skim + 3 clip regions (~90s each) at this video's rate.
+  const estCost = willSkim ? skimCost + estRegions * 60 * ratePerSecond : budgetNum
   const recommendedBudget = skimCost + 3 * 90 * ratePerSecond
   const belowRecommended = budgetNum < recommendedBudget
 
@@ -96,29 +49,24 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? "Failed to start the agent")
-      setJobId(data.id)
-      setModalOpen(false)
+      // Review happens in Studio — route there instead of rendering inline.
+      router.push(`/studio/clips/${data.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start the agent")
-    } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {!jobId && (
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          className="flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-2.5 text-sm font-bold hover:opacity-90 transition-opacity"
-        >
-          <Sparkles size={16} />
-          Generate Clips with the AI Agent
-        </button>
-      )}
-
-      {jobId && <LiveJob jobId={jobId} onReset={() => setJobId(null)} />}
+    <div>
+      <button
+        type="button"
+        onClick={() => setModalOpen(true)}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-2.5 text-sm font-bold hover:opacity-90 transition-opacity"
+      >
+        <Sparkles size={16} />
+        Generate Clips with the AI Agent
+      </button>
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -136,7 +84,7 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
               <h2 className="text-lg font-bold">Generate Clips</h2>
             </div>
             <p className="text-xs text-muted-foreground mb-5">
-              An AI agent pays per second to read &amp; clip <span className="text-foreground">{videoTitle}</span> — fully autonomous.
+              An AI agent reads &amp; clips <span className="text-foreground">{videoTitle}</span> for you — fully autonomous. This is a paid service. You&apos;ll review and publish each clip in Studio.
             </p>
 
             <div className="flex flex-col gap-4">
@@ -165,9 +113,9 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
                   )}
                 </p>
 
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Estimated net cost to you: <span className="text-foreground font-semibold">~${netCost.toFixed(2)}</span>{" "}
-                  (80% of agent spend returns to you as earnings)
+                <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
+                  You pay per second of content processed; unused budget is refunded. Est. cost for this video:{" "}
+                  <span className="text-foreground font-semibold">~{fmtUsd(estCost)}</span>.
                 </p>
 
                 {belowRecommended && (
@@ -217,157 +165,6 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-const TERMINAL_STATUSES = new Set(["done", "failed"])
-
-function LiveJob({ jobId, onReset }: { jobId: string; onReset: () => void }) {
-  const [job, setJob] = useState<JobStatus | null>(null)
-  const [pollError, setPollError] = useState<string | null>(null)
-  const feedRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let active = true
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    async function poll() {
-      try {
-        const res = await fetch(`/api/agent/status?job_id=${jobId}`)
-        const data = (await res.json()) as JobStatus
-        if (!active) return
-        if (!res.ok) {
-          setPollError((data as { error?: string })?.error ?? "Failed to load job status")
-        } else {
-          setJob(data)
-          if (TERMINAL_STATUSES.has(data.status)) return // stop polling
-        }
-      } catch {
-        if (active) setPollError("Network error while polling job status")
-      }
-      if (active) timer = setTimeout(poll, 3000)
-    }
-
-    poll()
-    return () => {
-      active = false
-      if (timer) clearTimeout(timer)
-    }
-  }, [jobId])
-
-  // Auto-scroll the terminal feed as it grows.
-  const log = job?.decision_log ?? []
-  useEffect(() => {
-    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight
-  }, [log.length])
-
-  const status = job?.status ?? "queued"
-  const isDone = status === "done"
-  const isFailed = status === "failed"
-  const isRunning = !TERMINAL_STATUSES.has(status)
-  const receipt = job?.receipt
-  const clips = job?.clips ?? []
-
-  return (
-    <div className="panel p-4 flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {isRunning ? (
-            <Loader2 size={15} className="animate-spin text-primary" />
-          ) : (
-            <Scissors size={15} className={isFailed ? "text-rose-400" : "text-emerald-400"} />
-          )}
-          <h3 className="text-sm font-bold">
-            {isRunning ? "Agent working…" : isFailed ? "Agent failed" : "Clips ready"}
-          </h3>
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{status}</span>
-        </div>
-        {!isRunning && (
-          <button type="button" onClick={onReset} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-            New run
-          </button>
-        )}
-      </div>
-
-      {/* Terminal-style decision feed — the centerpiece */}
-      <div
-        ref={feedRef}
-        className="max-h-72 overflow-y-auto rounded-xl border border-border bg-black/50 p-3 font-mono text-[11px] leading-relaxed"
-      >
-        {log.length === 0 && <p className="text-muted-foreground">Queued — waiting for the worker to pick up the job…</p>}
-        {log.map((e, i) => (
-          <div key={i} className="flex flex-wrap gap-x-2">
-            <span className={`shrink-0 font-semibold ${actionClass(e.action)}`}>[{e.action}]</span>
-            <span className="text-sa-text-2 flex-1 min-w-[12rem]">{e.reason}</span>
-            {e.cost > 0 && (
-              <span className="shrink-0 text-amber-400/80">
-                −{fmtUsd(e.cost)} · left {fmtUsd(e.budget_remaining)}
-              </span>
-            )}
-          </div>
-        ))}
-        {pollError && <p className="mt-2 text-rose-400">{pollError}</p>}
-      </div>
-
-      {isFailed && job?.error && <p className="text-sm text-destructive">{job.error}</p>}
-
-      {/* Receipt summary */}
-      {isDone && receipt && (
-        <div className="rounded-xl border border-border bg-background/50 p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="rounded-full bg-primary/10 border border-primary/20 text-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-              {receipt.strategy ?? "—"}
-            </span>
-            <span className="text-xs text-muted-foreground">payment receipt</span>
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-            <Stat label="Total paid" value={fmtUsd(receipt.total_paid)} />
-            <Stat label="Saved" value={fmtUsd(receipt.savings)} />
-            <Stat label="Skim spend" value={fmtUsd(receipt.tier_breakdown?.skim_spend)} />
-            <Stat label="Footage spend" value={fmtUsd(receipt.tier_breakdown?.footage_spend)} />
-            <Stat label="Seconds bought" value={`${receipt.seconds_bought ?? 0}s`} />
-            <Stat label="Settlements" value={`${receipt.settlements?.length ?? 0}`} />
-          </div>
-        </div>
-      )}
-
-      {/* Clips */}
-      {isDone && (
-        <div className="flex flex-col gap-4">
-          {clips.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              The agent finished but selected no clips — see the decision log above for why (it returns unspent budget).
-            </p>
-          ) : (
-            clips.map((c) => (
-              <div key={c.video_row_id || c.uid} className="rounded-xl border border-border overflow-hidden bg-black/30">
-                <div className="relative aspect-video bg-black">
-                  <Stream src={c.uid} controls className="absolute inset-0 w-full h-full" />
-                </div>
-                <div className="p-3 flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-bold leading-snug">{c.title}</p>
-                    <span className="shrink-0 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-1.5 py-0.5 text-[10px] font-semibold">
-                      {Math.round((c.confidence ?? 0) * 100)}%
-                    </span>
-                  </div>
-                  {c.hook && <p className="text-xs text-sa-text-3 leading-relaxed">{c.hook}</p>}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold tabular-nums">{value}</span>
     </div>
   )
 }

@@ -20,20 +20,16 @@ const CATEGORIES = [
   { id: "random", label: "🎲 Random" },
 ];
 
-function CategoryRow({
-  category,
-  onVideoClick,
-}: {
-  category: { id: string; label: string };
-  onVideoClick: (id: string) => void;
-}) {
+// Default Explore view: EVERY live video, newest first, with NO category filter
+// — so untagged videos and clips (which carry no category) are never hidden.
+function AllVideosGrid({ onVideoClick }: { onVideoClick: (id: string) => void }) {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void fetch(`/api/videos?status=live&category=${encodeURIComponent(category.id)}`)
+    void fetch(`/api/videos?status=live`)
       .then((r) => r.json())
       .then((data: { videos?: ApiVideoRow[] }) => {
         if (cancelled) return;
@@ -46,13 +42,11 @@ function CategoryRow({
     return () => {
       cancelled = true;
     };
-  }, [category.id]);
-
-  if (!loading && videos.length === 0) return null;
+  }, []);
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="px-1 text-lg font-bold">{category.label}</h2>
+      <h2 className="px-1 text-lg font-bold">All videos</h2>
       {loading ? (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
           {[...Array(4)].map((_, i) => (
@@ -68,6 +62,8 @@ function CategoryRow({
             </div>
           ))}
         </div>
+      ) : videos.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">No videos yet.</p>
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
           {videos.map((v) => (
@@ -157,11 +153,7 @@ export default function ExplorePage() {
       )}
 
       {!activeCategory && (
-        <div className="flex flex-col gap-10">
-          {CATEGORIES.map((cat) => (
-            <CategoryRow key={cat.id} category={cat} onVideoClick={(id) => void router.push(`/watch/${id}`)} />
-          ))}
-        </div>
+        <AllVideosGrid onVideoClick={(id) => void router.push(`/watch/${id}`)} />
       )}
     </div>
   );

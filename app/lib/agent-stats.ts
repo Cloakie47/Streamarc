@@ -17,6 +17,10 @@ export interface AgentStats {
   clips_created: number
   cost_per_clip_usdc: number
   distinct_creators_paid: number
+  /** Total clip service fees collected by the platform (sum of 'consume' ledger rows). */
+  total_service_fees_collected_usdc: number
+  /** Total paid-subtitle translation fees collected (sum of caption_payments). */
+  translation_fees_collected_usdc: number
 }
 
 export async function getAgentStats(): Promise<AgentStats> {
@@ -25,15 +29,21 @@ export async function getAgentStats(): Promise<AgentStats> {
   const { data: agentUser } = await supabase.from("users").select("id").eq("circle_wallet_id", AGENT_CIRCLE_WALLET_ID).maybeSingle()
   const agentId = agentUser?.id ?? null
 
-  const [{ data: jobs }, batchesRes] = await Promise.all([
+  const [{ data: jobs }, batchesRes, { data: clipFees }, { data: captionFees }] = await Promise.all([
     supabase.from("agent_jobs").select("status, budget_usdc, clips, receipt"),
     agentId
       ? supabase.from("payment_batches").select("amount, creator_id").eq("viewer_id", agentId)
       : Promise.resolve({ data: [] as Array<{ amount: number | string | null; creator_id: string | null }> }),
+    // Clip service-fee ledger: 'consume' rows are the fees actually collected.
+    supabase.from("clip_payments").select("amount").eq("direction", "consume"),
+    // Paid-subtitle translation fees (every caption_payments row is a collected fee).
+    supabase.from("caption_payments").select("amount"),
   ])
 
   const batches = batchesRes.data ?? []
   const allJobs = jobs ?? []
+  const totalServiceFees = (clipFees ?? []).reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+  const totalTranslationFees = (captionFees ?? []).reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
 
   // Payments (the agent's payment_batches)
   const paymentsMade = batches.length
@@ -48,7 +58,7 @@ export async function getAgentStats(): Promise<AgentStats> {
   const statusCounts: Record<string, number> = {}
   for (const j of allJobs) {
     statusCounts[j.status] = (statusCounts[j.status] ?? 0) + 1
-    if (Array.isArray(j.clips)) clipsCreated += j.clips.length
+    if (Array.isArray(j.clips)) clipsCreated += (j.clips as Array<{ status?: string }>).filter((c) => c.status === "approved").length
     const receipt = j.receipt as { budget_given?: number; total_paid?: number } | null
     if (receipt && typeof receipt.total_paid === "number") {
       budgetWithReceipts += Number(receipt.budget_given) || Number(j.budget_usdc) || 0
@@ -69,5 +79,7 @@ export async function getAgentStats(): Promise<AgentStats> {
     clips_created: clipsCreated,
     cost_per_clip_usdc: round6(costPerClip),
     distinct_creators_paid: distinctCreators,
+    total_service_fees_collected_usdc: round6(totalServiceFees),
+    translation_fees_collected_usdc: round6(totalTranslationFees),
   }
 }

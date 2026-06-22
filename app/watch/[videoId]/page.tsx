@@ -47,26 +47,43 @@ export default async function WatchVideoPage({ params }: Props) {
     .order("created_at", { ascending: false })
     .limit(20)
 
-  type RawAgentClip = { uid?: string; video_row_id?: string; title?: string; hook?: string; confidence?: number }
+  type RawAgentClip = { status?: string; uid?: string; video_row_id?: string; title?: string; suggested_title?: string; hook?: string; confidence?: number }
   const rawClips: RawAgentClip[] = ((agentJobs ?? []) as Array<{ clips: unknown }>).flatMap((j) =>
     Array.isArray(j.clips) ? (j.clips as RawAgentClip[]) : [],
   )
-  const clipRowIds = rawClips.map((c) => c.video_row_id).filter(Boolean) as string[]
+  // Only APPROVED proposals (created on Cloudflare + published) surface here.
+  const approved = rawClips.filter((c) => c.status === "approved" && c.uid && c.video_row_id)
+  const clipRowIds = approved.map((c) => c.video_row_id).filter(Boolean) as string[]
   let liveIds = new Set<string>()
   if (clipRowIds.length > 0) {
     const { data: liveRows } = await supabase.from("videos").select("id").in("id", clipRowIds).eq("status", "live")
     liveIds = new Set((liveRows ?? []).map((r) => r.id))
   }
   const seenClip = new Set<string>()
-  const agentClips = rawClips
-    .filter((c) => c.uid && c.video_row_id && liveIds.has(c.video_row_id) && !seenClip.has(c.video_row_id) && seenClip.add(c.video_row_id))
+  const agentClips = approved
+    .filter((c) => liveIds.has(c.video_row_id!) && !seenClip.has(c.video_row_id!) && seenClip.add(c.video_row_id!))
     .map((c) => ({
       video_row_id: c.video_row_id!,
       uid: c.uid!,
-      title: c.title ?? "Clip",
+      title: c.title ?? c.suggested_title ?? "Clip",
       hook: c.hook ?? "",
       confidence: Number(c.confidence) || 0,
     }))
+
+  // Manual clips: videos cut by hand from this source. Surfaced alongside agent
+  // clips (same shape); confidence 0 so no agent-style badge is shown.
+  const { data: manualRows } = await supabase
+    .from("videos")
+    .select("id, cloudflare_uid, title, description")
+    .eq("clipped_from", videoId)
+    .eq("clip_origin", "manual")
+    .eq("status", "live")
+    .order("created_at", { ascending: false })
+  for (const m of (manualRows ?? []) as Array<{ id: string; cloudflare_uid: string | null; title: string | null; description: string | null }>) {
+    if (!m.cloudflare_uid || seenClip.has(m.id)) continue
+    seenClip.add(m.id)
+    agentClips.push({ video_row_id: m.id, uid: m.cloudflare_uid, title: m.title ?? "Clip", hook: m.description ?? "", confidence: 0 })
+  }
 
   const [{ data: creator }, { data: upNextRows }] = await Promise.all([
     supabase

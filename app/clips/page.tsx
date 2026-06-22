@@ -13,14 +13,16 @@ export default async function ClipsPage() {
   const supabase = getSupabaseAdmin()
 
   const { data: jobs } = await supabase.from("agent_jobs").select("clips").eq("status", "done")
-  const ids = Array.from(
-    new Set(
-      ((jobs ?? []) as Array<{ clips: unknown }>)
-        .flatMap((j) => (Array.isArray(j.clips) ? (j.clips as Array<{ video_row_id?: string }>) : []))
-        .map((c) => c.video_row_id)
-        .filter(Boolean) as string[],
-    ),
-  )
+  const agentIds = ((jobs ?? []) as Array<{ clips: unknown }>)
+    .flatMap((j) => (Array.isArray(j.clips) ? (j.clips as Array<{ video_row_id?: string; status?: string }>) : []))
+    .filter((c) => c.status === "approved" && c.video_row_id)
+    .map((c) => c.video_row_id!) as string[]
+
+  // Manual clips have no agent_job — resolve them straight from the videos table.
+  const { data: manualClipRows } = await supabase.from("videos").select("id").eq("clip_origin", "manual").eq("status", "live")
+  const manualIds = ((manualClipRows ?? []) as Array<{ id: string }>).map((r) => r.id)
+
+  const ids = Array.from(new Set([...agentIds, ...manualIds]))
 
   let rows: ApiVideoRow[] = []
   if (ids.length > 0) {

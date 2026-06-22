@@ -22,6 +22,8 @@ import { PAYMENT_CONFIG } from "@/app/lib/constants";
 import { useCurrentUser } from "@/app/lib/auth-client";
 import { FROSTED_PLAY_CLASSES, FrostedPauseSvg, FrostedPlayMark, FrostedPlaySvg } from "@/app/components/ui/FrostedPlayMark";
 import GenerateClips from "@/app/components/agent/GenerateClips";
+import ManualClip from "@/app/components/agent/ManualClip";
+import SubtitlesControl from "@/app/components/watch/SubtitlesControl";
 import AgentClipsRow, { type AgentClipCard } from "@/app/components/agent/AgentClipsRow";
 
 const { intervalSeconds, freePreviewSeconds } = PAYMENT_CONFIG;
@@ -163,6 +165,16 @@ export default function WatchPage({
   const creatingSessionRef = useRef(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const streamRef = useRef<any>(null);
+
+  // Active subtitle language shown in the player (null = off). Switching remounts
+  // the player with defaultTextTrack; we preserve the playback position so the
+  // viewer payment flow keeps tracking from where they were.
+  const [captionLang, setCaptionLang] = useState<string | null>(null);
+  const captionResumeRef = useRef(0);
+  const applyCaption = (lang: string | null) => {
+    captionResumeRef.current = streamRef.current?.currentTime ?? 0;
+    setCaptionLang(lang);
+  };
 
   const handlePlay = () => {
     if (!playing && !isOwnVideo && balance < 0.001) {
@@ -635,8 +647,11 @@ export default function WatchPage({
               </div>
             ) : cloudflareUid ? (
               <Stream
+                key={`${cloudflareUid}-${captionLang ?? "none"}`}
                 streamRef={streamRef}
                 src={cloudflareUid}
+                defaultTextTrack={captionLang ?? undefined}
+                startTime={captionResumeRef.current || undefined}
                 className="absolute inset-0 w-full h-full z-[1]"
                 controls
                 onPlaying={() => {
@@ -892,6 +907,9 @@ export default function WatchPage({
             </div>
           )}
 
+          {/* Subtitles — available to everyone; generate paid translations */}
+          <SubtitlesControl videoId={videoId} activeLang={captionLang} onActivate={applyCaption} />
+
           {/* Description */}
           {description && (
             <div className="panel p-4">
@@ -899,14 +917,30 @@ export default function WatchPage({
             </div>
           )}
 
-          {/* Clip Agent: owner/admin control + this video's auto-generated clips */}
+          {/* Clipping: owner/admin gets two paths — let the agent find moments
+              (paid) or cut it yourself (free) — plus this video's clips. */}
           {canGenerateClips && (
-            <GenerateClips
-              videoId={videoId}
-              ratePerSecond={ratePerSecond}
-              durationSecs={durationSecs}
-              videoTitle={title}
-            />
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="flex-1">
+                <GenerateClips
+                  videoId={videoId}
+                  ratePerSecond={ratePerSecond}
+                  durationSecs={durationSecs}
+                  videoTitle={title}
+                />
+              </div>
+              {cloudflareUid && (
+                <div className="flex-1">
+                  <ManualClip
+                    videoId={videoId}
+                    sourceCloudflareUid={cloudflareUid}
+                    durationSecs={durationSecs}
+                    ratePerSecond={ratePerSecond}
+                    videoTitle={title}
+                  />
+                </div>
+              )}
+            </div>
           )}
           {agentClips.length > 0 && <AgentClipsRow clips={agentClips} />}
 

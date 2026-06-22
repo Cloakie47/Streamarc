@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 
+// Long-form ceiling (podcasts, AMAs, recorded Spaces). Was 300 (5 min).
+const MAX_DURATION_SECONDS = 3600 // 1 hour
+
 export async function POST(req: NextRequest) {
   try {
-    const { user_id, title, description, rate_per_sec, categories } = await req.json()
+    const { user_id, title, description, rate_per_sec, categories, file_size } = await req.json()
 
     if (!user_id || !title) {
       return NextResponse.json({ error: "user_id and title required" }, { status: 400 })
+    }
+
+    // tus needs the total byte length up front to provision the upload.
+    const uploadLength = Number(file_size)
+    if (!Number.isFinite(uploadLength) || uploadLength <= 0) {
+      return NextResponse.json({ error: "Valid file_size required" }, { status: 400 })
     }
 
     const { data: user } = await getSupabaseAdmin()
@@ -28,32 +37,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get one-time upload URL from Cloudflare Stream
+    // Request a one-time tus (resumable) upload URL from Cloudflare Stream.
+    // direct_user=true makes the returned Location URL usable directly by the
+    // browser without exposing our API token. Video options (name, duration
+    // cap, creator) ride along as tus headers/metadata instead of a JSON body.
+    // Upload-Metadata is a comma-separated list of `key base64(value)` pairs.
+    const uploadMetadata = [
+      `name ${Buffer.from(String(title), "utf-8").toString("base64")}`,
+      `maxDurationSeconds ${Buffer.from(String(MAX_DURATION_SECONDS), "utf-8").toString("base64")}`,
+    ].join(",")
+
     const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/stream/direct_upload`,
+      `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/stream?direct_user=true`,
       {
         method: "POST",
         headers: {
           Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
-          "Content-Type": "application/json",
+          "Tus-Resumable": "1.0.0",
+          "Upload-Length": String(uploadLength),
+          "Upload-Creator": String(user_id),
+          "Upload-Metadata": uploadMetadata,
         },
-        body: JSON.stringify({
-          maxDurationSeconds: 300,
-          meta: { name: title },
-          creator: user_id,
-        }),
       }
     )
 
+    // tus creation succeeds with 201 Created (response.ok covers 2xx).
     if (!response.ok) {
       const err = await response.text()
-      console.error("Cloudflare Stream error:", err)
+      console.error("Cloudflare Stream tus create error:", response.status, err)
       return NextResponse.json({ error: "Failed to get upload URL" }, { status: 500 })
     }
 
-    const data = await response.json()
-    const uploadURL = data.result?.uploadURL
-    const videoUID = data.result?.uid
+    // The resumable upload URL is in the Location header; the video id is in
+    // the stream-media-id header (not the response body).
+    const uploadURL = response.headers.get("Location")
+    const videoUID = response.headers.get("stream-media-id")
 
     if (!uploadURL || !videoUID) {
       return NextResponse.json({ error: "Invalid response from Cloudflare" }, { status: 500 })

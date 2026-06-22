@@ -173,3 +173,88 @@ export async function settlePerSecond(params: SettlePerSecondParams): Promise<Se
     platformFee: amount * feeSplit.platform,
   }
 }
+
+export interface SettleServiceFeeParams {
+  /** Circle developer-controlled wallet id that signs (the payer). */
+  payerWalletId: string
+  /** EOA address that owns the Gateway balance (the EIP-3009 `from`). */
+  payerAddress: string
+  /** Recipient address. */
+  toAddress: string
+  /** Full amount to move, USDC human units. */
+  amountUsdc: number
+  /** Chain overrides (default Arc testnet). */
+  gatewayWallet?: string
+  usdcAddress?: string
+  chainId?: number
+  network?: string
+}
+
+export interface ServiceFeeResult {
+  /** On-chain tx hash. */
+  tx: string
+  /** Amount moved (USDC). */
+  amount: number
+}
+
+/**
+ * Single-leg Circle Gateway settlement: move the FULL `amountUsdc` from payer →
+ * to in ONE EIP-3009 authorization — no creator/platform split. Used by the
+ * clip-agent service-fee model: the creator prepays the platform (creator →
+ * platform) and the platform refunds the unused remainder (platform → creator).
+ *
+ * This is separate from settlePerSecond so the human-viewer flow (settle-session
+ * and its settlePerSecond usage) is untouched.
+ */
+export async function settleServiceFee(params: SettleServiceFeeParams): Promise<ServiceFeeResult> {
+  const {
+    payerWalletId,
+    payerAddress,
+    toAddress,
+    amountUsdc,
+    gatewayWallet = GATEWAY_WALLET,
+    usdcAddress = USDC_ADDRESS,
+    chainId = CHAIN_ID,
+    network = NETWORK,
+  } = params
+
+  if (!payerWalletId || !payerAddress) throw new Error("settleServiceFee: payerWalletId and payerAddress are required")
+  if (!toAddress) throw new Error("settleServiceFee: toAddress is required")
+  if (!(amountUsdc > 0)) throw new Error(`settleServiceFee: amountUsdc must be > 0 (got ${amountUsdc})`)
+
+  const amount6 = Math.round(amountUsdc * 1e6).toString()
+  const now = Math.floor(Date.now() / 1000)
+  const validAfter = (now - VALID_AFTER_SKEW_SECONDS).toString()
+  const validBefore = (now + VALID_BEFORE_WINDOW_SECONDS).toString()
+
+  const chain: ChainContext = { chainId, gatewayWallet, usdcAddress, network }
+  const domain = buildDomain({ chainId, gatewayWallet })
+
+  const auth: Authorization = {
+    from: payerAddress,
+    to: toAddress,
+    value: amount6,
+    validAfter,
+    validBefore,
+    nonce: randomNonce(),
+  }
+
+  const signature = await signTypedDataWithWallet(
+    payerWalletId,
+    domain,
+    TRANSFER_WITH_AUTHORIZATION_TYPES as never,
+    "TransferWithAuthorization",
+    auth as never,
+  )
+  if (!signature) throw new Error("settleServiceFee: failed to sign authorization")
+
+  const result = await facilitator.settle(
+    buildPayload(auth, signature, chain) as never,
+    buildRequirements(toAddress, amount6, chain) as never,
+  )
+  if (!result.success) {
+    throw new Error(`settleServiceFee: settlement failed: ${result.errorReason ?? "unknown"}`)
+  }
+
+  return { tx: result.transaction, amount: amountUsdc }
+}

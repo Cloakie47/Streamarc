@@ -65,7 +65,7 @@ async function processJob(supabase: Supabase, job: AgentJob): Promise<void> {
   }
 
   try {
-    const result = await runClipAgent({ videoId: job.video_id, budgetUsdc: Number(job.budget_usdc), goal: job.goal ?? undefined, onLog, createClips: true })
+    const result = await runClipAgent({ jobId: job.id, videoId: job.video_id, budgetUsdc: Number(job.budget_usdc), goal: job.goal ?? undefined, onLog, createClips: true })
     const { error } = await supabase
       .from("agent_jobs")
       .update({
