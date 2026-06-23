@@ -107,6 +107,33 @@ function parseJson<T>(text: string, fallback: T): T {
 }
 
 /**
+ * Tolerant JSON-object extraction for model responses that may wrap the JSON in
+ * code fences or leading/trailing prose. Strips fences, tries a direct parse,
+ * then falls back to the first '{' … last '}'. Returns null if nothing parses.
+ * (Same robust approach as the subtitle-translation parser.)
+ */
+function extractJsonObject<T>(text: string): T | null {
+  const stripped = text.replace(/```json/gi, "").replace(/```/g, "").trim()
+  const tryParse = (s: string): T | null => {
+    try {
+      const v = JSON.parse(s)
+      return v && typeof v === "object" ? (v as T) : null
+    } catch {
+      return null
+    }
+  }
+  const direct = tryParse(stripped)
+  if (direct) return direct
+  const start = stripped.indexOf("{")
+  const end = stripped.lastIndexOf("}")
+  if (start !== -1 && end > start) {
+    const sliced = tryParse(stripped.slice(start, end + 1))
+    if (sliced) return sliced
+  }
+  return null
+}
+
+/**
  * Score one probed window with the cheap model — a WHERE-to-look-closer signal,
  * not a stand-alone-clip judgment. The window is a deliberate fragment of a long
  * conversation, so the prompt tells the model NOT to penalize incompleteness and
@@ -664,17 +691,25 @@ export interface ClipCritique {
   ends_complete: boolean
   /** Does the clip stay on exactly one topic (no drift into a partial second topic)? */
   single_topic: boolean
+  /** 0-10 quality score the critique assigned (undefined if the model omitted it). */
+  score?: number
+  /** One-line reasoning behind the verdict. */
+  reasoning?: string
   verdict: string
 }
 
 /**
- * Self-critique pass (one extra call before clip creation): show the model its
- * own accepted clips and have it verify each opens on a hook within ~3s, stands
- * alone, ends complete, and stays on a SINGLE topic. single_topic is a LOGGED
- * CHECK only — it does not re-cut clips (text-based re-cutting fuzzy-matched to
- * the wrong locations and made cuts worse). The critique may demote/replace AT
- * MOST ONE clip with a better candidate from the purchased regions; the
- * replacement is re-validated in code before it is swapped in.
+ * Self-critique pass (the FINAL quality gate before clips are offered to the
+ * creator). It evaluates EVERY proposed clip against the four criteria (opens on
+ * a hook within ~3s, stands alone, ends complete, single topic), then returns a
+ * RANKED final selection of the best clips — it may promote a lower-confidence
+ * clip, drop one that fails badly, and pull a clearly-better replacement from the
+ * purchased regions. Every final clip's opening/closing words are re-validated in
+ * code (located in the cues) before it is kept. Clips remain PENDING proposals —
+ * the creator approves/discards in the UI; the critique only curates.
+ *
+ * Safety: never returns zero clips when a coherent candidate exists — if nothing
+ * validates, it keeps the original selection (best-of) with a logged note.
  */
 export async function selfCritique(p: {
   clips: SelectedClip[]
@@ -683,13 +718,16 @@ export async function selfCritique(p: {
   videoTitle?: string
   goal: string
   brief?: EditorialBrief | null
+  maxClips?: number
 }): Promise<{ clips: SelectedClip[]; critiques: ClipCritique[]; swap: string | null }> {
   if (p.clips.length === 0) return { clips: [], critiques: [], swap: null }
+  const maxClips = p.maxClips ?? p.clips.length
+  const same = (a: SelectedClip, b: SelectedClip) => Math.abs(a.start - b.start) < 1 && Math.abs(a.end - b.end) < 1
 
   const clipText = p.clips
     .map(
       (c, i) =>
-        `Clip ${i + 1}: "${c.title}" — hook: ${c.hook}\n  range ${fmt(c.start)}-${fmt(c.end)}\n  transcript: """${textForInterval(p.segments, c.start, c.end)}"""`,
+        `Clip ${i + 1}: "${c.title}" — hook: ${c.hook} (confidence ${c.confidence.toFixed(2)})\n  range ${fmt(c.start)}-${fmt(c.end)}\n  transcript: """${textForInterval(p.segments, c.start, c.end)}"""`,
     )
     .join("\n\n")
 
@@ -697,71 +735,134 @@ export async function selfCritique(p: {
     .map((r, i) => `Region ${i + 1}: ${fmt(r.start)}-${fmt(r.end)}\n"""${r.transcript || "(no speech)"}"""`)
     .join("\n\n")
 
-  const user = `You are doing a final quality check on short-form clips before they are published.
+  const user = `You are the FINAL quality gate that curates the best short-form clips before a creator reviews them. You decide the final set: pick the BEST clips available, in quality order.
 
 The creator's goal: ${p.goal}${p.brief?.importance_criteria ? `\nImportance criteria for this video: ${p.brief.importance_criteria}` : ""}
 
-For EACH clip below, verify FOUR things:
-- opens_on_hook: does it open on a hook within the first ~3 seconds?
-- stands_alone: does it make sense without any surrounding context?
-- ends_complete: does it end on a completed thought (not mid-sentence)?
-- single_topic: does it cover exactly ONE topic / idea arc, WITHOUT drifting into a second topic?
-Give a one-line "verdict" per clip.
+Quality criteria — judge EVERY proposed clip on all four:
+- opens_on_hook: opens on a hook within the first ~3 seconds
+- stands_alone: makes sense without any surrounding context
+- ends_complete: ends on a completed thought (not mid-sentence)
+- single_topic: covers exactly ONE topic / idea arc (no drift into a second topic)
 
-You MAY demote and replace AT MOST ONE clip with a clearly better candidate drawn from the PURCHASED regions, via "replacement" (replace_index 1-based, plus exact opening_words/closing_words copied verbatim from the regions, title, hook). Only replace if clearly better; otherwise omit "replacement".
+Your job:
+1) For EACH proposed clip, give the four booleans, a score 0-10, and a one-line reasoning.
+2) Build the FINAL ranked selection of the best clips (at most ${maxClips}), in DESCENDING quality order. You MAY:
+   - promote a lower-confidence clip above a higher one if it is genuinely a better standalone clip;
+   - DROP a clip that fails badly (e.g. no hook AND does not stand alone) and replace it with a clearly better moment from the PURCHASED regions;
+   - keep a clip as-is.
+   For each final clip give opening_words and closing_words copied VERBATIM from the transcript/regions (~5 words each) so the cut can be located, plus a punchy title, a one-line hook, and a one-line reasoning for why it made the cut / its rank.
+NEVER return zero final clips if at least one coherent clip exists — always return the best available.
 
-CLIPS:
+PROPOSED CLIPS:
 ${clipText}
 
-PURCHASED REGIONS (for any replacement):
+PURCHASED REGIONS (you may draw replacements from these):
 ${regionText}
 
-Return ONLY JSON, no other text:
-{"clips": [{"opens_on_hook": <bool>, "stands_alone": <bool>, "ends_complete": <bool>, "single_topic": <bool>, "verdict": "..."}], "replacement": {"replace_index": <1-based>, "opening_words": "...", "closing_words": "...", "title": "...", "hook": "..."}}
-(omit "replacement" entirely if no swap)`
+Return ONLY JSON, no prose, no code fences:
+{"evaluations":[{"clip":<1-based proposed index>,"opens_on_hook":<bool>,"stands_alone":<bool>,"ends_complete":<bool>,"single_topic":<bool>,"score":<0-10>,"reasoning":"..."}],"final":[{"source":"clip"|"region","ref":<1-based index into proposed clips OR purchased regions>,"opening_words":"...","closing_words":"...","title":"...","hook":"...","reasoning":"..."}]}`
 
-  const out = await callClaude({ model: SELECTION_MODEL, maxTokens: 1200, user, temperature: 0 })
-  const parsed = parseJson<{
-    clips?: Array<{ opens_on_hook?: boolean; stands_alone?: boolean; ends_complete?: boolean; single_topic?: boolean; verdict?: string }>
-    replacement?: { replace_index?: number; opening_words?: string; closing_words?: string; title?: string; hook?: string }
-  }>(out, {})
+  const out = await callClaude({ model: SELECTION_MODEL, maxTokens: 3000, user, temperature: 0 })
+  const parsed = extractJsonObject<{
+    evaluations?: Array<{ clip?: number; opens_on_hook?: boolean; stands_alone?: boolean; ends_complete?: boolean; single_topic?: boolean; score?: number; reasoning?: string }>
+    final?: Array<{ source?: string; ref?: number; opening_words?: string; closing_words?: string; title?: string; hook?: string; reasoning?: string }>
+  }>(out)
 
+  // SAFETY: unparseable response → keep the original selection rather than nuke it.
+  if (!parsed) {
+    return { clips: p.clips.slice(0, maxClips), critiques: [], swap: "self-critique response unparseable — kept original selection" }
+  }
+
+  // --- Per-clip verdicts (one per PROPOSED clip), aligned by `clip` index. ---
+  const evalByIndex = new Map<number, NonNullable<typeof parsed.evaluations>[number]>()
+  ;(parsed.evaluations ?? []).forEach((e, i) => {
+    const idx = Number.isFinite(Number(e?.clip)) ? Math.round(Number(e.clip)) - 1 : i
+    if (idx >= 0 && idx < p.clips.length && !evalByIndex.has(idx)) evalByIndex.set(idx, e)
+  })
   const critiques: ClipCritique[] = p.clips.map((c, i) => {
-    const v = parsed.clips?.[i]
+    const e = evalByIndex.get(i)
+    const reasoning = String(e?.reasoning ?? "").slice(0, 280)
+    const score = Number.isFinite(Number(e?.score)) ? Math.max(0, Math.min(10, Math.round(Number(e!.score)))) : undefined
     return {
       title: c.title,
-      opens_on_hook: !!v?.opens_on_hook,
-      stands_alone: !!v?.stands_alone,
-      ends_complete: !!v?.ends_complete,
-      // Default to true when the model omits it, so a missing field doesn't flag a false drift.
-      single_topic: v?.single_topic !== false,
-      verdict: String(v?.verdict ?? "no verdict").slice(0, 280),
+      opens_on_hook: !!e?.opens_on_hook,
+      stands_alone: !!e?.stands_alone,
+      ends_complete: !!e?.ends_complete,
+      single_topic: e?.single_topic !== false,
+      score,
+      reasoning: reasoning || undefined,
+      // Real verdict when evaluated; sentinel only when the model genuinely
+      // returned nothing for this clip (the pipeline logs that case gracefully).
+      verdict: reasoning ? reasoning : e ? `score ${score ?? "?"}/10` : "no verdict",
     }
   })
 
-  const clips = [...p.clips]
-  let swap: string | null = null
-  const rep = parsed.replacement
-  if (rep && Number.isFinite(Number(rep.replace_index)) && rep.opening_words && rep.closing_words) {
-    const idx = Math.round(Number(rep.replace_index)) - 1
-    if (idx >= 0 && idx < clips.length) {
-      const candidate: ClipCandidate = {
-        opening_words: rep.opening_words,
-        closing_words: rep.closing_words,
-        title: String(rep.title ?? clips[idx].title),
-        hook: String(rep.hook ?? clips[idx].hook),
-        confidence: clips[idx].confidence,
-        reasoning: "self-critique replacement",
-      }
-      const verdict = validateCandidate(candidate, p.regions, p.segments)
-      if (verdict.accepted && verdict.clip) {
-        swap = `replaced clip ${idx + 1} ("${clips[idx].title}") with "${verdict.clip.title}" ${fmt(verdict.clip.start)}-${fmt(verdict.clip.end)}`
-        clips[idx] = verdict.clip
-      } else {
-        swap = `proposed replacement for clip ${idx + 1} rejected (${verdict.rule}); kept original`
+  // --- Build the ranked final selection from the model's `final` list. Each is
+  // re-validated in code (opening/closing words located in the cues). ---
+  const finalClips: SelectedClip[] = []
+  const rejected: string[] = []
+  for (const item of Array.isArray(parsed.final) ? parsed.final : []) {
+    if (finalClips.length >= maxClips) break
+    const refIdx = Math.round(Number(item?.ref)) - 1
+    const isClip = String(item?.source ?? "").toLowerCase() !== "region"
+    const baseConfidence = isClip && refIdx >= 0 && refIdx < p.clips.length ? p.clips[refIdx].confidence : 0.7
+    const candidate: ClipCandidate = {
+      opening_words: String(item?.opening_words ?? ""),
+      closing_words: String(item?.closing_words ?? ""),
+      title: String(item?.title ?? "Clip"),
+      hook: String(item?.hook ?? ""),
+      confidence: baseConfidence,
+      reasoning: String(item?.reasoning ?? "self-critique selection"),
+    }
+    const verdict = validateCandidate(candidate, p.regions, p.segments)
+    if (verdict.accepted && verdict.clip && !finalClips.some((fc) => same(fc, verdict.clip!))) {
+      finalClips.push(verdict.clip)
+    } else if (!verdict.accepted) {
+      rejected.push(`"${candidate.title}" (${verdict.rule})`)
+    }
+  }
+
+  // NEVER SHRINK the set: if a model pick failed validation (or the model
+  // returned fewer than proposed), backfill with the best ORIGINAL proposed
+  // clips (already validated by selection) so the creator still gets ~the same
+  // count. A flagged clip they can review beats no clip.
+  const targetCount = Math.min(maxClips, p.clips.length)
+  const backfilled: string[] = []
+  if (finalClips.length < targetCount) {
+    const byConfidence = [...p.clips].sort((a, b) => b.confidence - a.confidence)
+    for (const oc of byConfidence) {
+      if (finalClips.length >= targetCount) break
+      if (!finalClips.some((fc) => same(fc, oc))) {
+        finalClips.push(oc)
+        backfilled.push(`"${oc.title}"`)
       }
     }
   }
 
-  return { clips, critiques, swap }
+  // SAFETY: if STILL nothing (shouldn't happen when p.clips is non-empty, since
+  // backfill restores originals), keep the original best-of.
+  if (finalClips.length === 0) {
+    const note = rejected.length ? ` (final picks rejected by validation: ${rejected.join(", ")})` : ""
+    return { clips: p.clips.slice(0, maxClips), critiques, swap: `self-critique produced no valid final clips — kept original selection${note}` }
+  }
+
+  // --- Summarize the curation (additions / drops / backfill / re-rank). ---
+  const dropped = p.clips.filter((oc) => !finalClips.some((fc) => same(fc, oc)))
+  const added = finalClips.filter((fc) => !p.clips.some((oc) => same(fc, oc)))
+  const sameSetSameOrder =
+    finalClips.length === p.clips.length && finalClips.every((fc, i) => same(fc, p.clips[i]))
+
+  let swap: string | null = null
+  if (!sameSetSameOrder) {
+    const parts: string[] = []
+    for (const a of added) parts.push(`added "${a.title}" ${fmt(a.start)}-${fmt(a.end)}`)
+    for (const d of dropped) parts.push(`dropped "${d.title}"`)
+    if (backfilled.length) parts.push(`kept ${backfilled.join(", ")} (no valid replacement — set not shrunk)`)
+    if (rejected.length) parts.push(`region replacement(s) rejected by validation: ${rejected.join(", ")}`)
+    if (parts.length === 0) parts.push(`re-ranked by quality: ${finalClips.map((fc) => `"${fc.title}"`).join(" > ")}`)
+    swap = parts.join("; ")
+  }
+
+  return { clips: finalClips, critiques, swap }
 }

@@ -16,16 +16,16 @@
 // Every decision is appended to a decision_log and streamed to an optional
 // onLog callback (the worker persists a partial log if the job throws).
 //
-// PAYMENT MODEL (service fee, not a faucet): generating clips is a paid service.
-// The CREATOR (owner_id ?? creator_id) is the paying customer — their Circle
-// wallet prepays the full budget to the PLATFORM (one settlement, creator ->
-// platform). Consumption is metered against that prepaid budget; at job end the
-// platform refunds the unused remainder to the creator (platform -> creator).
-// Net to platform = seconds consumed × rate. NO 80/20 split, NO creator
-// earnings row (the studio income query reads `earnings` only, so it is never
-// miscounted). The human-viewer flow (settle-session / settlePerSecond) is
-// untouched; this path uses settleServiceFee. Clips are inserted as the
-// creator's own videos (they own them).
+// PAYMENT MODEL (nanopayments, service fee — not a faucet): generating clips is
+// a paid service. The CREATOR (owner_id ?? creator_id) is the paying customer.
+// There is NO prepay/escrow and NO refund: the agent settles each consumed chunk
+// (CHUNK_SECONDS) as its own REAL on-chain payment (creator -> PLATFORM) as it
+// goes, so a job produces a stream of small settlements. `budget` is a SPEND CAP
+// checked up front (balance must cover it) and never exceeded. Net to platform =
+// seconds consumed × rate. NO 80/20 split, NO creator earnings row (the studio
+// income query reads `earnings` only, so it is never miscounted). The human-
+// viewer flow (settle-session / settlePerSecond) is untouched; this path uses
+// settleServiceFee per chunk. Clips are inserted as the creator's own videos.
 
 import { getTranscript, textForInterval, totalWords, type Segment } from "./transcript.ts"
 import {
@@ -44,7 +44,17 @@ import { getSupabaseAdmin } from "../../app/lib/supabase-server.ts"
 
 const DEFAULT_GOAL = "maximize viewer interest and shareability"
 const ARC_DOMAIN = 26 // Circle Gateway domain for Arc — settlements pull from this balance
-const REFUND_DUST_USDC = 0.000001 // skip a refund settlement below this
+
+// --- Nanopayments: settle per chunk as the agent consumes ---
+// Each consumed chunk is its own real on-chain settlement (creator -> platform),
+// so a job produces a stream of small payments instead of one prepay + refund.
+// Chunk size is ADAPTIVE per phase (skim vs footage): small/sub-cent when
+// possible, but bounded so long videos don't fire ~100 settlements. See planChunk.
+const MIN_CHUNK_SECONDS = 15 // never settle in pieces smaller than this
+const TARGET_SETTLEMENTS = 20 // per-phase target count
+const MAX_SETTLEMENTS = 40 // per-phase ceiling (planChunk grows chunks past sub-cent to stay <= this)
+const SUBCENT_CAP = 0.008 // USD per-chunk ceiling we try to stay under (sub-cent)
+const SETTLEMENT_HARD_CAP = MAX_SETTLEMENTS * 2 // job-wide runaway backstop (skim + footage phases)
 
 // --- Two-tier consumption ---
 const TRANSCRIPT_SKIM_FRACTION = 0.1 // reading the transcript costs 10% of the full per-second rate
@@ -211,8 +221,8 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
 
   // --- Running state ---
   const decisionLog: DecisionEntry[] = []
-  let budgetRemaining = budget
-  let totalSpent = 0 // metered consumption (service fee owed), drawn against the prepaid budget
+  let budgetRemaining = budget // remaining headroom under the spend CAP (not an escrow)
+  let totalSpent = 0 // sum of per-chunk settlements actually made (creator -> platform)
   let skimSpend = 0
   const purchases: Purchase[] = [] // consumed windows (feed the regions)
   const securedRegions: Array<{ start: number; end: number; score: number }> = []
@@ -220,12 +230,12 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   let strategyLabel: "skim" | "sampling" = "sampling"
   let editorialBrief: EditorialBrief | null = null
   let selfCritiqueResult: { critiques: ClipCritique[]; swap: string | null } | null = null
-  // Service-fee money flow: creator prepays the full budget → platform; platform
-  // refunds the unused remainder → creator at job end. Net to platform = consumed.
-  let prepaid = false
-  let prepayTx: string | null = null
-  let refundTx: string | null = null
-  let refundedAmount = 0
+  // Nanopayment money flow: NO prepay/escrow. The agent settles each consumed
+  // chunk as its own real on-chain payment (creator -> platform). `budget` is a
+  // spend CAP; settlementTxs collects every chunk tx for the receipt/ledger.
+  const settlementTxs: string[] = []
+  let consumptionHalted = false // set if a chunk settlement fails mid-job (balance drift)
+  let footageChunkSeconds: number | null = null // adaptive footage chunk, planned once on first buy
   let insufficientFunds = false
 
   function log(action: string, reason: string, cost = 0) {
@@ -261,19 +271,19 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     throw new Error(`creator ${creatorId} has no Circle wallet (wallet_address/circle_wallet_id) to pay the service fee`)
   }
 
-  // The platform is the service-fee recipient AND the refund signer, so it must
-  // be a signable Circle wallet (env PLATFORM_WALLET_ID / PLATFORM_WALLET_ADDRESS).
+  // The platform is the service-fee RECIPIENT of every per-chunk settlement. It
+  // no longer signs anything (no refund), so only its address is load-bearing;
+  // PLATFORM_WALLET_ID is still required for config consistency.
   const platformWalletId = process.env.PLATFORM_WALLET_ID
   const platformAddress = process.env.PLATFORM_WALLET_ADDRESS
   if (!platformWalletId || !platformAddress) {
-    throw new Error("PLATFORM_WALLET_ID and PLATFORM_WALLET_ADDRESS must be set (platform must be a signable Circle wallet for refunds)")
+    throw new Error("PLATFORM_WALLET_ID and PLATFORM_WALLET_ADDRESS must be set (platform is the service-fee recipient)")
   }
 
   // Narrowed, non-null locals for the nested closures.
   const payerWalletId: string = creatorRow.circle_wallet_id
   const payerAddress: string = creatorRow.wallet_address
-  const platformPayerWalletId: string = platformWalletId
-  const platformPayerAddress: string = platformAddress
+  const platformToAddress: string = platformAddress // settlement recipient (narrowed for closures)
   const videoIdResolved: string = video.id
   const videoTitle: string | undefined = video.title ?? undefined
   const recipientId: string = creatorId // clips are inserted as the creator's own videos
@@ -281,7 +291,7 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
 
   log(
     "start",
-    `clip service for "${videoTitle ?? videoIdResolved}" (${duration}s @ ${rate}/s) — creator ${creatorId.slice(0, 8)}… funds up to ${budget.toFixed(6)} USDC; unused is refunded`,
+    `clip service for "${videoTitle ?? videoIdResolved}" (${duration}s @ ${rate}/s) — creator ${creatorId.slice(0, 8)}… pays per chunk as consumed, up to a ${budget.toFixed(6)} USDC cap (no prepay)`,
     0,
   )
 
@@ -292,7 +302,7 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
       goal,
       budget_given: round6(budget),
       service_fee_charged: round6(totalSpent),
-      refunded: round6(refundedAmount),
+      refunded: 0, // no prepay/refund — pay-as-consumed
       total_paid: round6(totalSpent),
       tier_breakdown: { skim_spend: round6(skimSpend), footage_spend: round6(totalSpent - skimSpend) },
       seconds_bought: purchases.reduce((n, p) => n + p.seconds, 0),
@@ -300,29 +310,23 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
       moments_found: momentsFound,
       editorial_brief: editorialBrief,
       self_critique: selfCritiqueResult,
-      settlements: [prepayTx, refundTx].filter((t): t is string => !!t),
+      settlements: settlementTxs, // every per-chunk settlement (the nanopayment stream)
       insufficient_funds: insufficientFunds || undefined,
       proposed_clips: clips.map((c) => ({ range: `${fmt(c.start)}-${fmt(c.end)}`, title: c.suggested_title, confidence: c.confidence })),
-      savings: round6(refundedAmount),
+      savings: 0,
       decision_count: decisionLog.length,
     }
   }
 
-  // Refund the unused remainder of the prepaid budget (platform → creator), then
-  // build the receipt. The refund only runs if the creator actually prepaid.
+  // Build the receipt and finish. No refund: the creator only ever paid for the
+  // chunks actually consumed (each its own settlement), so there is nothing to
+  // return. Always reaches a terminal status, even if consumption halted early.
   async function finish(clips: PendingClip[], declined: boolean): Promise<PipelineResult> {
-    if (prepaid && budgetRemaining > REFUND_DUST_USDC) {
-      try {
-        const r = await settleServiceFee({ payerWalletId: platformPayerWalletId, payerAddress: platformPayerAddress, toAddress: payerAddress, amountUsdc: budgetRemaining })
-        refundTx = r.tx
-        refundedAmount = budgetRemaining
-        log("refund", `job used ${totalSpent.toFixed(6)} of ${budget.toFixed(6)} budget — refunding ${budgetRemaining.toFixed(6)} to creator — tx ${r.tx.slice(0, 12)}…`, 0)
-        await recordClipPayment("refund", refundedAmount, r.tx)
-      } catch (err) {
-        log("refund-failed", `refund of ${budgetRemaining.toFixed(6)} to creator FAILED: ${(err as Error)?.message ?? String(err)} — creator is owed this; reconcile against prepay tx ${prepayTx ?? "(none)"}`, 0)
-      }
-    }
-    log("complete", `${clips.length} clip(s) proposed; charged creator ${totalSpent.toFixed(6)} service fee, refunded ${refundedAmount.toFixed(6)} of ${budget.toFixed(6)} budget`, 0)
+    log(
+      "complete",
+      `${clips.length} clip(s) proposed; charged creator ${totalSpent.toFixed(6)} across ${settlementTxs.length} per-chunk settlement(s) (cap ${budget.toFixed(6)})`,
+      0,
+    )
     const receipt = buildReceipt(clips)
     receipt.decision_count = decisionLog.length
     return { declined, decisionLog, clips, receipt }
@@ -333,9 +337,9 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   // This is NOT creator earnings — it is never written to the `earnings` table
   // (which the studio income query reads), so studio totals are unaffected.
   // Best-effort: a ledger insert failure is logged but never fails the job.
-  // Consume rows carry circle_tx = null (metered against the prepay, no own tx);
-  // prepay and refund rows carry their real on-chain tx.
-  async function recordClipPayment(direction: "prepay" | "consume" | "refund", amount: number, circleTx: string | null) {
+  // Every row is a 'consume' carrying the REAL on-chain tx of that chunk's
+  // settlement (there is no prepay/refund anymore).
+  async function recordClipPayment(direction: "consume", amount: number, circleTx: string | null) {
     const { error } = await supabase.from("clip_payments").insert({
       job_id: jobId,
       creator_id: recipientId,
@@ -347,29 +351,90 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     if (error) log("ledger-warn", `clip_payments insert (${direction}) failed: ${error.message}`, 0)
   }
 
-  // --- Meter consumption of [start, end) against the prepaid budget ---
-  // No per-window settlement: the creator prepaid the whole budget to the
-  // platform up front; here we only meter how many seconds are consumed (the
-  // service fee owed) and write a 'consume' ledger row. The unused remainder is
-  // refunded at the end. No earnings row is ever written — the creator is PAYING.
+  // --- Settle consumption as a STREAM of small per-chunk payments ---
+  // Splits `totalSeconds` at `perSecRate` into CHUNK_SECONDS pieces and settles
+  // each as its own real on-chain payment (creator → platform), recording a
+  // 'consume' ledger row with the real tx. Honors the spend CAP (never settles
+  // beyond `budget`) and stops cleanly if a settlement fails (balance drift) by
+  // setting `consumptionHalted`. Returns the seconds actually settled.
+  // Plan the chunk size for one settlement phase from its OWN rate + total
+  // seconds: small (sub-cent) when possible, but bounded so the count stays
+  // reasonable. (1) hit ~TARGET_SETTLEMENTS, (2) clamp to [MIN, sub-cent ceiling],
+  // (3) fallback: if even a sub-cent chunk would exceed MAX_SETTLEMENTS, grow the
+  // chunk past sub-cent so the count stays <= MAX_SETTLEMENTS.
+  function planChunk(totalPhaseSeconds: number, perSecRate: number): { chunkSeconds: number; estCount: number } {
+    const total = Math.max(1, Math.round(totalPhaseSeconds))
+    const maxSecondsForSubcent = perSecRate > 0 ? SUBCENT_CAP / perSecRate : total
+    const subcentCeil = Math.max(MIN_CHUNK_SECONDS, maxSecondsForSubcent)
+    let chunk = Math.min(subcentCeil, Math.max(MIN_CHUNK_SECONDS, total / TARGET_SETTLEMENTS))
+    if (Math.ceil(total / chunk) > MAX_SETTLEMENTS) chunk = total / MAX_SETTLEMENTS
+    chunk = Math.max(MIN_CHUNK_SECONDS, Math.round(chunk))
+    return { chunkSeconds: chunk, estCount: Math.max(1, Math.ceil(total / chunk)) }
+  }
+
+  async function settleChunks(totalSeconds: number, perSecRate: number, chunkSeconds: number, label: string, kind: "skim" | "footage"): Promise<number> {
+    let consumed = 0
+    while (consumed < totalSeconds) {
+      if (consumptionHalted) break
+      if (settlementTxs.length >= SETTLEMENT_HARD_CAP) {
+        log("stop-budget", `reached settlement hard cap (${SETTLEMENT_HARD_CAP}) — stopping consumption`, 0)
+        break
+      }
+      const chunkSecs = Math.min(chunkSeconds, totalSeconds - consumed)
+      const chunkCost = chunkSecs * perSecRate
+      if (!(chunkCost > 0)) break
+      // Spend cap: never settle beyond the budget.
+      if (totalSpent + chunkCost > budget + 1e-9) {
+        log("stop-budget", `${label}: next ${chunkSecs}s chunk (${chunkCost.toFixed(6)}) would exceed budget cap ${budget.toFixed(6)} (spent ${totalSpent.toFixed(6)}) — stopping`, 0)
+        break
+      }
+      let tx: string
+      try {
+        const r = await settleServiceFee({ payerWalletId, payerAddress, toAddress: platformToAddress, amountUsdc: chunkCost })
+        tx = r.tx
+      } catch (err) {
+        consumptionHalted = true
+        log("stop-balance", `${label}: chunk settlement of ${chunkCost.toFixed(6)} failed (${(err as Error)?.message ?? String(err)}) — stopping; ${consumed}s already settled this window`, 0)
+        break
+      }
+      totalSpent += chunkCost
+      budgetRemaining -= chunkCost
+      if (kind === "skim") skimSpend += chunkCost
+      settlementTxs.push(tx)
+      consumed += chunkSecs
+      log("settle-chunk", `${chunkSecs}s consumed, paid ${chunkCost.toFixed(6)} (tx ${tx.slice(0, 12)}…)`, chunkCost)
+      await recordClipPayment("consume", chunkCost, tx)
+    }
+    return consumed
+  }
+
+  // --- Buy footage for [start, end), settling each CHUNK_SECONDS as its own
+  // payment. Returns a Purchase covering the portion actually settled (which may
+  // be shorter than requested if the cap/balance stopped it mid-window), or null
+  // if nothing was consumed. No earnings row is ever written — the creator PAYS.
   async function buyWindow(rawStart: number, rawEnd: number, why: string): Promise<Purchase | null> {
+    if (consumptionHalted) return null
     const start = Math.max(0, Math.min(duration, rawStart))
     const end = Math.max(0, Math.min(duration, rawEnd))
     const seconds = Math.round(end - start)
     if (seconds <= 0) return null
 
-    const cost = seconds * rate
-    if (cost > budgetRemaining + 1e-9) {
-      log("skip-buy", `${why}: ${fmt(start)}–${fmt(end)} needs ${cost.toFixed(6)} but only ${budgetRemaining.toFixed(6)} budget left`, 0)
-      return null
+    // Plan footage chunking ONCE, from an estimate of total footage seconds for
+    // the job (affordable seconds, capped to the realistic 3-region footage).
+    if (footageChunkSeconds === null) {
+      const footageBudget = Math.max(0, budget - totalSpent)
+      const affordable = rate > 0 ? Math.floor(footageBudget / rate) : 0
+      const estFootageSeconds = Math.max(seconds, Math.min(affordable, MAX_STRONG_REGIONS * MOMENT_TARGET_SECONDS))
+      const plan = planChunk(estFootageSeconds, rate)
+      footageChunkSeconds = plan.chunkSeconds
+      log("chunk-plan", `(footage): ${footageChunkSeconds}s chunks, ~${plan.estCount} settlements`, 0)
     }
 
-    budgetRemaining -= cost
-    totalSpent += cost
-    const purchase: Purchase = { start, end, seconds, cost }
+    const consumedSeconds = await settleChunks(seconds, rate, footageChunkSeconds, why, "footage")
+    if (consumedSeconds <= 0) return null
+
+    const purchase: Purchase = { start, end: start + consumedSeconds, seconds: consumedSeconds, cost: consumedSeconds * rate }
     purchases.push(purchase)
-    log("consume", `${why}: consumed ${seconds}s (${fmt(start)}–${fmt(end)}) — charged creator ${cost.toFixed(6)} (service fee)`, cost)
-    await recordClipPayment("consume", cost, null)
     return purchase
   }
 
@@ -389,15 +454,23 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     return !endsSentence(prev.text)
   }
 
-  async function followThought(rs: number, re: number, score: number): Promise<{ start: number; end: number }> {
+  // maxExtendSecs bounds how many seconds this region may BUY via extension, so
+  // one region can't eat the budget reserved for other top moments.
+  async function followThought(rs: number, re: number, score: number, maxExtendSecs: number): Promise<{ start: number; end: number }> {
     let start = rs
     let end = re
+    let extended = 0
     const extCost = EXTENSION_SECONDS * rate
     for (let used = 0; used < MAX_EXTENSIONS_PER_REGION; ) {
+      if (extended + EXTENSION_SECONDS > maxExtendSecs + 1e-9) {
+        log("stop-extend", `region spend cap reached (~${Math.round(maxExtendSecs)}s of extension) — reserving budget for other top moments`, 0)
+        break
+      }
       if (end < duration && extCost <= budgetRemaining + 1e-9 && thoughtContinuesAt(end, "end")) {
         log("extend-region", `thought continues at ${fmt(end)} (end edge), buying +${EXTENSION_SECONDS}s`, 0)
         const p = await buyWindow(end, end + EXTENSION_SECONDS, `extend <${score}/10> end`)
         if (!p) break
+        extended += p.seconds
         end = p.end
         used++
         continue
@@ -406,6 +479,7 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
         log("extend-region", `thought continues at ${fmt(start)} (start edge), buying +${EXTENSION_SECONDS}s`, 0)
         const p = await buyWindow(start - EXTENSION_SECONDS, start, `extend <${score}/10> start`)
         if (!p) break
+        extended += p.seconds
         start = p.start
         used++
         continue
@@ -418,8 +492,12 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   // Buy a region around a seed (full rate) and follow the thought past its edges.
   // ownedSeed: an already-purchased core (probe window) to buy the gaps around;
   // null = buy the whole target (a fresh moment region).
-  async function secureRegion(targetStart: number, targetEnd: number, score: number, ownedSeed: { start: number; end: number } | null) {
+  async function secureRegion(targetStart: number, targetEnd: number, score: number, ownedSeed: { start: number; end: number } | null, maxRegionSecs: number) {
     if (securedRegions.length >= MAX_STRONG_REGIONS) return
+    // Measure how many seconds THIS region buys so the per-region cap is enforced
+    // across the core buy + extensions (reserving budget for other top moments).
+    const startIdx = purchases.length
+    const regionSecs = () => purchases.slice(startIdx).reduce((n, p) => n + p.seconds, 0)
     if (ownedSeed) {
       if (ownedSeed.start - targetStart >= 1) await buyWindow(targetStart, ownedSeed.start, `expand <${score}/10>`)
       if (targetEnd - ownedSeed.end >= 1) await buyWindow(ownedSeed.end, targetEnd, `expand <${score}/10>`)
@@ -432,7 +510,8 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     const center = (targetStart + targetEnd) / 2
     const ownedHere = mergeRegions(purchases, segments).find((r) => center >= r.start - 0.6 && center <= r.end + 0.6)
     if (!ownedHere) return
-    const grown = await followThought(ownedHere.start, ownedHere.end, score)
+    const remainingForExtend = Math.max(0, maxRegionSecs - regionSecs())
+    const grown = await followThought(ownedHere.start, ownedHere.end, score, remainingForExtend)
     securedRegions.push({ start: grown.start, end: grown.end, score })
   }
 
@@ -475,18 +554,17 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
 
   // --- SKIM strategy: pay full-transcript read access, analyze whole video, buy best moments ---
   async function runSkimStrategy() {
-    // (a) meter read access to the whole transcript (at the 10% skim rate) BEFORE analyzing it.
+    // (a) pay read access to the whole transcript (at the 10% skim rate) BEFORE
+    //     analyzing it — as a STREAM of small per-chunk settlements, not one payment.
     const skimSeconds = Math.round(duration)
-    const skimAmount = skimSeconds * skimRate
-    if (skimAmount > budgetRemaining + 1e-9) {
-      log("skip-buy", `skim of full transcript needs ${skimAmount.toFixed(6)} but only ${budgetRemaining.toFixed(6)} budget left`, 0)
+    const skimPlan = planChunk(skimSeconds, skimRate)
+    log("chunk-plan", `(skim): ${skimPlan.chunkSeconds}s chunks, ~${skimPlan.estCount} settlements`, 0)
+    const skimmed = await settleChunks(skimSeconds, skimRate, skimPlan.chunkSeconds, "skim transcript read", "skim")
+    if (skimmed <= 0) {
+      log("skip-buy", `could not settle any transcript-read chunk (budget cap ${budget.toFixed(6)}, spent ${totalSpent.toFixed(6)}) — skipping skim`, 0)
       return
     }
-    budgetRemaining -= skimAmount
-    totalSpent += skimAmount
-    skimSpend += skimAmount
-    log("consume-skim", `read full ${skimSeconds}s transcript at ${Math.round(TRANSCRIPT_SKIM_FRACTION * 100)}% rate — charged creator ${skimAmount.toFixed(6)} (service fee)`, skimAmount)
-    await recordClipPayment("consume", skimAmount, null)
+    log("consume-skim", `read ${skimmed}/${skimSeconds}s transcript at ${Math.round(TRANSCRIPT_SKIM_FRACTION * 100)}% rate via ${Math.ceil(skimmed / skimPlan.chunkSeconds)} chunk settlement(s)`, 0)
 
     // (b) PASS 1 — editorial brief: define what "important" means for THIS video.
     editorialBrief = await generateEditorialBrief({ segments, durationSecs: duration, videoTitle, goal })
@@ -499,26 +577,42 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     if (moments.length === 0) return
     for (const m of moments) log("moment-found", `${fmt(m.start)}–${fmt(m.end)} value ${m.score}/10 — ${m.what}${m.why ? ` (${m.why})` : ""}`, 0)
 
-    // (d) buy footage for the best moments, descending score, at full rate.
-    for (const m of moments) {
+    // (d) buy footage for the best moments — HIGHEST value-score FIRST, spread
+    // across DISTINCT moments. Cap each moment to ~1/MAX_STRONG_REGIONS of the
+    // footage budget so the top ~3 moments each get footage, instead of one
+    // cluster eating the whole budget via core+extension buys.
+    const ranked = [...moments].sort((a, b) => b.score - a.score || a.start - b.start)
+    const footageBudgetSecs = Math.floor((budgetRemaining + 1e-9) / rate)
+    const perMomentCapSecs = Math.max(MIN_FOOTAGE_SECONDS, Math.floor(footageBudgetSecs / MAX_STRONG_REGIONS))
+    const maxRegionSecs = Math.min(MOMENT_TARGET_SECONDS + MAX_EXTENSIONS_PER_REGION * EXTENSION_SECONDS, perMomentCapSecs)
+    log("strategy", `footage budget ~${footageBudgetSecs}s — buying top moments first, capping each to ~${maxRegionSecs}s to spread across the best ${MAX_STRONG_REGIONS}`, 0)
+
+    for (const m of ranked) {
       if (securedRegions.length >= MAX_STRONG_REGIONS) {
         log("stop-buying", `secured ${MAX_STRONG_REGIONS} regions (the 3-clip stop condition)`, 0)
         break
       }
+      if (consumptionHalted) break
       const affordable = Math.floor((budgetRemaining + 1e-9) / rate)
       if (affordable < MIN_FOOTAGE_SECONDS) {
         log("stop-buying", `only ${affordable}s of footage affordable (< ${MIN_FOOTAGE_SECONDS}s min) — budget exhausted`, 0)
         break
       }
+      // Spread across DISTINCT moments: skip one whose midpoint is already inside
+      // a secured region (avoid spending a second region's budget on the same cluster).
+      const mid = (m.start + m.end) / 2
+      if (securedRegions.some((r) => mid >= r.start - 1 && mid <= r.end + 1)) {
+        log("skip-buy", `moment ${fmt(m.start)} (${m.score}/10) overlaps a secured region — skipping to spread across distinct top moments`, 0)
+        continue
+      }
       // Anchor footage at the MOMENT's start (with a small lead so the selector's
-      // opening words stay in-bounds), cap at 90s; followThought handles the tail.
-      // Centering on the moment pushed the buy PAST the moment start and made the
-      // best clip out-of-bounds (the 41:32 moment was bought from 42:00).
-      const len = Math.min(MOMENT_TARGET_SECONDS, affordable)
+      // opening words stay in-bounds), capped to the per-moment budget share;
+      // followThought handles the tail within the same cap.
+      const len = Math.min(MOMENT_TARGET_SECONDS, affordable, maxRegionSecs)
       let ts = Math.max(0, m.start - MOMENT_PAD_SECONDS)
       const te = Math.min(duration, ts + len)
       ts = Math.max(0, te - len)
-      await secureRegion(ts, te, m.score, null)
+      await secureRegion(ts, te, m.score, null, maxRegionSecs)
     }
   }
 
@@ -581,6 +675,11 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     }
 
     strong.sort((a, b) => b.score - a.score)
+    // Same per-region budget cap as the skim path: don't let one expansion eat
+    // the budget reserved for the other top probes.
+    const samplingFootageSecs = Math.floor((budgetRemaining + 1e-9) / rate)
+    const samplingPerRegionSecs = Math.max(MIN_FOOTAGE_SECONDS, Math.floor(samplingFootageSecs / MAX_STRONG_REGIONS))
+    const samplingMaxRegionSecs = Math.min(TARGET_REGION_SECONDS + MAX_EXTENSIONS_PER_REGION * EXTENSION_SECONDS, samplingPerRegionSecs)
     for (const probe of strong) {
       if (securedRegions.length >= MAX_STRONG_REGIONS) {
         log("stop-expanding", `secured ${MAX_STRONG_REGIONS} strong regions (the 3-clip stop condition)`, 0)
@@ -593,23 +692,13 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
       const center = (probe.start + probe.end) / 2
       const targetStart = Math.max(0, center - TARGET_REGION_SECONDS / 2)
       const targetEnd = Math.min(duration, center + TARGET_REGION_SECONDS / 2)
-      await secureRegion(targetStart, targetEnd, probe.score, { start: probe.start, end: probe.end })
+      await secureRegion(targetStart, targetEnd, probe.score, { start: probe.start, end: probe.end }, samplingMaxRegionSecs)
     }
   }
 
-  // --- Prepay: the creator funds the full budget into the platform (escrow).
-  // Consumption is metered against this; the unused remainder is refunded at the end. ---
-  try {
-    const pre = await settleServiceFee({ payerWalletId, payerAddress, toAddress: platformAddress, amountUsdc: budget })
-    prepaid = true
-    prepayTx = pre.tx
-    log("fund-budget", `creator funded ${budget.toFixed(6)} budget to platform (service prepay) — tx ${pre.tx.slice(0, 12)}…`, 0)
-    await recordClipPayment("prepay", budget, pre.tx)
-  } catch (err) {
-    insufficientFunds = true
-    log("fund-failed", `creator prepay of ${budget.toFixed(6)} failed: ${(err as Error)?.message ?? String(err)} — top up and retry`, 0)
-    return await finish([], true)
-  }
+  // No prepay/escrow: the up-front funding check above confirmed the balance
+  // covers the budget cap; from here the agent settles each consumed chunk as
+  // its own real payment (creator → platform) inside buyWindow / the skim.
 
   // --- Strategy decision (logged at preflight) ---
   if (budget >= skimCost + minFootageCost) {
@@ -676,11 +765,19 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     const crit = await selfCritique({ clips: selected, regions: mergeRegions(purchases, segments), segments, videoTitle, goal, brief: editorialBrief })
     selfCritiqueResult = { critiques: crit.critiques, swap: crit.swap }
     for (const v of crit.critiques) {
-      log(
-        "self-critique",
-        `"${v.title}": hook ${v.opens_on_hook ? "✓" : "✗"}, stands-alone ${v.stands_alone ? "✓" : "✗"}, complete ${v.ends_complete ? "✓" : "✗"}, single-topic ${v.single_topic ? "✓" : "✗"} — ${v.verdict}`,
-        0,
-      )
+      // "no verdict" is the sentinel selfCritique uses when the model returned no
+      // per-clip data (parse miss): the booleans are meaningless defaults, so don't
+      // render them as ✗ failures. The critique is ADVISORY — it never gates
+      // acceptance; only an explicit swap (below) changes selection.
+      if (v.verdict === "no verdict") {
+        log("self-critique", `"${v.title}": no usable verdict returned (advisory check skipped) — clip kept`, 0)
+      } else {
+        log(
+          "self-critique",
+          `"${v.title}": hook ${v.opens_on_hook ? "✓" : "✗"}, stands-alone ${v.stands_alone ? "✓" : "✗"}, complete ${v.ends_complete ? "✓" : "✗"}, single-topic ${v.single_topic ? "✓" : "✗"} — ${v.verdict}`,
+          0,
+        )
+      }
     }
     if (crit.swap) log("self-critique-swap", crit.swap, 0)
     selected = crit.clips

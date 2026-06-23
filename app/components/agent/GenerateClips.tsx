@@ -114,7 +114,7 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
                 </p>
 
                 <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
-                  You pay per second of content processed; unused budget is refunded. Est. cost for this video:{" "}
+                  You pay per second consumed as the agent works — each chunk is its own on-chain settlement on Arc. Your budget is a spending cap; you&apos;re only charged for what&apos;s used. Est. cost for this video:{" "}
                   <span className="text-foreground font-semibold">~{fmtUsd(estCost)}</span>.
                 </p>
 
