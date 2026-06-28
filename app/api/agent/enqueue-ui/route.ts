@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { auth } from "@/app/lib/auth"
+import { MIN_AI_CLIP_SECONDS } from "@/app/lib/clip-config"
 
 // POST /api/agent/enqueue-ui
 // Browser-facing enqueue. Authenticates via the NextAuth session (NOT the
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
     const supabase = getSupabaseAdmin()
     const { data: video, error: videoErr } = await supabase
       .from("videos")
-      .select("id, creator_id, owner_id")
+      .select("id, creator_id, owner_id, duration_secs")
       .eq("id", video_id)
       .maybeSingle()
     if (videoErr) return NextResponse.json({ error: videoErr.message }, { status: 500 })
@@ -33,6 +34,16 @@ export async function POST(req: NextRequest) {
     const role = (session.user as { role?: string }).role
     if (session.user.id !== ownerId && role !== "admin") {
       return NextResponse.json({ error: "Only the video's owner can generate clips" }, { status: 403 })
+    }
+
+    // AI clipping is only for longer videos — never run the agent on a too-short
+    // one (manual clipping has no minimum and is unaffected).
+    const durationSecs = Number(video.duration_secs)
+    if (!(durationSecs >= MIN_AI_CLIP_SECONDS)) {
+      return NextResponse.json(
+        { error: `AI clipping requires videos at least ${Math.round(MIN_AI_CLIP_SECONDS / 60)} minutes long — use manual clipping for shorter ones.` },
+        { status: 400 },
+      )
     }
 
     const resolvedGoal =

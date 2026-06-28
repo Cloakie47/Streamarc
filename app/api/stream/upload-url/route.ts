@@ -18,23 +18,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Valid file_size required" }, { status: 400 })
     }
 
+    // Any signed-in user may upload — no creator whitelist/approval step.
     const { data: user } = await getSupabaseAdmin()
       .from("users")
-      .select("id, is_whitelisted")
+      .select("id")
       .eq("id", user_id)
       .single();
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    if (!user.is_whitelisted) {
-      return NextResponse.json(
-        {
-          error: "You are not whitelisted to upload videos. Apply to become a creator.",
-        },
-        { status: 403 }
-      );
     }
 
     // Request a one-time tus (resumable) upload URL from Cloudflare Stream.

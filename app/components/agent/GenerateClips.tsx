@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Scissors, X, Loader2, Sparkles } from "lucide-react"
+import { MIN_AI_CLIP_SECONDS } from "@/app/lib/clip-config"
 
 const fmtUsd = (n: number | undefined) => `$${(n ?? 0).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`
 
@@ -33,6 +34,8 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
   const estCost = willSkim ? skimCost + estRegions * 60 * ratePerSecond : budgetNum
   const recommendedBudget = skimCost + 3 * 90 * ratePerSecond
   const belowRecommended = budgetNum < recommendedBudget
+  // AI clipping is only offered for longer videos; manual clipping has no minimum.
+  const tooShort = durationSecs < MIN_AI_CLIP_SECONDS
 
   async function submit() {
     if (!(budgetNum > 0)) {
@@ -59,14 +62,31 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => setModalOpen(true)}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-2.5 text-sm font-bold hover:opacity-90 transition-opacity"
-      >
-        <Sparkles size={16} />
-        Generate Clips with the AI Agent
-      </button>
+      {tooShort ? (
+        <>
+          <button
+            type="button"
+            disabled
+            aria-disabled
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary/40 text-primary-foreground py-2.5 text-sm font-bold cursor-not-allowed opacity-60"
+          >
+            <Sparkles size={16} />
+            Generate Clips with the AI Agent
+          </button>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            AI clipping is for videos over {Math.round(MIN_AI_CLIP_SECONDS / 60)} minutes — use manual clipping for shorter ones.
+          </p>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setModalOpen(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-2.5 text-sm font-bold hover:opacity-90 transition-opacity"
+        >
+          <Sparkles size={16} />
+          Generate Clips with the AI Agent
+        </button>
+      )}
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">

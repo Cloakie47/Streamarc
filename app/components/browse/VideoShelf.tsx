@@ -316,13 +316,17 @@ function FeaturedSection({ videos, onPlay }: { videos: Video[]; onPlay: (videoId
   );
 }
 
+// Browse preview shows only the first 2 rows of "All demos" (4-col xl grid → 8);
+// the rest live on the "See all" → /explore all-videos view.
+const ALL_DEMOS_PREVIEW_COUNT = 8;
+
 function AllDemos({ videos, onPlay }: { videos: Video[]; onPlay: (videoId: string) => void }) {
   if (videos.length === 0) return null;
   return (
     <section className="flex flex-col gap-5">
       <SectionHeader title="All demos" seeAllHref="/explore" />
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
-        {videos.map((v) => (
+        {videos.slice(0, ALL_DEMOS_PREVIEW_COUNT).map((v) => (
           <VideoCard key={v.id} video={v} onPlay={onPlay} />
         ))}
       </div>
