@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server"
 import { getWalletIdByAddress, signTypedDataWithWallet } from "@/app/lib/circle-wallets"
+import { getActingUser } from "@/app/lib/require-user"
 
 const facilitator = new BatchFacilitatorClient()
 
@@ -17,11 +18,16 @@ function randomNonce(): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { session_id, viewer_id, creator_id, video_id, seconds_watched } = await req.json()
+    // Payer = the AUTHENTICATED user, never a body-supplied viewer_id.
+    const actor = await getActingUser()
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    const viewer_id = actor.id
+
+    const { session_id, creator_id, video_id, seconds_watched } = await req.json()
 
     const { data: session } = await getSupabaseAdmin()
       .from("watch_sessions")
-      .select("id, settled")
+      .select("id, settled, started_at")
       .eq("id", session_id)
       .eq("viewer_id", viewer_id)
       .single()
@@ -30,7 +36,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid session" }, { status: 403 })
     }
 
-    if (!seconds_watched || seconds_watched <= 0) {
+    // Clamp the client-reported seconds to wall-clock elapsed since the session
+    // started (+5s slack) so it can't be inflated to overcharge. This bounds the
+    // AMOUNT only — the settlement math below is unchanged.
+    const requestedSeconds = Number(seconds_watched) || 0
+    const elapsedSeconds = session.started_at ? (Date.now() - new Date(session.started_at).getTime()) / 1000 : requestedSeconds
+    const clampedSeconds = Math.max(0, Math.min(requestedSeconds, Math.ceil(elapsedSeconds) + 5))
+
+    if (clampedSeconds <= 0) {
       await getSupabaseAdmin().from("watch_sessions").update({ settled: true }).eq("id", session_id)
       return NextResponse.json({ success: true, amount: 0 })
     }
@@ -49,7 +62,7 @@ export async function POST(req: NextRequest) {
       .single()
 
     const ratePerSecond = video?.rate_per_sec ?? 0.00005
-    const actualAmount = seconds_watched * ratePerSecond
+    const actualAmount = clampedSeconds * ratePerSecond
 
     if (!viewer?.wallet_address) {
       return NextResponse.json({ error: "Viewer wallet not found" }, { status: 400 })
@@ -226,7 +239,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.log("Session settled:", {
-      seconds_watched,
+      seconds_watched: clampedSeconds,
       totalAmount: actualAmount,
       creatorAmount: actualAmount * 0.80,
       platformAmount: actualAmount * 0.20,
@@ -242,7 +255,7 @@ export async function POST(req: NextRequest) {
       .update({
         actual_amount: actualAmount,
         authorized_amount: actualAmount,
-        seconds_paid: seconds_watched,
+        seconds_paid: clampedSeconds,
         total_cost: actualAmount,
       })
       .eq("id", session_id)
@@ -255,7 +268,7 @@ export async function POST(req: NextRequest) {
         creator_id: earningsRecipientId,
         video_id,
         amount: actualAmount,
-        seconds_covered: seconds_watched,
+        seconds_covered: clampedSeconds,
         chain: "arcTestnet",
         circle_transaction_id: creatorResult.transaction,
         status: "settled",

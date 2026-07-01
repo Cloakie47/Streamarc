@@ -4,6 +4,7 @@ import { createViemAdapterFromProvider } from "@circle-fin/adapter-viem-v2"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { createCircleEip1193Provider } from "@/app/lib/circle-eip1193"
 import { SUPPORTED_CHAINS } from "@/app/lib/chains"
+import { getActingUser } from "@/app/lib/require-user"
 
 const kit = new UnifiedBalanceKit()
 const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/
@@ -17,12 +18,16 @@ export async function POST(req: NextRequest) {
   let destChainId = "Arc_Testnet"
   let withdrawAmount = 0
   try {
+    // Source wallet = the AUTHENTICATED user, never a body-supplied user_id.
+    const actor = await getActingUser()
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    user_id = actor.id
+
     const body = await req.json()
-    user_id = body.user_id
     const { amount, destination_chain, destination_address } = body
 
-    if (!user_id || !amount) {
-      return NextResponse.json({ error: "user_id and amount required" }, { status: 400 })
+    if (!amount) {
+      return NextResponse.json({ error: "amount required" }, { status: 400 })
     }
 
     destChainId = (destination_chain as string | undefined) ?? "Arc_Testnet"

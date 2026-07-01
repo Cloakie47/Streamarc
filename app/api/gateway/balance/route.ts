@@ -3,6 +3,8 @@ import { createPublicClient, http, erc20Abi } from "viem";
 import { arcTestnet } from "viem/chains";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 import { fetchUnifiedGatewayBalance } from "@/app/lib/gateway-balance";
+import { createGatewayWallet } from "@/app/lib/circle-wallets";
+import { withTimeout } from "@/app/lib/with-timeout";
 
 const ARC_USDC_ADDRESS = "0x3600000000000000000000000000000000000000" as const;
 
@@ -28,11 +30,25 @@ export async function POST(req: NextRequest) {
     const { user_id } = await req.json();
     const supabase = getSupabaseAdmin();
 
-    const { data: user } = await supabase
+    let { data: user } = await supabase
       .from("users")
       .select("wallet_address, circle_wallet_id")
       .eq("id", user_id)
       .single();
+
+    // Lazy wallet provisioning: if signup couldn't create the Circle wallet in
+    // time (see /api/auth/verify-email), create it now (idempotent) so the user
+    // isn't left permanently wallet-less. Bounded so this never hangs the balance.
+    if (user_id && (!user?.wallet_address || !user?.circle_wallet_id)) {
+      const wallet = await withTimeout(createGatewayWallet(user_id), 15000, null);
+      if (wallet) {
+        await supabase
+          .from("users")
+          .update({ wallet_address: wallet.address, circle_wallet_id: wallet.id })
+          .eq("id", user_id);
+        user = { wallet_address: wallet.address, circle_wallet_id: wallet.id };
+      }
+    }
 
     if (!user?.wallet_address || !user?.circle_wallet_id) {
       return NextResponse.json({

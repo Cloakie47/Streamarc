@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
+import { getActingUser } from "@/app/lib/require-user";
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,8 +29,12 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    // Only the AUTHENTICATED user can edit their own profile.
+    const actor = await getActingUser();
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const user_id = actor.id;
+
     const {
-      user_id,
       display_name,
       channel_name,
       bio,
@@ -37,10 +42,6 @@ export async function PATCH(req: NextRequest) {
       reddit_handle,
       telegram_handle,
     } = await req.json();
-
-    if (!user_id) {
-      return NextResponse.json({ error: "user_id required" }, { status: 400 });
-    }
 
     const supabase = getSupabaseAdmin();
     const { error } = await supabase

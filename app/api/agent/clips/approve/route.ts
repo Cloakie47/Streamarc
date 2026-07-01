@@ -83,7 +83,10 @@ export async function POST(req: NextRequest) {
     }
     const { error: updErr } = await supabase.from("agent_jobs").update({ clips, updated_at: new Date().toISOString() }).eq("id", job_id)
     if (updErr) {
-      return NextResponse.json({ error: `clip created but job update failed: ${updErr.message}`, video_row_id: videoRowId, uid }, { status: 500 })
+      // The proposal couldn't be marked approved — un-publish the just-created
+      // clip so an UNAPPROVED clip can never be left live in Browse/Explore/clips.
+      await supabase.from("videos").delete().eq("id", videoRowId)
+      return NextResponse.json({ error: `clip publish failed (rolled back): ${updErr.message}` }, { status: 500 })
     }
 
     return NextResponse.json({ video_row_id: videoRowId, uid, status: "approved" })

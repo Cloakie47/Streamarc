@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { sendVerificationCode, generateCode } from "@/app/lib/email"
+import { withDeadline } from "@/app/lib/with-timeout"
+import { rateLimit, clientIp } from "@/app/lib/rate-limit"
 
 export async function POST(req: NextRequest) {
   try {
+    // Per-IP throttle: no user exists yet, so key on the client IP to stop
+    // account-creation + verification-email spam.
+    const rl = rateLimit(`signup:${clientIp(req)}`, 5, 10 * 60_000)
+    if (!rl.ok) {
+      return NextResponse.json({ error: "Too many signup attempts, try again shortly." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } })
+    }
+
     const { email, password } = await req.json()
 
     if (!email || !password) {
@@ -87,8 +96,18 @@ export async function POST(req: NextRequest) {
       expires_at: expiresAt,
     })
 
-    // Send email
-    await sendVerificationCode(email, code)
+    // Send the code. Bounded so a hung SMTP connection (common on hosts that
+    // block outbound SMTP) can't leave the signup request — and the client
+    // spinner — stuck forever. On failure we surface a clear, retryable error.
+    try {
+      await withDeadline(sendVerificationCode(email, code), 15000, "verification email")
+    } catch (mailErr: any) {
+      console.error("Signup email send failed:", mailErr?.message)
+      return NextResponse.json(
+        { error: "Couldn't send the verification email — please try again in a moment." },
+        { status: 502 },
+      )
+    }
 
     return NextResponse.json({ success: true, user_id: userId })
   } catch (err: any) {

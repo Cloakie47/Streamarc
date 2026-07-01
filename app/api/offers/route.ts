@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { createNotification } from "@/app/lib/notify"
+import { getActingUser } from "@/app/lib/require-user"
 
 export async function POST(req: NextRequest) {
   try {
-    const { action, video_id, buyer_id, offer_id, owner_id, amount } = await req.json()
+    // The acting user comes from the SESSION. It is both the "buyer" (when
+    // making/withdrawing an offer) and the "owner" (when listing/declining/
+    // toggling) — never trusted from the body. Ownership checks below compare
+    // the resource owner against this session id.
+    const actor = await getActingUser()
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+
+    const { action, video_id, offer_id, amount } = await req.json()
+    const buyer_id = actor.id
+    const owner_id = actor.id
 
     if (!action) {
       return NextResponse.json({ error: "action required" }, { status: 400 })

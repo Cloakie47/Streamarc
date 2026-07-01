@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { auth } from "@/app/lib/auth"
 import { MIN_AI_CLIP_SECONDS } from "@/app/lib/clip-config"
+import { rateLimit } from "@/app/lib/rate-limit"
+
+// Sane ceiling for a single clip job's budget cap (USDC). The agent only ever
+// spends what it consumes per chunk; this just blocks fat-finger / abusive values.
+const MAX_CLIP_BUDGET_USDC = 5
 
 // POST /api/agent/enqueue-ui
 // Browser-facing enqueue. Authenticates via the NextAuth session (NOT the
@@ -16,9 +21,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
 
+    const rl = rateLimit(`enqueue-ui:${session.user.id}`, 5, 60_000)
+    if (!rl.ok) {
+      return NextResponse.json({ error: "Too many clip jobs, try again shortly." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } })
+    }
+
     const { video_id, budget_usdc, goal } = await req.json()
-    if (!video_id || !(Number(budget_usdc) > 0)) {
+    const budget = Number(budget_usdc)
+    if (!video_id || !Number.isFinite(budget) || budget <= 0) {
       return NextResponse.json({ error: "video_id and a positive budget_usdc are required" }, { status: 400 })
+    }
+    if (budget > MAX_CLIP_BUDGET_USDC) {
+      return NextResponse.json({ error: `Budget too large — max is $${MAX_CLIP_BUDGET_USDC.toFixed(2)} per clip job` }, { status: 400 })
     }
 
     const supabase = getSupabaseAdmin()

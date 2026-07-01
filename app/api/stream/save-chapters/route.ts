@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
+import { getActingUser } from "@/app/lib/require-user";
 
 export async function POST(req: NextRequest) {
   try {
-    const { video_id, chapters, user_id } = await req.json();
+    // Editor = the AUTHENTICATED user, not a body-supplied user_id.
+    const actor = await getActingUser();
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const user_id = actor.id;
+
+    const { video_id, chapters } = await req.json();
 
     if (!video_id || !chapters) {
       return NextResponse.json({ error: "video_id and chapters required" }, { status: 400 });
-    }
-
-    if (!user_id) {
-      return NextResponse.json({ error: "user_id required" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();

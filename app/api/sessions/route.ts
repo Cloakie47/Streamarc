@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets"
+import { getActingUser } from "@/app/lib/require-user"
 
 const client = initiateDeveloperControlledWalletsClient({
   apiKey: process.env.CIRCLE_API_KEY!,
@@ -18,10 +19,14 @@ async function getWalletId(address: string): Promise<string | null> {
 
 export async function POST(req: NextRequest) {
   try {
+    // Viewer/payer = the AUTHENTICATED user, never a body-supplied viewer_id.
+    const actor = await getActingUser()
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    const viewer_id = actor.id
+
     const body = await req.json()
     const {
       session_id,
-      viewer_id,
       creator_id,
       video_id,
       seconds_covered,
@@ -91,7 +96,6 @@ export async function POST(req: NextRequest) {
 
     if (
       session_id == null ||
-      !viewer_id ||
       !creator_id ||
       !video_id ||
       typeof seconds_covered !== "number"
@@ -99,13 +103,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "session_id, viewer_id, creator_id, video_id, and seconds_covered are required for payment",
+            "session_id, creator_id, video_id, and seconds_covered are required for payment",
         },
         { status: 400 },
       )
     }
 
-    const amount = seconds_covered * 0.00003
+    // The session must belong to the authenticated viewer; and clamp the reported
+    // seconds to wall-clock elapsed (+5s) so the amount can't be inflated. This
+    // bounds the AMOUNT only — the settlement math is unchanged.
+    const { data: sessionRow } = await getSupabaseAdmin()
+      .from("watch_sessions")
+      .select("id, started_at")
+      .eq("id", session_id)
+      .eq("viewer_id", viewer_id)
+      .single()
+    if (!sessionRow) {
+      return NextResponse.json({ error: "Invalid session" }, { status: 403 })
+    }
+    const elapsedSeconds = sessionRow.started_at ? (Date.now() - new Date(sessionRow.started_at).getTime()) / 1000 : seconds_covered
+    const clampedSeconds = Math.max(0, Math.min(Number(seconds_covered) || 0, Math.ceil(elapsedSeconds) + 5))
+
+    const amount = clampedSeconds * 0.00003
     const platform_fee = amount * 0.20
     const net_amount = amount - platform_fee
 
@@ -182,7 +201,7 @@ export async function POST(req: NextRequest) {
         creator_id,
         video_id,
         amount,
-        seconds_covered,
+        seconds_covered: clampedSeconds,
         chain: "arcTestnet",
         tx_hash: txHash,
         status: "settled",

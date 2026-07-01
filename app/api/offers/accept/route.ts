@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { createNotification } from "@/app/lib/notify"
 import { getWalletIdByAddress, signTypedDataWithWallet } from "@/app/lib/circle-wallets"
+import { getActingUser } from "@/app/lib/require-user"
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server"
 
 const facilitator = new BatchFacilitatorClient()
@@ -111,10 +112,16 @@ async function settlePayment(
 
 export async function POST(req: NextRequest) {
   try {
-    const { offer_id, owner_id } = await req.json()
+    // The acceptor must be the AUTHENTICATED video owner. The buyer (payer) is
+    // taken from the offer row in the DB, never from the request body.
+    const actor = await getActingUser()
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    const owner_id = actor.id
 
-    if (!offer_id || !owner_id) {
-      return NextResponse.json({ error: "offer_id and owner_id required" }, { status: 400 })
+    const { offer_id } = await req.json()
+
+    if (!offer_id) {
+      return NextResponse.json({ error: "offer_id required" }, { status: 400 })
     }
 
     const supabase = getSupabaseAdmin()

@@ -6,6 +6,7 @@ import { createPublicClient, http, erc20Abi, type Chain } from "viem"
 import { arcTestnet, baseSepolia, avalancheFuji, sepolia } from "viem/chains"
 import { SUPPORTED_CHAINS } from "@/app/lib/chains"
 import { deriveChainWallet } from "@/app/lib/circle-wallets"
+import { getActingUser } from "@/app/lib/require-user"
 
 const VIEM_CHAINS: Record<string, Chain> = {
   Arc_Testnet: arcTestnet,
@@ -57,13 +58,17 @@ export async function POST(req: NextRequest) {
   let chainId = "Arc_Testnet"
   let sendAmount = 0
   try {
+    // Source wallet = the AUTHENTICATED user, never a body-supplied user_id.
+    const actor = await getActingUser()
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+    user_id = actor.id
+
     const body = await req.json()
-    user_id = body.user_id
     const { destination_address, amount, source_chain } = body
 
-    if (!user_id || !destination_address || !amount) {
+    if (!destination_address || !amount) {
       return NextResponse.json(
-        { error: "user_id, destination_address and amount required" },
+        { error: "destination_address and amount required" },
         { status: 400 },
       )
     }

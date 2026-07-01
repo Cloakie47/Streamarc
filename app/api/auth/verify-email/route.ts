@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { createGatewayWallet } from "@/app/lib/circle-wallets"
+import { withTimeout } from "@/app/lib/with-timeout"
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,7 +37,12 @@ export async function POST(req: NextRequest) {
       .update({ email_verified: true })
       .eq("id", user_id)
 
-    const wallet = await createGatewayWallet(user_id)
+    // Wallet creation must NEVER block verification. If Circle is slow/unreachable
+    // (a hung SDK call would otherwise leave the signup spinner stuck forever),
+    // bound it and return success anyway — the wallet is created lazily on the
+    // first balance fetch (see /api/gateway/balance). createGatewayWallet is
+    // idempotent (keyed by refId=user_id), so the retry is safe.
+    const wallet = await withTimeout(createGatewayWallet(user_id), 20000, null)
     if (wallet) {
       await getSupabaseAdmin()
         .from("users")
@@ -47,6 +53,8 @@ export async function POST(req: NextRequest) {
           eoa_wallet_address: wallet.eoaAddress,
         })
         .eq("id", user_id)
+    } else {
+      console.warn(`verify-email: wallet not ready in time for ${user_id} — will create lazily on first balance fetch`)
     }
 
     return NextResponse.json({ success: true, wallet_address: wallet?.address ?? null })

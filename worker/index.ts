@@ -14,6 +14,7 @@
 import "../lib/agent/env.ts"
 import { getSupabaseAdmin } from "../app/lib/supabase-server.ts"
 import { runClipAgent, type DecisionEntry } from "../lib/agent/pipeline.ts"
+import { runCaptionJob } from "../lib/captions/pipeline.ts"
 
 const POLL_INTERVAL_MS = 5000
 
@@ -91,20 +92,76 @@ async function processJob(supabase: Supabase, job: AgentJob): Promise<void> {
   }
 }
 
+// ---------------- caption jobs (paid multi-language subtitles) ----------------
+interface CaptionJob {
+  id: string
+  video_id: string
+  language: string
+  requester_id: string | null
+}
+
+/** Claim the oldest queued caption job (queued -> running), optimistically. */
+async function claimNextCaptionJob(supabase: Supabase): Promise<CaptionJob | null> {
+  const { data: queued, error } = await supabase
+    .from("caption_jobs")
+    .select("id, video_id, language, requester_id")
+    .eq("status", "queued")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new Error(`caption queue poll failed: ${error.message}`)
+  if (!queued) return null
+
+  const { data: claimed, error: claimErr } = await supabase
+    .from("caption_jobs")
+    .update({ status: "running", updated_at: new Date().toISOString() })
+    .eq("id", queued.id)
+    .eq("status", "queued")
+    .select("id, video_id, language, requester_id")
+    .maybeSingle()
+  if (claimErr) throw new Error(`caption job claim failed: ${claimErr.message}`)
+  return claimed ?? null
+}
+
+async function processCaptionJob(supabase: Supabase, job: CaptionJob): Promise<void> {
+  console.log(`[worker] caption job ${job.id} (video ${job.video_id}, lang ${job.language})`)
+  try {
+    const result = await runCaptionJob(supabase, { videoId: job.video_id, language: job.language, requesterId: job.requester_id })
+    const { error } = await supabase
+      .from("caption_jobs")
+      .update({ status: result.status, charged: result.charged, circle_tx: result.circleTx, error: result.error, updated_at: new Date().toISOString() })
+      .eq("id", job.id)
+    if (error) throw new Error(`failed to write caption job status: ${error.message}`)
+    console.log(`[worker] caption job ${job.id} -> ${result.status}${result.charged ? ` (charged ${result.charged})` : ""}`)
+  } catch (err) {
+    const message = (err as Error)?.message ?? String(err)
+    console.error(`[worker] caption job ${job.id} failed: ${message}`)
+    const { error: writeErr } = await supabase
+      .from("caption_jobs")
+      .update({ status: "failed", error: message, updated_at: new Date().toISOString() })
+      .eq("id", job.id)
+    if (writeErr) console.error(`[worker] CRITICAL: could not write caption 'failed' for ${job.id}: ${writeErr.message}`)
+  }
+}
+
 async function main() {
   const supabase = getSupabaseAdmin()
-  console.log(`[worker] clip-agent worker started; polling agent_jobs every ${POLL_INTERVAL_MS / 1000}s`)
+  console.log(`[worker] worker started; polling agent_jobs + caption_jobs every ${POLL_INTERVAL_MS / 1000}s`)
 
   for (;;) {
     let job: AgentJob | null = null
+    let captionJob: CaptionJob | null = null
     try {
       job = await claimNextJob(supabase)
+      if (!job) captionJob = await claimNextCaptionJob(supabase)
     } catch (err) {
       console.error(`[worker] poll error: ${(err as Error)?.message ?? err}`)
     }
 
     if (job) {
       await processJob(supabase, job) // serial: one job at a time
+    } else if (captionJob) {
+      await processCaptionJob(supabase, captionJob)
     } else {
       await sleep(POLL_INTERVAL_MS)
     }

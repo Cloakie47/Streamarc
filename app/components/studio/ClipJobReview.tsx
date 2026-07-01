@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import Link from "next/link"
 import { Stream, type StreamPlayerApi } from "@cloudflare/stream-react"
-import { Scissors, Loader2, ChevronDown, ChevronRight } from "lucide-react"
+import { Scissors, Loader2, ChevronDown, ChevronRight, ArrowLeft } from "lucide-react"
 import TrimSelector from "@/app/components/studio/TrimSelector"
 
 interface DecisionEntry {
@@ -115,6 +116,9 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
     async function tick() {
       const data = await fetchJob()
       if (!active) return
+      // The agent charges the wallet per chunk as the job runs — refresh the
+      // displayed balance on each poll so it reflects the ongoing/final spend.
+      if (data) window.dispatchEvent(new CustomEvent("gateway-balance-updated"))
       if (data && TERMINAL_STATUSES.has(data.status)) return
       timer = setTimeout(tick, 3000)
     }
@@ -137,6 +141,12 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
 
   return (
     <div className="mx-auto w-full max-w-[680px] px-4 py-6 flex flex-col gap-5">
+      {/* Back to the clip jobs list */}
+      <Link href="/studio/clips" className="inline-flex items-center gap-1.5 self-start text-sm text-muted-foreground hover:text-foreground transition-colors">
+        <ArrowLeft size={16} />
+        Clip Jobs
+      </Link>
+
       {/* Status header */}
       <div className="flex items-center gap-3">
         <span className={`flex h-10 w-10 items-center justify-center rounded-xl border ${isFailed ? "border-rose-500/30 bg-rose-500/10 text-rose-400" : "border-primary/20 bg-primary/10 text-primary"}`}>

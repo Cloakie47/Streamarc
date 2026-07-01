@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
 import { createNotification } from "@/app/lib/notify";
 import { getWalletIdByAddress, signTypedDataWithWallet } from "@/app/lib/circle-wallets";
+import { getActingUser } from "@/app/lib/require-user";
+import { rateLimit } from "@/app/lib/rate-limit";
+import { fetchUnifiedGatewayBalance } from "@/app/lib/gateway-balance";
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
 
 const facilitator = new BatchFacilitatorClient();
@@ -20,18 +23,31 @@ function randomNonce(): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { viewer_id, creator_id, video_id, amount } = await req.json();
+    // Payer = the AUTHENTICATED user, never a body-supplied viewer_id.
+    const actor = await getActingUser();
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const viewer_id = actor.id;
 
-    if (!viewer_id || !creator_id || !amount) {
+    const rl = rateLimit(`tip:${viewer_id}`, 10, 60_000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: "Too many tips, try again shortly." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+    }
+
+    const { creator_id, video_id, amount } = await req.json();
+
+    if (!creator_id || !amount) {
       return NextResponse.json(
-        { error: "viewer_id, creator_id and amount required" },
+        { error: "creator_id and amount required" },
         { status: 400 },
       );
     }
 
     const tipAmount = parseFloat(amount);
-    if (Number.isNaN(tipAmount) || tipAmount < 0.001) {
+    if (!Number.isFinite(tipAmount) || tipAmount < 0.001) {
       return NextResponse.json({ error: "Minimum tip is $0.001" }, { status: 400 });
+    }
+    if (tipAmount > 10000) {
+      return NextResponse.json({ error: "Tip amount is too large" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
@@ -59,6 +75,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "You cannot tip yourself" }, { status: 400 });
     }
 
+    // Cap the tip at the tipper's spendable balance (ARC domain 26) so a request
+    // can't attempt to move more than they have. Settlement math is unchanged.
+    const bal = await fetchUnifiedGatewayBalance(viewer.wallet_address as string);
+    const arc = bal.chainBalances.find((b) => b.domain === 26);
+    const spendable = arc ? parseFloat(arc.balance || "0") : 0;
+    if (tipAmount > spendable + 1e-9) {
+      return NextResponse.json({ error: "Insufficient balance for this tip" }, { status: 400 });
+    }
+
     const viewerRow = viewer as { wallet_address: string; circle_wallet_id?: string | null };
     const viewerWalletId =
       viewerRow.circle_wallet_id ?? (await getWalletIdByAddress(viewerRow.wallet_address));
@@ -68,7 +93,14 @@ export async function POST(req: NextRequest) {
 
     const amountIn6Dec = Math.round(tipAmount * 1e6).toString();
     const nonce = randomNonce();
-    const validBefore = (Math.floor(Date.now() / 1000) + 345600).toString();
+    // Match the working per-second / clip settlements (settle-core): a generous
+    // 30-day window with a 600s clock-skew backdate. The old 4-day window equalled
+    // maxTimeoutSeconds exactly, so any latency made the remaining validity < the
+    // declared timeout → "authorization_validity too short".
+    const now = Math.floor(Date.now() / 1000);
+    const validAfter = (now - 600).toString();
+    const validBefore = (now + 2592000).toString();
+    const MAX_TIMEOUT_SECONDS = 2592000;
 
     const domain = {
       name: "GatewayWalletBatched",
@@ -97,7 +129,7 @@ export async function POST(req: NextRequest) {
         from: viewer.wallet_address,
         to: creator.wallet_address,
         value: amountIn6Dec,
-        validAfter: "0",
+        validAfter,
         validBefore,
         nonce,
       },
@@ -123,7 +155,7 @@ export async function POST(req: NextRequest) {
         asset: USDC_ADDRESS,
         amount: amountIn6Dec,
         payTo: creator.wallet_address,
-        maxTimeoutSeconds: 345600,
+        maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
         extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: GATEWAY_WALLET },
       },
       payload: {
@@ -132,7 +164,7 @@ export async function POST(req: NextRequest) {
           from: viewer.wallet_address,
           to: creator.wallet_address,
           value: amountIn6Dec,
-          validAfter: "0",
+          validAfter,
           validBefore,
           nonce,
         },
@@ -148,7 +180,7 @@ export async function POST(req: NextRequest) {
       description: "StreamArc tip",
       mimeType: "application/json",
       payTo: creator.wallet_address,
-      maxTimeoutSeconds: 345600,
+      maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
       asset: USDC_ADDRESS,
       extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: GATEWAY_WALLET },
     };

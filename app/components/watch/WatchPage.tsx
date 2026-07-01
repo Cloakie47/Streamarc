@@ -170,11 +170,32 @@ export default function WatchPage({
   // the player with defaultTextTrack; we preserve the playback position so the
   // viewer payment flow keeps tracking from where they were.
   const [captionLang, setCaptionLang] = useState<string | null>(null);
+  // Bumping this forces a player remount without changing the language — used to
+  // re-fetch the HLS manifest once after a caption turns on, since the manifest
+  // can lag behind Cloudflare's "ready" status (the no-caption-icon race).
+  const [captionNonce, setCaptionNonce] = useState(0);
   const captionResumeRef = useRef(0);
   const applyCaption = (lang: string | null) => {
     captionResumeRef.current = streamRef.current?.currentTime ?? 0;
     setCaptionLang(lang);
+    setCaptionNonce((n) => n + 1);
   };
+  // After turning a caption ON, re-remount the player a couple of times (3s and
+  // 8s later) so it reloads a manifest that now lists the freshly-ready track —
+  // the CDN edge serving the iframe can lag the one our playability check hit.
+  useEffect(() => {
+    if (!captionLang) return;
+    const bump = () => {
+      captionResumeRef.current = streamRef.current?.currentTime ?? captionResumeRef.current;
+      setCaptionNonce((n) => n + 1);
+    };
+    const t1 = setTimeout(bump, 3000);
+    const t2 = setTimeout(bump, 8000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [captionLang]);
 
   const handlePlay = () => {
     if (!playing && !isOwnVideo && balance < 0.001) {
@@ -400,6 +421,30 @@ export default function WatchPage({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [openMenuCommentId]);
+
+  // Keep the stats strip's balance in sync with the sidebar: both refresh from
+  // the same shared event (dispatched after caption/clip/tip charges). Without
+  // this the sidebar re-fetched but this page's local balance went stale.
+  useEffect(() => {
+    if (!VIEWER_ID) return;
+    const refresh = () => {
+      fetch("/api/gateway/balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: VIEWER_ID }),
+      })
+        .then((r) => r.json())
+        .then((data: { balance?: number }) => {
+          if (typeof data.balance === "number") {
+            setBalance(data.balance);
+            initialBalanceRef.current = data.balance;
+          }
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("gateway-balance-updated", refresh);
+    return () => window.removeEventListener("gateway-balance-updated", refresh);
+  }, [VIEWER_ID]);
 
   const cost = isOwnVideo || free ? 0 : (secs - freePreviewSeconds) * ratePerSecond;
   const paidSecs = isOwnVideo || free ? 0 : secs - freePreviewSeconds;
@@ -647,7 +692,7 @@ export default function WatchPage({
               </div>
             ) : cloudflareUid ? (
               <Stream
-                key={`${cloudflareUid}-${captionLang ?? "none"}`}
+                key={`${cloudflareUid}-${captionLang ?? "none"}-${captionNonce}`}
                 streamRef={streamRef}
                 src={cloudflareUid}
                 defaultTextTrack={captionLang ?? undefined}
@@ -908,7 +953,7 @@ export default function WatchPage({
           )}
 
           {/* Subtitles — available to everyone; generate paid translations */}
-          <SubtitlesControl videoId={videoId} activeLang={captionLang} onActivate={applyCaption} />
+          <SubtitlesControl videoId={videoId} cloudflareUid={cloudflareUid} activeLang={captionLang} onActivate={applyCaption} />
 
           {/* Description */}
           {description && (

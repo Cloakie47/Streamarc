@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/app/lib/supabase-server";
+import { getActingUser } from "@/app/lib/require-user";
 
 export async function POST(req: NextRequest) {
   try {
-    const { video_id, user_id, admin_id } = await req.json();
-    const actorId = user_id ?? admin_id;
+    // Actor = the AUTHENTICATED user; the owner check compares against this, not
+    // a body-supplied user_id/admin_id (which an attacker sets to the real owner).
+    const actor = await getActingUser();
+    if (!actor) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const actorId = actor.id;
 
-    if (!video_id || !actorId) {
-      return NextResponse.json({ error: "video_id and user_id (or admin_id) required" }, { status: 400 });
+    const { video_id } = await req.json();
+    if (!video_id) {
+      return NextResponse.json({ error: "video_id required" }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
 
     const { data: video } = await supabase
       .from("videos")
-      .select("id, creator_id, cloudflare_uid")
+      .select("id, creator_id, owner_id, cloudflare_uid")
       .eq("id", video_id)
       .single();
 
@@ -28,7 +33,8 @@ export async function POST(req: NextRequest) {
       .eq("id", actorId)
       .single();
 
-    if (video.creator_id !== actorId && !adminCheck?.is_admin) {
+    const ownerId = video.owner_id ?? video.creator_id;
+    if (ownerId !== actorId && !adminCheck?.is_admin) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
