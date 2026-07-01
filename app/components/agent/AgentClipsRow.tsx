@@ -29,6 +29,10 @@ export default function AgentClipsRow({ clips }: { clips: AgentClipCard[] }) {
               <img
                 src={`https://videodelivery.net/${c.uid}/thumbnails/thumbnail.jpg?height=360`}
                 alt={c.title}
+                width={176}
+                height={99}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover transition-transform group-hover:scale-105"
               />
               {c.confidence > 0 && (

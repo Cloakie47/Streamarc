@@ -202,6 +202,10 @@ export default function FavouritesPage({ userId }: { userId: string }) {
                   <img
                     src={posterUrl(firstVideo)!}
                     alt=""
+                    width={640}
+                    height={360}
+                    loading="lazy"
+                    decoding="async"
                     className="h-full w-full object-cover"
                   />
                 ) : (
@@ -288,7 +292,7 @@ export default function FavouritesPage({ userId }: { userId: string }) {
                         className="relative h-[94px] w-[168px] shrink-0 overflow-hidden rounded-lg bg-black/50 text-left"
                       >
                         {thumb ? (
-                          <img src={thumb} alt="" className="h-full w-full object-cover" />
+                          <img src={thumb} alt="" width={168} height={94} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center bg-[#0e1420]">
                             <Heart size={24} className="text-red-400/35" />

@@ -386,6 +386,10 @@ export default function CreatorProfile({
                         <img
                           src={video.thumbnail_url}
                           alt={video.title}
+                          width={640}
+                          height={360}
+                          loading="lazy"
+                          decoding="async"
                           className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 ${hoveredVideoId === video.id ? "preview-kenburns" : ""}`}
                         />
                       )}

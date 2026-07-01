@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
-import { fetchUnifiedGatewayBalance } from "@/app/lib/gateway-balance"
 
 type Supabase = ReturnType<typeof getSupabaseAdmin>
 
@@ -51,22 +50,6 @@ async function getComments(supabase: Supabase, video_id: string) {
   return data ?? []
 }
 
-async function getBalance(supabase: Supabase, user_id: string): Promise<number> {
-  const { data: user } = await supabase
-    .from("users")
-    .select("wallet_address, circle_wallet_id")
-    .eq("id", user_id)
-    .single()
-
-  if (!user?.wallet_address || !user?.circle_wallet_id) return 0
-
-  // Settlement pulls from ARC domain 26 only, so the watch page should gate
-  // and display the ARC-spendable amount, not the unified total.
-  const result = await fetchUnifiedGatewayBalance(user.wallet_address as string)
-  const arcChain = result.chainBalances.find((b) => b.domain === 26)
-  return arcChain ? parseFloat(arcChain.balance || "0") : 0
-}
-
 export async function POST(req: NextRequest) {
   try {
     const { video_id, user_id } = await req.json()
@@ -84,19 +67,20 @@ export async function POST(req: NextRequest) {
         favorited: false,
         following: false,
         comments,
-        balance: 0,
       })
     }
 
-    const [watchlisted, favorited, following, comments, balance] = await Promise.all([
+    // Balance is deliberately NOT fetched here: it blocks on Circle/RPC and
+    // would hold up comments + user state. The client fills it in async via
+    // the dedicated /api/gateway/balance endpoint (timeout-bounded + cached).
+    const [watchlisted, favorited, following, comments] = await Promise.all([
       getWatchlisted(supabase, user_id, video_id),
       getFavorited(supabase, user_id, video_id),
       getFollowingForVideo(supabase, user_id, video_id),
       getComments(supabase, video_id),
-      getBalance(supabase, user_id),
     ])
 
-    return NextResponse.json({ watchlisted, favorited, following, comments, balance })
+    return NextResponse.json({ watchlisted, favorited, following, comments })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error("Watch init failed:", message)

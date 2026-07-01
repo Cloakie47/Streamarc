@@ -176,6 +176,10 @@ export function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: s
           <img
             src={video.thumbnailUrl}
             alt={video.title}
+            width={640}
+            height={360}
+            loading="lazy"
+            decoding="async"
             className="absolute inset-0 h-full w-full object-cover z-[1] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105"
           />
         ) : (
@@ -248,7 +252,7 @@ export function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: s
       <div className="flex gap-3 px-1">
         <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-sa-border bg-sa-surface-2 text-[10px] font-bold">
           {video.creatorAvatarUrl ? (
-            <img src={video.creatorAvatarUrl} alt="" className="h-full w-full object-cover" />
+            <img src={video.creatorAvatarUrl} alt="" width={36} height={36} loading="lazy" decoding="async" className="h-full w-full object-cover" />
           ) : (
             video.projectAvatar
           )}

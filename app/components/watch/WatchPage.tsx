@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Stream } from "@cloudflare/stream-react";
@@ -134,6 +134,10 @@ export default function WatchPage({
   };
 
   const [balance, setBalance] = useState(userBalance || 0);
+  // True when the balance endpoint reported "unknown" (upstream read timed out
+  // with no cached value). An unknown balance must never gate playback — only
+  // a CONFIRMED low balance may show the insufficient-balance overlay.
+  const [balanceUnknown, setBalanceUnknown] = useState(false);
   const [tipAmount, setTipAmount] = useState("");
   const [tipping, setTipping] = useState(false);
   const [tipSuccess, setTipSuccess] = useState(false);
@@ -207,6 +211,14 @@ export default function WatchPage({
         })
           .then((r) => r.json())
           .then((data) => {
+            if (typeof data.balance !== "number") {
+              // Balance unknown (upstream read timed out and no cached value).
+              // Never gate playback on a timeout — settlement still enforces
+              // real funds per chunk; this check is only a UX gate.
+              setShowTopUpPrompt(false);
+              setPlaying(true);
+              return;
+            }
             if (data.balance > 0.001) {
               setBalance(data.balance);
               initialBalanceRef.current = data.balance;
@@ -397,16 +409,11 @@ export default function WatchPage({
         favorited?: boolean;
         following?: boolean;
         comments?: CommentItem[];
-        balance?: number;
       }) => {
         setSavedToWatchlist(!!data.watchlisted);
         setFavorited(!!data.favorited);
         setFollowing(!!data.following);
         setComments(data.comments ?? []);
-        if (typeof data.balance === "number") {
-          setBalance(data.balance);
-          initialBalanceRef.current = data.balance;
-        }
       })
       .catch(() => {})
       .finally(() => setLoadingComments(false));
@@ -423,8 +430,9 @@ export default function WatchPage({
   }, [openMenuCommentId]);
 
   // Keep the stats strip's balance in sync with the sidebar: both refresh from
-  // the same shared event (dispatched after caption/clip/tip charges). Without
-  // this the sidebar re-fetched but this page's local balance went stale.
+  // the same shared event (dispatched after caption/clip/tip charges). Also
+  // runs once on mount — /api/watch/init no longer carries balance (it would
+  // block comments/user-state on Circle), so this fetch fills it in async.
   useEffect(() => {
     if (!VIEWER_ID) return;
     const refresh = () => {
@@ -438,13 +446,47 @@ export default function WatchPage({
           if (typeof data.balance === "number") {
             setBalance(data.balance);
             initialBalanceRef.current = data.balance;
+            setBalanceUnknown(false);
+          } else {
+            setBalanceUnknown(true);
           }
         })
         .catch(() => {});
     };
+    refresh();
     window.addEventListener("gateway-balance-updated", refresh);
     return () => window.removeEventListener("gateway-balance-updated", refresh);
   }, [VIEWER_ID]);
+
+  // Memoized player element: the 1s playback tick re-renders WatchPage, but the
+  // <Stream> iframe must not reconcile every second. The element identity only
+  // changes when its key inputs do (uid / caption / nonce — the same things
+  // that drive its remount key), so React bails out of this subtree on ticks.
+  // Handlers only touch stable setState functions; captionResumeRef is read at
+  // element-creation time, which coincides exactly with remounts (key change).
+  const playerElement = useMemo(() => {
+    if (!cloudflareUid) return null;
+    return (
+      <Stream
+        key={`${cloudflareUid}-${captionLang ?? "none"}-${captionNonce}`}
+        streamRef={streamRef}
+        src={cloudflareUid}
+        defaultTextTrack={captionLang ?? undefined}
+        startTime={captionResumeRef.current || undefined}
+        className="absolute inset-0 w-full h-full z-[1]"
+        controls
+        onPlaying={() => {
+          setBuffering(false);
+          setPlaying(true);
+        }}
+        onPause={() => setPlaying(false)}
+        onWaiting={() => setBuffering(true)}
+        onEnded={() => setPlaying(false)}
+        onSeeking={() => setPlaying(false)}
+        onSeeked={() => setPlaying(true)}
+      />
+    );
+  }, [cloudflareUid, captionLang, captionNonce]);
 
   const cost = isOwnVideo || free ? 0 : (secs - freePreviewSeconds) * ratePerSecond;
   const paidSecs = isOwnVideo || free ? 0 : secs - freePreviewSeconds;
@@ -523,7 +565,7 @@ export default function WatchPage({
     }
   };
 
-  const handleComment = async () => {
+  const handleComment = useCallback(async () => {
     if (!VIEWER_ID || !commentText.trim()) return;
     setSubmittingComment(true);
     try {
@@ -546,9 +588,9 @@ export default function WatchPage({
     } finally {
       setSubmittingComment(false);
     }
-  };
+  }, [VIEWER_ID, commentText, videoId]);
 
-  const handleDeleteComment = async (commentId: string) => {
+  const handleDeleteComment = useCallback(async (commentId: string) => {
     if (!VIEWER_ID) return;
     if (!window.confirm("Delete this comment?")) return;
     setOpenMenuCommentId(null);
@@ -558,9 +600,9 @@ export default function WatchPage({
       body: JSON.stringify({ comment_id: commentId, user_id: VIEWER_ID, action: "delete" }),
     });
     setComments((prev) => prev.filter((c) => c.id !== commentId));
-  };
+  }, [VIEWER_ID]);
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = useCallback(async () => {
     if (!VIEWER_ID || !editingCommentId || !editCommentText.trim()) return;
     setSavingEdit(true);
     try {
@@ -584,12 +626,189 @@ export default function WatchPage({
     } finally {
       setSavingEdit(false);
     }
-  };
+  }, [VIEWER_ID, editingCommentId, editCommentText]);
 
-  const cancelEdit = () => {
+  const cancelEdit = useCallback(() => {
     setEditingCommentId(null);
     setEditCommentText("");
-  };
+  }, []);
+
+  // Memoized comments panel: up to 50 rows that don't depend on the 1s playback
+  // tick (secs/balance), so keep the element identity stable across ticks and
+  // let React skip reconciling the subtree. Handlers are useCallback'd so deps
+  // only change on real comment interactions. (Trade-off: "Xm ago" labels no
+  // longer refresh every second — they update on the next comment interaction.)
+  const commentsPanel = useMemo(() => (
+    <div className="panel mt-6 flex flex-col gap-4 rounded-2xl px-4 py-5">
+      <h3 className="mb-1 flex items-center gap-2 text-lg font-bold">
+        <MessageSquare size={20} className="shrink-0 text-sa-text-3" />
+        <span>Comments</span>
+        {comments.length > 0 && (
+          <span className="text-sm font-normal text-muted-foreground">({comments.length})</span>
+        )}
+      </h3>
+
+      {VIEWER_ID && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <textarea
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            placeholder="Add a comment..."
+            rows={2}
+            className="min-h-[72px] flex-1 resize-none rounded-xl border border-sa-border bg-sa-surface-2 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <button
+            type="button"
+            onClick={() => void handleComment()}
+            disabled={submittingComment || !commentText.trim()}
+            className="btn btn-primary inline-flex shrink-0 items-center justify-center gap-2 disabled:opacity-50 sm:min-w-[100px]"
+            aria-label="Post comment"
+          >
+            <Send size={16} />
+            <span>Post</span>
+          </button>
+        </div>
+      )}
+
+      {loadingComments ? (
+        <div className="flex flex-col gap-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-16 animate-pulse rounded-xl bg-sa-surface" />
+          ))}
+        </div>
+      ) : comments.length === 0 ? (
+        <p className="py-2 text-sm text-muted-foreground">No comments yet. Be the first to comment!</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {comments.map((comment) => {
+            const u = commentUser(comment.users);
+            const name = u?.channel_name || u?.display_name || "User";
+            const initial = name.slice(0, 1).toUpperCase();
+            const isOwn = comment.user_id === VIEWER_ID;
+            const date = new Date(comment.created_at);
+            const ago = Math.floor((Date.now() - date.getTime()) / 60000);
+            const timeAgo =
+              ago < 1
+                ? "just now"
+                : ago < 60
+                  ? `${ago}m ago`
+                  : ago < 1440
+                    ? `${Math.floor(ago / 60)}h ago`
+                    : `${Math.floor(ago / 1440)}d ago`;
+            const isEditing = editingCommentId === comment.id;
+            return (
+              <div key={comment.id} className="flex gap-3 rounded-xl border border-transparent py-1 transition-colors hover:border-sa-border/60 hover:bg-white/[0.02]">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-xs font-bold text-primary">
+                  {u?.avatar_url ? (
+                    <img src={u.avatar_url} alt={name} width={36} height={36} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                  ) : (
+                    initial
+                  )}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">{name}</span>
+                    <span className="text-xs text-muted-foreground">{timeAgo}</span>
+                    {isOwn && (
+                      <div
+                        className="relative ml-auto shrink-0"
+                        ref={openMenuCommentId === comment.id ? commentMenuRef : undefined}
+                      >
+                        <button
+                          type="button"
+                          aria-label="Comment actions"
+                          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuCommentId((id) => (id === comment.id ? null : comment.id));
+                          }}
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                        {openMenuCommentId === comment.id && (
+                          <div className="absolute right-0 top-9 z-20 min-w-[140px] rounded-lg border border-sa-border bg-sa-surface py-1 shadow-lg">
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-white/[0.06]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuCommentId(null);
+                                setEditingCommentId(comment.id);
+                                setEditCommentText(comment.content);
+                              }}
+                            >
+                              <Pencil size={14} className="text-muted-foreground" />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-white/[0.06]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuCommentId(null);
+                                void handleDeleteComment(comment.id);
+                              }}
+                            >
+                              <Trash2 size={14} />
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {isEditing ? (
+                    <div className="flex flex-col gap-2">
+                      <textarea
+                        value={editCommentText}
+                        onChange={(e) => setEditCommentText(e.target.value)}
+                        rows={3}
+                        className="w-full resize-none rounded-lg border border-sa-border bg-sa-surface-2 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={savingEdit || !editCommentText.trim()}
+                          onClick={() => void handleSaveEdit()}
+                          className="btn btn-primary btn-sm disabled:opacity-50"
+                        >
+                          {savingEdit ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={savingEdit}
+                          className="btn btn-sm border border-sa-border bg-transparent text-foreground hover:bg-white/[0.06]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-relaxed text-foreground">{comment.content}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  ), [
+    VIEWER_ID,
+    comments,
+    loadingComments,
+    commentText,
+    submittingComment,
+    openMenuCommentId,
+    editingCommentId,
+    editCommentText,
+    savingEdit,
+    handleComment,
+    handleDeleteComment,
+    handleSaveEdit,
+    cancelEdit,
+  ]);
 
   const handleTip = async () => {
     if (!VIEWER_ID || !tipAmount || VIEWER_ID === creatorId) return;
@@ -678,7 +897,7 @@ export default function WatchPage({
               className="pointer-events-none absolute inset-0 z-[6]"
               style={{ boxShadow: "inset 0 0 140px 30px rgba(0,0,0,0.55)" }}
             />
-            {cloudflareUid && !isOwnVideo && balance < 0.001 && VIEWER_ID ? (
+            {cloudflareUid && !isOwnVideo && balance < 0.001 && !balanceUnknown && VIEWER_ID ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/80 backdrop-blur-sm">
                 <p className="text-lg font-bold text-white">Insufficient balance</p>
                 <p className="text-sm text-white/60">Top up your Gateway balance to watch this video</p>
@@ -690,26 +909,9 @@ export default function WatchPage({
                   Top up balance
                 </button>
               </div>
-            ) : cloudflareUid ? (
-              <Stream
-                key={`${cloudflareUid}-${captionLang ?? "none"}-${captionNonce}`}
-                streamRef={streamRef}
-                src={cloudflareUid}
-                defaultTextTrack={captionLang ?? undefined}
-                startTime={captionResumeRef.current || undefined}
-                className="absolute inset-0 w-full h-full z-[1]"
-                controls
-                onPlaying={() => {
-                  setBuffering(false)
-                  setPlaying(true)
-                }}
-                onPause={() => setPlaying(false)}
-                onWaiting={() => setBuffering(true)}
-                onEnded={() => setPlaying(false)}
-                onSeeking={() => setPlaying(false)}
-                onSeeked={() => setPlaying(true)}
-              />
-            ) : null}
+            ) : (
+              playerElement
+            )}
 
             {!cloudflareUid && (
               <div className={`absolute inset-0 z-[5] flex items-center justify-center transition-opacity duration-200 ${
@@ -790,7 +992,7 @@ export default function WatchPage({
             >
               <div className="h-10 w-10 rounded-full overflow-hidden flex-shrink-0 border border-sa-border">
                 {creator?.avatar_url ? (
-                  <img src={creator.avatar_url} alt="Creator" className="w-full h-full object-cover" />
+                  <img src={creator.avatar_url} alt="Creator" width={40} height={40} decoding="async" className="w-full h-full object-cover" />
                 ) : (
                   <div
                     className="w-full h-full flex items-center justify-center text-sm font-bold text-[hsl(var(--primary-foreground))] bg-sa-blue"
@@ -1019,161 +1221,7 @@ export default function WatchPage({
             ))}
           </div>
 
-          <div className="panel mt-6 flex flex-col gap-4 rounded-2xl px-4 py-5">
-            <h3 className="mb-1 flex items-center gap-2 text-lg font-bold">
-              <MessageSquare size={20} className="shrink-0 text-sa-text-3" />
-              <span>Comments</span>
-              {comments.length > 0 && (
-                <span className="text-sm font-normal text-muted-foreground">({comments.length})</span>
-              )}
-            </h3>
-
-            {VIEWER_ID && (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <textarea
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="Add a comment..."
-                  rows={2}
-                  className="min-h-[72px] flex-1 resize-none rounded-xl border border-sa-border bg-sa-surface-2 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleComment()}
-                  disabled={submittingComment || !commentText.trim()}
-                  className="btn btn-primary inline-flex shrink-0 items-center justify-center gap-2 disabled:opacity-50 sm:min-w-[100px]"
-                  aria-label="Post comment"
-                >
-                  <Send size={16} />
-                  <span>Post</span>
-                </button>
-              </div>
-            )}
-
-            {loadingComments ? (
-              <div className="flex flex-col gap-3">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="h-16 animate-pulse rounded-xl bg-sa-surface" />
-                ))}
-              </div>
-            ) : comments.length === 0 ? (
-              <p className="py-2 text-sm text-muted-foreground">No comments yet. Be the first to comment!</p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {comments.map((comment) => {
-                  const u = commentUser(comment.users);
-                  const name = u?.channel_name || u?.display_name || "User";
-                  const initial = name.slice(0, 1).toUpperCase();
-                  const isOwn = comment.user_id === VIEWER_ID;
-                  const date = new Date(comment.created_at);
-                  const ago = Math.floor((Date.now() - date.getTime()) / 60000);
-                  const timeAgo =
-                    ago < 1
-                      ? "just now"
-                      : ago < 60
-                        ? `${ago}m ago`
-                        : ago < 1440
-                          ? `${Math.floor(ago / 60)}h ago`
-                          : `${Math.floor(ago / 1440)}d ago`;
-                  const isEditing = editingCommentId === comment.id;
-                  return (
-                    <div key={comment.id} className="flex gap-3 rounded-xl border border-transparent py-1 transition-colors hover:border-sa-border/60 hover:bg-white/[0.02]">
-                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-xs font-bold text-primary">
-                        {u?.avatar_url ? (
-                          <img src={u.avatar_url} alt={name} className="h-full w-full object-cover" />
-                        ) : (
-                          initial
-                        )}
-                      </div>
-                      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">{name}</span>
-                          <span className="text-xs text-muted-foreground">{timeAgo}</span>
-                          {isOwn && (
-                            <div
-                              className="relative ml-auto shrink-0"
-                              ref={openMenuCommentId === comment.id ? commentMenuRef : undefined}
-                            >
-                              <button
-                                type="button"
-                                aria-label="Comment actions"
-                                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuCommentId((id) => (id === comment.id ? null : comment.id));
-                                }}
-                              >
-                                <MoreVertical size={16} />
-                              </button>
-                              {openMenuCommentId === comment.id && (
-                                <div className="absolute right-0 top-9 z-20 min-w-[140px] rounded-lg border border-sa-border bg-sa-surface py-1 shadow-lg">
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-white/[0.06]"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setOpenMenuCommentId(null);
-                                      setEditingCommentId(comment.id);
-                                      setEditCommentText(comment.content);
-                                    }}
-                                  >
-                                    <Pencil size={14} className="text-muted-foreground" />
-                                    Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-white/[0.06]"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setOpenMenuCommentId(null);
-                                      void handleDeleteComment(comment.id);
-                                    }}
-                                  >
-                                    <Trash2 size={14} />
-                                    Delete
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        {isEditing ? (
-                          <div className="flex flex-col gap-2">
-                            <textarea
-                              value={editCommentText}
-                              onChange={(e) => setEditCommentText(e.target.value)}
-                              rows={3}
-                              className="w-full resize-none rounded-lg border border-sa-border bg-sa-surface-2 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                            />
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                disabled={savingEdit || !editCommentText.trim()}
-                                onClick={() => void handleSaveEdit()}
-                                className="btn btn-primary btn-sm disabled:opacity-50"
-                              >
-                                {savingEdit ? "Saving…" : "Save"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={cancelEdit}
-                                disabled={savingEdit}
-                                className="btn btn-sm border border-sa-border bg-transparent text-foreground hover:bg-white/[0.06]"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-sm leading-relaxed text-foreground">{comment.content}</p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          {commentsPanel}
 
         </motion.div>
 
@@ -1227,7 +1275,7 @@ export default function WatchPage({
                 >
                   <div className="relative aspect-video w-[136px] flex-shrink-0 overflow-hidden rounded-xl">
                     {poster ? (
-                      <img src={poster} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                      <img src={poster} alt="" width={272} height={153} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
                     ) : (
                       <div className="absolute inset-0 bg-[#0e1420]" />
                     )}
