@@ -8,6 +8,13 @@ import { Shield } from "lucide-react";
 type Tab = "signin" | "signup";
 type Step = "auth" | "verify" | "2fa" | "forgot" | "reset_code" | "reset_password";
 
+// FEATURE FLAG: email/password + Web3 auth are HIDDEN, not removed — Railway
+// blocks outbound SMTP so verification/reset emails never deliver, making
+// Google OAuth (no email involved) the only reliable door. Flip to `true` to
+// restore the password form, tabs, and Web3 button exactly as they were
+// (all handlers and steps below are kept intact and still compiled).
+const SHOW_PASSWORD_AUTH: boolean = false;
+
 export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
   const [tab, setTab] = useState<Tab>("signin");
   const [step, setStep] = useState<Step>("auth");
@@ -369,6 +376,8 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
 
         {step === "auth" && (
           <>
+            {/* Password + Web3 auth hidden behind SHOW_PASSWORD_AUTH (see flag above). */}
+            {SHOW_PASSWORD_AUTH && (
             <div
               className="flex rounded-2xl p-1 border"
               style={{
@@ -415,7 +424,9 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                 Sign Up
               </button>
             </div>
+            )}
 
+            {SHOW_PASSWORD_AUTH && (
             <form className="flex flex-col gap-4" onSubmit={(e) => {
               e.preventDefault();
               tab === "signin" ? handleEmailSignin() : handleEmailSignup();
@@ -468,31 +479,55 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                 {loading === "email" ? <Spinner /> : tab === "signin" ? "Sign In" : "Create Account"}
               </button>
             </form>
+            )}
 
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full h-px bg-sa-border/60" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="px-3 text-sa-text-3 bg-sa-bg rounded-full">Or continue with</span>
-              </div>
-            </div>
+            {SHOW_PASSWORD_AUTH ? (
+              <>
+                {/* Divider + secondary providers — only meaningful above the password form. */}
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full h-px bg-sa-border/60" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="px-3 text-sa-text-3 bg-sa-bg rounded-full">Or continue with</span>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={handleGoogle}
-                disabled={loading !== null}
-                className="btn btn-glass btn-sm flex gap-2 disabled:opacity-60"
-              >
-                <GoogleIcon />
-                Google
-              </button>
-              <button type="button" className="btn btn-glass btn-sm flex gap-2">
-                <Shield size={16} />
-                Web3
-              </button>
-            </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={handleGoogle}
+                    disabled={loading !== null}
+                    className="btn btn-glass btn-sm flex gap-2 disabled:opacity-60"
+                  >
+                    <GoogleIcon />
+                    Google
+                  </button>
+                  <button type="button" className="btn btn-glass btn-sm flex gap-2">
+                    <Shield size={16} />
+                    Web3
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* Google as the sole, primary way in — no divider, no tabs. It
+                 handles both new and returning accounts, so one CTA covers
+                 Sign In and Sign Up alike. */
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={handleGoogle}
+                  disabled={loading !== null}
+                  className="btn btn-primary w-full flex items-center justify-center gap-2.5 py-3 disabled:opacity-60"
+                >
+                  {loading === "google" ? <Spinner /> : <GoogleIcon />}
+                  Continue with Google
+                </button>
+                <p className="text-center text-xs text-sa-text-3">
+                  One click — works for new and returning accounts.
+                </p>
+              </div>
+            )}
 
             {error && <p className="text-xs text-sa-red text-center">{error}</p>}
           </>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Camera, Save, Twitter, MessageCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Camera, Save, Twitter, MessageCircle } from "lucide-react";
 
 export interface UserProfile {
   id: string;
@@ -17,6 +18,7 @@ export interface UserProfile {
 }
 
 export default function SettingsPage({ user }: { user: UserProfile }) {
+  const router = useRouter();
   const [displayName, setDisplayName] = useState(user.display_name ?? "");
   const [channelName, setChannelName] = useState(user.channel_name ?? "");
   const [bio, setBio] = useState(user.bio ?? "");
@@ -86,6 +88,17 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8 py-8 px-4">
+      {/* Back — same pattern as the clip-job review's back link. Settings is
+          reachable from anywhere, so go to the previous page (home if none). */}
+      <button
+        type="button"
+        onClick={() => (window.history.length > 1 ? router.back() : router.push("/"))}
+        className="inline-flex items-center gap-1.5 self-start text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft size={16} />
+        Back
+      </button>
+
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Profile Settings</h1>
         <p className="mt-2 text-sm text-sa-text-3">Manage your public creator details and social links.</p>

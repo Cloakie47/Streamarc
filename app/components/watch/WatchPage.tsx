@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Stream } from "@cloudflare/stream-react";
@@ -76,6 +76,123 @@ function formatSubCentsShows(rate: number) {
   return rate.toFixed(5);
 }
 
+// INPUT-LATENCY ISOLATION: the composer owns its text locally, so typing
+// re-renders ONLY this small component — not the whole WatchPage tree and not
+// the memoized 50-row comments list. WatchPage is called back on submit only.
+const CommentComposer = memo(function CommentComposer({ onSubmit }: { onSubmit: (text: string) => Promise<boolean> }) {
+  const [text, setText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async () => {
+    if (!text.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      if (await onSubmit(text)) setText("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Add a comment..."
+        rows={2}
+        className="min-h-[72px] flex-1 resize-none rounded-xl border border-sa-border bg-sa-surface-2 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+      />
+      <button
+        type="button"
+        onClick={() => void submit()}
+        disabled={submitting || !text.trim()}
+        className="btn btn-primary inline-flex shrink-0 items-center justify-center gap-2 disabled:opacity-50 sm:min-w-[100px]"
+        aria-label="Post comment"
+      >
+        <Send size={16} />
+        <span>Post</span>
+      </button>
+    </div>
+  );
+});
+
+// Same isolation for the tip amount: local text/status state; the parent's
+// sendTip callback carries the UNCHANGED payment call and nothing else.
+const TipAmountBox = memo(function TipAmountBox({ onTip }: { onTip: (amount: string) => Promise<string | null> }) {
+  const [amount, setAmount] = useState("");
+  const [tipping, setTipping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const send = async () => {
+    if (!amount || tipping || Number.parseFloat(amount) < 0.001) return;
+    setTipping(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      const err = await onTip(amount);
+      if (err) {
+        setError(err);
+      } else {
+        setSuccess(true);
+        setAmount("");
+        setTimeout(() => setSuccess(false), 5000);
+      }
+    } finally {
+      setTipping(false);
+    }
+  };
+  return (
+    <div className="rounded-xl border border-sa-border/60 bg-sa-surface-2/40 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-semibold text-foreground">Send a tip</span>
+          <span className="text-xs text-sa-text-3">Goes directly to the creator</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {["0.01", "0.05", "0.10"].map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setAmount(preset)}
+              className={`inline-flex h-9 items-center justify-center rounded-full px-3.5 text-[13px] font-semibold tabular-nums transition-all ${
+                amount === preset
+                  ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/40"
+                  : "bg-sa-surface text-sa-text-2 ring-1 ring-inset ring-sa-border/60 hover:bg-white/[0.05] hover:text-foreground"
+              }`}
+            >
+              ${preset}
+            </button>
+          ))}
+          <div className="flex h-9 w-[8.5rem] items-center rounded-full bg-sa-surface ring-1 ring-inset ring-sa-border/60 focus-within:ring-primary/40">
+            <span className="pl-3 text-[13px] text-sa-text-3">$</span>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Custom"
+              min="0.001"
+              step="0.001"
+              className="h-full w-full bg-transparent px-2 text-[13px] tabular-nums placeholder:text-sa-text-3 focus:outline-none"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void send()}
+            disabled={tipping || !amount || Number.parseFloat(amount) < 0.001}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-primary px-5 text-[13px] font-semibold text-primary-foreground transition hover:bg-sa-cyan disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {tipping ? "Sending…" : "Send tip"}
+          </button>
+        </div>
+      </div>
+      {(error || success) && (
+        <div className="mt-3 text-xs">
+          {error && <p className="text-destructive">{error}</p>}
+          {success && <p className="text-green-400">Tip sent — thanks for supporting the creator!</p>}
+        </div>
+      )}
+    </div>
+  );
+});
+
 export interface WatchPageProps {
   videoId: string;
   creatorId: string;
@@ -141,10 +258,9 @@ export default function WatchPage({
   // with no cached value). An unknown balance must never gate playback — only
   // a CONFIRMED low balance may show the insufficient-balance overlay.
   const [balanceUnknown, setBalanceUnknown] = useState(false);
-  const [tipAmount, setTipAmount] = useState("");
-  const [tipping, setTipping] = useState(false);
-  const [tipSuccess, setTipSuccess] = useState(false);
-  const [tipError, setTipError] = useState<string | null>(null);
+  // NOTE: tip amount + comment text deliberately do NOT live here — they're
+  // local to TipAmountBox / CommentComposer so keystrokes can't re-render
+  // this (large) component. See the components above.
   const [savedToWatchlist, setSavedToWatchlist] = useState(false);
   const [savingWatchlist, setSavingWatchlist] = useState(false);
   const [favorited, setFavorited] = useState(false);
@@ -152,8 +268,6 @@ export default function WatchPage({
   const [following, setFollowing] = useState(false);
   const [togglingFollow, setTogglingFollow] = useState(false);
   const [comments, setComments] = useState<CommentItem[]>([]);
-  const [commentText, setCommentText] = useState("");
-  const [submittingComment, setSubmittingComment] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
   const [openMenuCommentId, setOpenMenuCommentId] = useState<string | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -426,8 +540,15 @@ export default function WatchPage({
             const costAccrued = (next - freePreviewSeconds) * ratePerSecond;
             const newBal = Math.max(0, initialBalanceRef.current - costAccrued);
             setBalance(newBal);
-            window.dispatchEvent(new CustomEvent("gateway-balance-live", { detail: { balance: newBal } }));
-            setTimeout(() => onBalanceChange?.(newBal), 0);
+            // Sidebar/Navbar re-render on this event — at 1Hz that made the
+            // whole chrome churn during playback. Throttle to every 5s; the
+            // pause effect dispatches the exact value the moment playback
+            // stops. The page's OWN stats strip stays per-second (setBalance
+            // above). Display-only: the meter/settlement are untouched.
+            if (paidSecs % 5 === 0) {
+              window.dispatchEvent(new CustomEvent("gateway-balance-live", { detail: { balance: newBal } }));
+              setTimeout(() => onBalanceChange?.(newBal), 0);
+            }
           }
 
           return next;
@@ -567,12 +688,102 @@ export default function WatchPage({
     }
   };
 
-  const handleChapterClick = (time: number) => {
+  const handleChapterClick = useCallback((time: number) => {
     if (streamRef.current) {
       streamRef.current.currentTime = time;
       void streamRef.current.play();
     }
-  };
+  }, []);
+
+  // Active chapter derived from secs — the value changes only when playback
+  // crosses a chapter boundary, so the memoized chapters panel below rebuilds
+  // a handful of times per video instead of every second.
+  const activeChapterIdx = useMemo(() => {
+    if (!chapters || chapters.length === 0) return -1;
+    let idx = -1;
+    for (let i = 0; i < chapters.length; i++) {
+      if (secs >= chapters[i].time) idx = i;
+    }
+    return idx;
+  }, [chapters, secs]);
+
+  const chaptersPanel = useMemo(() => {
+    if (!chapters || chapters.length === 0) return null;
+    return (
+      <div className="panel flex max-h-[min(50vh,320px)] flex-col gap-2 overflow-y-auto p-4">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">Chapters</p>
+        <div className="flex flex-col gap-0.5">
+          {chapters.map((chapter, i) => {
+            const mm = Math.floor(chapter.time / 60);
+            const ss = String(chapter.time % 60).padStart(2, "0");
+            const isActive = i === activeChapterIdx;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => handleChapterClick(chapter.time)}
+                className={`flex w-full cursor-pointer items-center gap-3 rounded-lg bg-transparent px-3 py-2 text-left text-sm transition-all duration-200 border-l-2 ${
+                  isActive
+                    ? "bg-sa-blue/10 text-foreground border-sa-blue shadow-[0_0_18px_hsla(188,86%,56%,0.12)_inset]"
+                    : "text-sa-text-3 border-transparent hover:bg-sa-surface-2/50 hover:text-foreground"
+                }`}
+              >
+                <span className={`w-9 flex-shrink-0 font-mono text-[11px] tabular-nums ${isActive ? "text-sa-blue" : "text-sa-text-3"}`}>
+                  {mm}:{ss}
+                </span>
+                <span className="font-medium leading-snug">{chapter.title}</span>
+                {isActive && (
+                  <span className="ml-auto h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-sa-blue shadow-[0_0_8px_hsl(188,86%,56%)]" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }, [chapters, activeChapterIdx, handleChapterClick]);
+
+  const upNextPanel = useMemo(() => {
+    if (upNextVideos.length === 0) return null;
+    return (
+      <>
+        <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-sa-text-3">Up next</h3>
+        {upNextVideos.map((v) => {
+          const poster = upNextPosterUrl(v);
+          return (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => router.push(`/watch/${v.id}`)}
+              className="panel group flex w-full cursor-pointer gap-3 p-3 text-left transition-colors hover:border-sa-border-hover"
+            >
+              <div className="relative aspect-video w-[136px] flex-shrink-0 overflow-hidden rounded-xl">
+                {poster ? (
+                  <img src={poster} alt="" width={272} height={153} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                  <div className="absolute inset-0 bg-[#0e1420]" />
+                )}
+                <div className="absolute inset-0 bg-black/30" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/15 opacity-70 backdrop-blur-sm transition-all group-hover:scale-110 group-hover:opacity-100">
+                    <FrostedPlaySvg className="ml-0.5 h-2.5 w-2.5 fill-current text-white" />
+                  </div>
+                </div>
+                <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-px font-mono text-[9px] font-bold text-white/80 backdrop-blur-sm">
+                  {formatUpNextDuration(v.duration_secs)}
+                </span>
+              </div>
+              <div className="flex min-w-0 flex-col justify-center gap-1 py-0.5">
+                <h4 className="line-clamp-2 text-[13px] font-semibold leading-snug transition-colors group-hover:text-foreground">{v.title}</h4>
+                <span className="text-[11px] text-sa-text-3">{v.channelLabel}</span>
+                <span className="text-[11px] text-sa-text-3">Suggested next</span>
+              </div>
+            </button>
+          );
+        })}
+      </>
+    );
+  }, [upNextVideos, router]);
 
   const handleWatchLater = async () => {
     if (!VIEWER_ID) return;
@@ -625,9 +836,10 @@ export default function WatchPage({
     }
   };
 
-  const handleComment = useCallback(async () => {
-    if (!VIEWER_ID || !commentText.trim()) return;
-    setSubmittingComment(true);
+  // Called by CommentComposer on submit only — the API call is unchanged;
+  // the text arrives as an argument instead of living in this component.
+  const submitComment = useCallback(async (content: string): Promise<boolean> => {
+    if (!VIEWER_ID || !content.trim()) return false;
     try {
       const res = await fetch("/api/comments", {
         method: "POST",
@@ -635,7 +847,7 @@ export default function WatchPage({
         body: JSON.stringify({
           video_id: videoId,
           user_id: VIEWER_ID,
-          content: commentText,
+          content,
           action: "add",
         }),
       });
@@ -643,12 +855,13 @@ export default function WatchPage({
       const added = data.comment;
       if (added) {
         setComments((prev) => [added, ...prev]);
-        setCommentText("");
+        return true;
       }
-    } finally {
-      setSubmittingComment(false);
+      return false;
+    } catch {
+      return false;
     }
-  }, [VIEWER_ID, commentText, videoId]);
+  }, [VIEWER_ID, videoId]);
 
   const handleDeleteComment = useCallback(async (commentId: string) => {
     if (!VIEWER_ID) return;
@@ -708,27 +921,7 @@ export default function WatchPage({
         )}
       </h3>
 
-      {VIEWER_ID && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <textarea
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-            placeholder="Add a comment..."
-            rows={2}
-            className="min-h-[72px] flex-1 resize-none rounded-xl border border-sa-border bg-sa-surface-2 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-          <button
-            type="button"
-            onClick={() => void handleComment()}
-            disabled={submittingComment || !commentText.trim()}
-            className="btn btn-primary inline-flex shrink-0 items-center justify-center gap-2 disabled:opacity-50 sm:min-w-[100px]"
-            aria-label="Post comment"
-          >
-            <Send size={16} />
-            <span>Post</span>
-          </button>
-        </div>
-      )}
+      {VIEWER_ID && <CommentComposer onSubmit={submitComment} />}
 
       {loadingComments ? (
         <div className="flex flex-col gap-3">
@@ -858,23 +1051,21 @@ export default function WatchPage({
     VIEWER_ID,
     comments,
     loadingComments,
-    commentText,
-    submittingComment,
     openMenuCommentId,
     editingCommentId,
     editCommentText,
     savingEdit,
-    handleComment,
+    submitComment,
     handleDeleteComment,
     handleSaveEdit,
     cancelEdit,
   ]);
 
-  const handleTip = async () => {
-    if (!VIEWER_ID || !tipAmount || VIEWER_ID === creatorId) return;
-    setTipping(true);
-    setTipError(null);
-    setTipSuccess(false);
+  // Called by TipAmountBox on send only. The payment call (endpoint, payload,
+  // balance-refresh event) is byte-identical to before — only the input state
+  // moved into the child. Returns an error message, or null on success.
+  const sendTip = useCallback(async (amount: string): Promise<string | null> => {
+    if (!VIEWER_ID || !amount || VIEWER_ID === creatorId) return "Tip not available";
     try {
       const res = await fetch("/api/gateway/tip", {
         method: "POST",
@@ -883,24 +1074,17 @@ export default function WatchPage({
           viewer_id: VIEWER_ID,
           creator_id: creatorId,
           video_id: videoId,
-          amount: tipAmount,
+          amount,
         }),
       });
       const data = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        setTipError(data.error ?? "Tip failed");
-      } else {
-        setTipSuccess(true);
-        setTipAmount("");
-        window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
-        setTimeout(() => setTipSuccess(false), 5000);
-      }
+      if (!res.ok) return data.error ?? "Tip failed";
+      window.dispatchEvent(new CustomEvent("gateway-balance-updated"));
+      return null;
     } catch {
-      setTipError("Tip failed");
-    } finally {
-      setTipping(false);
+      return "Tip failed";
     }
-  };
+  }, [VIEWER_ID, creatorId, videoId]);
 
   return (
     <div className="flex flex-col gap-8 pb-12 xl:flex-row">
@@ -1160,59 +1344,9 @@ export default function WatchPage({
             </div>
           )}
 
-          {/* Dedicated tip section — only for non-creators */}
-          {VIEWER_ID && VIEWER_ID !== creatorId && (
-            <div className="rounded-xl border border-sa-border/60 bg-sa-surface-2/40 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-semibold text-foreground">Send a tip</span>
-                  <span className="text-xs text-sa-text-3">Goes directly to the creator</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {["0.01", "0.05", "0.10"].map((amount) => (
-                    <button
-                      key={amount}
-                      type="button"
-                      onClick={() => setTipAmount(amount)}
-                      className={`inline-flex h-9 items-center justify-center rounded-full px-3.5 text-[13px] font-semibold tabular-nums transition-all ${
-                        tipAmount === amount
-                          ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/40"
-                          : "bg-sa-surface text-sa-text-2 ring-1 ring-inset ring-sa-border/60 hover:bg-white/[0.05] hover:text-foreground"
-                      }`}
-                    >
-                      ${amount}
-                    </button>
-                  ))}
-                  <div className="flex h-9 w-[8.5rem] items-center rounded-full bg-sa-surface ring-1 ring-inset ring-sa-border/60 focus-within:ring-primary/40">
-                    <span className="pl-3 text-[13px] text-sa-text-3">$</span>
-                    <input
-                      type="number"
-                      value={tipAmount}
-                      onChange={(e) => setTipAmount(e.target.value)}
-                      placeholder="Custom"
-                      min="0.001"
-                      step="0.001"
-                      className="h-full w-full bg-transparent px-2 text-[13px] tabular-nums placeholder:text-sa-text-3 focus:outline-none"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleTip}
-                    disabled={tipping || !tipAmount || Number.parseFloat(tipAmount) < 0.001}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-primary px-5 text-[13px] font-semibold text-primary-foreground transition hover:bg-sa-cyan disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {tipping ? "Sending…" : "Send tip"}
-                  </button>
-                </div>
-              </div>
-              {(tipError || tipSuccess) && (
-                <div className="mt-3 text-xs">
-                  {tipError && <p className="text-destructive">{tipError}</p>}
-                  {tipSuccess && <p className="text-green-400">Tip sent — thanks for supporting the creator!</p>}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Dedicated tip section — only for non-creators. Isolated component:
+              typing an amount re-renders only the box, never this page. */}
+          {VIEWER_ID && VIEWER_ID !== creatorId && <TipAmountBox onTip={sendTip} />}
 
           {/* Subtitles — available to everyone; generate paid translations */}
           <SubtitlesControl videoId={videoId} cloudflareUid={cloudflareUid} activeLang={captionLang} onActivate={applyCaption} />
@@ -1288,78 +1422,10 @@ export default function WatchPage({
 
       </div>
 
-      {/* ── Right: Chapters + Up next ── */}
+      {/* ── Right: Chapters + Up next (memoized — no per-tick reconcile) ── */}
       <div className="flex w-full flex-shrink-0 flex-col gap-3 xl:w-[340px]">
-        {chapters && chapters.length > 0 && (
-          <div className="panel flex max-h-[min(50vh,320px)] flex-col gap-2 overflow-y-auto p-4">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">Chapters</p>
-            <div className="flex flex-col gap-0.5">
-              {chapters.map((chapter, i) => {
-                const mm = Math.floor(chapter.time / 60);
-                const ss = String(chapter.time % 60).padStart(2, "0");
-                const isActive = secs >= chapter.time && (i === chapters.length - 1 || secs < chapters[i + 1].time);
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => handleChapterClick(chapter.time)}
-                    className={`flex w-full cursor-pointer items-center gap-3 rounded-lg bg-transparent px-3 py-2 text-left text-sm transition-all duration-200 border-l-2 ${
-                      isActive
-                        ? "bg-sa-blue/10 text-foreground border-sa-blue shadow-[0_0_18px_hsla(188,86%,56%,0.12)_inset]"
-                        : "text-sa-text-3 border-transparent hover:bg-sa-surface-2/50 hover:text-foreground"
-                    }`}
-                  >
-                    <span className={`w-9 flex-shrink-0 font-mono text-[11px] tabular-nums ${isActive ? "text-sa-blue" : "text-sa-text-3"}`}>
-                      {mm}:{ss}
-                    </span>
-                    <span className="font-medium leading-snug">{chapter.title}</span>
-                    {isActive && (
-                      <span className="ml-auto h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-sa-blue shadow-[0_0_8px_hsl(188,86%,56%)]" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {upNextVideos.length > 0 && (
-          <>
-            <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-sa-text-3">Up next</h3>
-            {upNextVideos.map((v) => {
-              const poster = upNextPosterUrl(v);
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => router.push(`/watch/${v.id}`)}
-                  className="panel group flex w-full cursor-pointer gap-3 p-3 text-left transition-colors hover:border-sa-border-hover"
-                >
-                  <div className="relative aspect-video w-[136px] flex-shrink-0 overflow-hidden rounded-xl">
-                    {poster ? (
-                      <img src={poster} alt="" width={272} height={153} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
-                    ) : (
-                      <div className="absolute inset-0 bg-[#0e1420]" />
-                    )}
-                    <div className="absolute inset-0 bg-black/30" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/15 opacity-70 backdrop-blur-sm transition-all group-hover:scale-110 group-hover:opacity-100">
-                        <FrostedPlaySvg className="ml-0.5 h-2.5 w-2.5 fill-current text-white" />
-                      </div>
-                    </div>
-                    <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-px font-mono text-[9px] font-bold text-white/80 backdrop-blur-sm">
-                      {formatUpNextDuration(v.duration_secs)}
-                    </span>
-                  </div>
-                  <div className="flex min-w-0 flex-col justify-center gap-1 py-0.5">
-                    <h4 className="line-clamp-2 text-[13px] font-semibold leading-snug transition-colors group-hover:text-foreground">{v.title}</h4>
-                    <span className="text-[11px] text-sa-text-3">{v.channelLabel}</span>
-                    <span className="text-[11px] text-sa-text-3">Suggested next</span>
-                  </div>
-                </button>
-              );
-            })}
-          </>
-        )}
+        {chaptersPanel}
+        {upNextPanel}
       </div>
     </div>
   );

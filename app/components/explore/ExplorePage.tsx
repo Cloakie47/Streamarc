@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { VideoCard, mapRowToVideo, type ApiVideoRow, type Video } from "@/app/components/browse/VideoShelf";
 
@@ -67,7 +67,7 @@ function AllVideosGrid({ onVideoClick }: { onVideoClick: (id: string) => void })
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
           {videos.map((v) => (
-            <VideoCard key={v.id} video={v} onPlay={() => onVideoClick(v.id)} />
+            <VideoCard key={v.id} video={v} onPlay={onVideoClick} />
           ))}
         </div>
       )}
@@ -80,6 +80,8 @@ export default function ExplorePage() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [filteredVideos, setFilteredVideos] = useState<Video[]>([]);
   const [filtering, setFiltering] = useState(false);
+  // Stable identity so memoized VideoCards don't re-render on parent state changes.
+  const openWatch = useCallback((id: string) => void router.push(`/watch/${id}`), [router]);
 
   const handleCategoryFilter = async (categoryId: string) => {
     if (activeCategory === categoryId) {
@@ -145,16 +147,14 @@ export default function ExplorePage() {
           ) : (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
               {filteredVideos.map((v) => (
-                <VideoCard key={v.id} video={v} onPlay={(id) => void router.push(`/watch/${id}`)} />
+                <VideoCard key={v.id} video={v} onPlay={openWatch} />
               ))}
             </div>
           )}
         </div>
       )}
 
-      {!activeCategory && (
-        <AllVideosGrid onVideoClick={(id) => void router.push(`/watch/${id}`)} />
-      )}
+      {!activeCategory && <AllVideosGrid onVideoClick={openWatch} />}
     </div>
   );
 }

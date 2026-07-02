@@ -2,6 +2,12 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { getSupabaseAdmin } from "./supabase-server";
+import { withTimeout } from "./with-timeout";
+
+// Google is the sole visible sign-in path, so wallet creation must NEVER hang
+// or fail a sign-in. Bounded here; on timeout/error the user signs in with a
+// null wallet and /api/gateway/balance lazily provisions it on first fetch.
+const WALLET_CREATE_TIMEOUT_MS = 10_000;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -133,8 +139,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           }
 
           const userId = authUser.user.id;
+          // Bounded + throw-proof: a slow/erroring Circle call must not block
+          // or fail a first-time Google sign-in — the wallet is created lazily
+          // on the first balance fetch instead.
           const { createGatewayWallet } = await import("./circle-wallets");
-          const wallet = await createGatewayWallet(userId);
+          const wallet = await withTimeout(
+            createGatewayWallet(userId).catch(() => null),
+            WALLET_CREATE_TIMEOUT_MS,
+            null,
+          );
 
           await getSupabaseAdmin().from("users").insert({
             id: userId,
@@ -155,10 +168,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.display_name = user.name ?? null;
           token.avatar_url = null;
         } else {
-          // Existing user â€” check if they need a Circle wallet created
+          // Existing user — check if they need a Circle wallet created.
+          // Same bound as above: never let Circle latency block a sign-in.
           if (!profile.circle_wallet_id && !profile.wallet_address) {
             const { createGatewayWallet } = await import("./circle-wallets");
-            const wallet = await createGatewayWallet(profile.id);
+            const wallet = await withTimeout(
+              createGatewayWallet(profile.id).catch(() => null),
+              WALLET_CREATE_TIMEOUT_MS,
+              null,
+            );
             if (wallet) {
               await getSupabaseAdmin()
                 .from("users")

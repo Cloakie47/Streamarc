@@ -93,6 +93,7 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
   const [job, setJob] = useState<JobStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [showLog, setShowLog] = useState(false)
+  const lastPaidRef = useRef<number | null>(null)
 
   // Load from the DB by id (so refresh / return always reflects current state).
   const fetchJob = async (): Promise<JobStatus | null> => {
@@ -119,8 +120,16 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
       const data = await fetchJob()
       if (!active) return
       // The agent charges the wallet per chunk as the job runs — refresh the
-      // displayed balance on each poll so it reflects the ongoing/final spend.
-      if (data) window.dispatchEvent(new CustomEvent("gateway-balance-updated"))
+      // displayed balance when the SPEND actually changes. (Dispatching every
+      // 3s tick made Sidebar + watch listeners refetch + re-render at 0.33Hz
+      // for the whole job — a re-render/network storm for no new information.)
+      if (data) {
+        const paid = Number(data.receipt?.total_paid ?? 0)
+        if (paid !== lastPaidRef.current) {
+          lastPaidRef.current = paid
+          window.dispatchEvent(new CustomEvent("gateway-balance-updated"))
+        }
+      }
       if (data && TERMINAL_STATUSES.has(data.status)) return
       timer = setTimeout(tick, 3000)
     }

@@ -1,11 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Eye, Lock, Bookmark, Film } from "lucide-react";
 import { FrostedPlayMark } from "@/app/components/ui/FrostedPlayMark";
 import { useCurrentUser } from "@/app/lib/auth-client";
+
+// ONE shared fetch of the user's watchlisted video-ids, deduped across every
+// card on the page (previously each card POSTed its own "check" — an N+1
+// burst of 8-20 requests on every grid mount). Short TTL keeps the badge
+// fresh across navigations; card toggles mutate the cached set directly.
+const WATCHLIST_IDS_TTL_MS = 30_000;
+let watchlistIdsCache: { userId: string; fetchedAt: number; promise: Promise<Set<string>> } | null = null;
+function fetchWatchlistIds(userId: string): Promise<Set<string>> {
+  const now = Date.now();
+  if (watchlistIdsCache && watchlistIdsCache.userId === userId && now - watchlistIdsCache.fetchedAt < WATCHLIST_IDS_TTL_MS) {
+    return watchlistIdsCache.promise;
+  }
+  const promise = fetch("/api/watchlist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, action: "ids" }),
+  })
+    .then((r) => r.json())
+    .then((d: { video_ids?: string[] }) => new Set<string>(Array.isArray(d.video_ids) ? d.video_ids : []))
+    .catch(() => new Set<string>());
+  watchlistIdsCache = { userId, fetchedAt: now, promise };
+  return promise;
+}
 
 export interface Video {
   id: string;
@@ -127,7 +150,7 @@ function isPlaceholderId(id: string) {
 
 const NOISE_SVG = `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")`;
 
-export function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) => void }) {
+export const VideoCard = memo(function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: string) => void }) {
   const { userId } = useCurrentUser();
   const [saved, setSaved] = useState(false);
   const placeholder = isPlaceholderId(video.id);
@@ -138,14 +161,14 @@ export function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: s
 
   useEffect(() => {
     if (!userId || placeholder) return;
-    fetch("/api/watchlist", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, video_id: video.id, action: "check" }),
-    })
-      .then((r) => r.json())
-      .then((data: { saved?: boolean }) => setSaved(data.saved ?? false))
-      .catch(() => {});
+    let active = true;
+    // Shared, deduped id-set — one network request per grid, not per card.
+    void fetchWatchlistIds(userId).then((ids) => {
+      if (active) setSaved(ids.has(video.id));
+    });
+    return () => {
+      active = false;
+    };
   }, [userId, video.id, placeholder]);
 
   return (
@@ -237,6 +260,11 @@ export function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: s
               });
               const data = (await res.json()) as { saved?: boolean };
               setSaved(!!data.saved);
+              // Keep the shared id-set in sync so sibling grids stay correct.
+              void watchlistIdsCache?.promise.then((ids) => {
+                if (data.saved) ids.add(video.id);
+                else ids.delete(video.id);
+              });
             }}
             className={`absolute top-3 right-3 z-10 p-1.5 rounded-lg backdrop-blur-sm border transition-colors ${
               saved
@@ -285,7 +313,7 @@ export function VideoCard({ video, onPlay }: { video: Video; onPlay: (videoId: s
       </div>
     </motion.div>
   );
-}
+});
 
 function SectionHeader({ title, seeAllHref }: { title: string; seeAllHref?: string }) {
   return (

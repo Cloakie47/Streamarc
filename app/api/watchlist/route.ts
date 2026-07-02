@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     if (!user_id || !action) {
       return NextResponse.json({ error: "user_id and action required" }, { status: 400 });
     }
-    if (action !== "list" && !video_id) {
+    if (action !== "list" && action !== "ids" && !video_id) {
       return NextResponse.json({ error: "video_id required for this action" }, { status: 400 });
     }
 
@@ -22,6 +22,13 @@ export async function POST(req: NextRequest) {
     if (action === "remove") {
       await supabase.from("watchlist").delete().eq("user_id", user_id).eq("video_id", video_id);
       return NextResponse.json({ success: true, saved: false });
+    }
+
+    // Lightweight id-set for card grids: ONE request replaces the old
+    // per-card "check" burst (N+1) on Browse/Explore.
+    if (action === "ids") {
+      const { data } = await supabase.from("watchlist").select("video_id").eq("user_id", user_id);
+      return NextResponse.json({ video_ids: (data ?? []).map((r) => r.video_id) });
     }
 
     if (action === "check") {
