@@ -1,3 +1,11 @@
+/**
+ * Uniform per-second rate ceiling (USDC). Applies to EVERYTHING priced per
+ * second: video watch rates and the clip agent's consumption rate. Enforced
+ * server-side at every write path AND defensively clamped at every read that
+ * feeds a charge, so no video or clip job can ever charge above this.
+ */
+export const MAX_RATE_PER_SEC = 0.0001;
+
 export const PAYMENT_CONFIG = {
   intervalSeconds: 5,
   ratePerSecond: 0.00003,

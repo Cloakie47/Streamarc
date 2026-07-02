@@ -3,6 +3,7 @@
 import { useState, useRef } from "react"
 import { X, Upload, CheckCircle, Loader2 } from "lucide-react"
 import { Upload as TusUpload } from "tus-js-client"
+import { MAX_RATE_PER_SEC } from "@/app/lib/constants"
 
 const CATEGORIES = [
   { id: "project-demo", label: "🏗️ Project Demo" },
@@ -83,8 +84,8 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
     }
 
     const rate = parseFloat(ratePerSec)
-    if (isNaN(rate) || rate < 0.00005 || rate > 0.0001) {
-      setError("Rate must be between $0.00005 and $0.0001 per second")
+    if (isNaN(rate) || rate < 0.00005 || rate > MAX_RATE_PER_SEC) {
+      setError(`Rate must be between $0.00005 and $${MAX_RATE_PER_SEC} per second`)
       return
     }
 
@@ -212,7 +213,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
           {/* Rate */}
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 block">
-              Rate per second (USDC): $0.00005 to $0.0001
+              Rate per second (USDC): $0.00005 to ${MAX_RATE_PER_SEC} — max ${MAX_RATE_PER_SEC}/sec
             </label>
             <input
               type="number"
@@ -220,7 +221,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
               onChange={e => setRatePerSec(e.target.value)}
               step="0.00001"
               min="0.00005"
-              max="0.0001"
+              max={MAX_RATE_PER_SEC}
               disabled={status !== "idle" && status !== "error"}
               className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
             />

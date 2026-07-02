@@ -41,6 +41,7 @@ import {
 import { settleServiceFee } from "../settle-core/index.ts"
 import { fetchUnifiedGatewayBalance } from "../../app/lib/gateway-balance.ts"
 import { getSupabaseAdmin } from "../../app/lib/supabase-server.ts"
+import { MAX_RATE_PER_SEC } from "../../app/lib/constants.ts"
 
 const DEFAULT_GOAL = "maximize viewer interest and shareability"
 const ARC_DOMAIN = 26 // Circle Gateway domain for Arc — settlements pull from this balance
@@ -253,7 +254,11 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   if (videoErr || !video) throw new Error(`video ${videoId} not found: ${videoErr?.message ?? "no row"}`)
   if (!video.cloudflare_uid) throw new Error(`video ${videoId} has no cloudflare_uid`)
 
-  const rate = Number(video.rate_per_sec)
+  // Consumption-rate ceiling: even if a stored rate somehow exceeds the
+  // platform max, the agent never charges above MAX_RATE_PER_SEC/sec. Both the
+  // skim (10% of rate) and footage (full rate) derive from this capped value.
+  // (Math.min keeps 0/NaN semantics — the rate>0 guard below still declines.)
+  const rate = Math.min(Number(video.rate_per_sec), MAX_RATE_PER_SEC)
   const duration = Number(video.duration_secs)
   const creatorId: string | null = video.owner_id ?? video.creator_id
   if (!creatorId) throw new Error(`video ${videoId} has no creator_id/owner_id`)

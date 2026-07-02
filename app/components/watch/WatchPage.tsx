@@ -179,10 +179,36 @@ export default function WatchPage({
   // can lag behind Cloudflare's "ready" status (the no-caption-icon race).
   const [captionNonce, setCaptionNonce] = useState(0);
   const captionResumeRef = useRef(0);
+
+  // What the <Stream> player mounts: the bare uid normally, or a fresh signed
+  // playback TOKEN after a caption change. The bare-uid manifest is browser-
+  // cached for 10 min and the iframe's requests can't be cache-busted from
+  // outside — a token changes the URL PATH ({token}/manifest/…), so a token-
+  // mounted player always fetches a never-cached, current manifest.
+  const [playbackSrc, setPlaybackSrc] = useState<string | undefined>(cloudflareUid);
+  useEffect(() => setPlaybackSrc(cloudflareUid), [cloudflareUid]);
+  const mintPlaybackSrc = useCallback(async (): Promise<string | undefined> => {
+    if (!cloudflareUid) return undefined;
+    try {
+      const r = await fetch("/api/stream/playback-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: videoId }),
+      });
+      const d = (await r.json()) as { token?: string };
+      return typeof d.token === "string" && d.token ? d.token : cloudflareUid;
+    } catch {
+      return cloudflareUid; // fall back to bare uid — old (cached) behavior
+    }
+  }, [cloudflareUid, videoId]);
+
   const applyCaption = (lang: string | null) => {
     captionResumeRef.current = streamRef.current?.currentTime ?? 0;
-    setCaptionLang(lang);
-    setCaptionNonce((n) => n + 1);
+    void mintPlaybackSrc().then((src) => {
+      setPlaybackSrc(src);
+      setCaptionLang(lang);
+      setCaptionNonce((n) => n + 1);
+    });
   };
   // After turning a caption ON, re-remount the player a couple of times (3s and
   // 8s later) so it reloads a manifest that now lists the freshly-ready track —
@@ -191,7 +217,12 @@ export default function WatchPage({
     if (!captionLang) return;
     const bump = () => {
       captionResumeRef.current = streamRef.current?.currentTime ?? captionResumeRef.current;
-      setCaptionNonce((n) => n + 1);
+      // Fresh token per bump: the remounted player then loads a never-cached
+      // manifest URL, so it can't be served the stale 10-min browser copy.
+      void mintPlaybackSrc().then((src) => {
+        setPlaybackSrc(src);
+        setCaptionNonce((n) => n + 1);
+      });
     };
     const t1 = setTimeout(bump, 3000);
     const t2 = setTimeout(bump, 8000);
@@ -199,7 +230,19 @@ export default function WatchPage({
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [captionLang]);
+  }, [captionLang, mintPlaybackSrc]);
+
+  // BILLING INVARIANT: the per-second meter may only tick while the video is
+  // ACTUALLY playing. The Stream component fires NO pause event on unmount and
+  // a remounted player never autoplays — so any remount (caption switch, the
+  // nonce bumps, the background watcher's re-activation) would strand
+  // playing=true and keep charging over a paused player. Reset play-state on
+  // every remount — keyed on the same inputs as the player's `key` — and let
+  // the meter stay off until the NEW player fires a real onPlaying.
+  useEffect(() => {
+    setPlaying(false);
+    setBuffering(false);
+  }, [cloudflareUid, captionLang, captionNonce]);
 
   const handlePlay = () => {
     if (!playing && !isOwnVideo && balance < 0.001) {
@@ -470,7 +513,7 @@ export default function WatchPage({
       <Stream
         key={`${cloudflareUid}-${captionLang ?? "none"}-${captionNonce}`}
         streamRef={streamRef}
-        src={cloudflareUid}
+        src={playbackSrc ?? cloudflareUid}
         defaultTextTrack={captionLang ?? undefined}
         startTime={captionResumeRef.current || undefined}
         className="absolute inset-0 w-full h-full z-[1]"
@@ -483,10 +526,24 @@ export default function WatchPage({
         onWaiting={() => setBuffering(true)}
         onEnded={() => setPlaying(false)}
         onSeeking={() => setPlaying(false)}
-        onSeeked={() => setPlaying(true)}
+        // Deliberately NO onSeeked handler: `seeked` fires even when the video
+        // is paused, so setting playing=true here started the meter on a
+        // paused scrub. When a seek happens DURING playback the player fires
+        // `playing` again on resume — onPlaying restores the meter correctly.
       />
     );
-  }, [cloudflareUid, captionLang, captionNonce]);
+  }, [cloudflareUid, captionLang, captionNonce, playbackSrc]);
+
+  // Insufficient-balance overlay REPLACES the player element (unmounting it
+  // mid-play with no pause event) — reset play-state when it appears so the
+  // meter can't keep ticking with no player mounted at all.
+  const showInsufficientOverlay = Boolean(cloudflareUid && !isOwnVideo && balance < 0.001 && !balanceUnknown && VIEWER_ID);
+  useEffect(() => {
+    if (showInsufficientOverlay) {
+      setPlaying(false);
+      setBuffering(false);
+    }
+  }, [showInsufficientOverlay]);
 
   const cost = isOwnVideo || free ? 0 : (secs - freePreviewSeconds) * ratePerSecond;
   const paidSecs = isOwnVideo || free ? 0 : secs - freePreviewSeconds;
@@ -897,7 +954,7 @@ export default function WatchPage({
               className="pointer-events-none absolute inset-0 z-[6]"
               style={{ boxShadow: "inset 0 0 140px 30px rgba(0,0,0,0.55)" }}
             />
-            {cloudflareUid && !isOwnVideo && balance < 0.001 && !balanceUnknown && VIEWER_ID ? (
+            {showInsufficientOverlay ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/80 backdrop-blur-sm">
                 <p className="text-lg font-bold text-white">Insufficient balance</p>
                 <p className="text-sm text-white/60">Top up your Gateway balance to watch this video</p>

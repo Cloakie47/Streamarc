@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { auth } from "@/app/lib/auth"
 import { createCloudflareClip, insertClipVideoRow, triggerClipCaptions } from "@/lib/agent/clip"
+import { MAX_RATE_PER_SEC } from "@/app/lib/constants"
 
 // POST /api/clips/manual
 // Body: { video_id, title, description, rate_per_sec, start, end }
@@ -44,8 +45,16 @@ export async function POST(req: NextRequest) {
     const finalTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, 200) : "Clip"
     const finalDescription = typeof description === "string" ? description.trim().slice(0, 2000) : ""
     // Default to the source video's rate (same convention as agent clips).
+    // Rate ceiling: 0 is allowed (free clip), anything above MAX_RATE_PER_SEC
+    // is rejected; the source-rate fallback is clamped in case a legacy row
+    // still exceeds the ceiling.
     const requestedRate = Number(rate_per_sec)
-    const finalRate = Number.isFinite(requestedRate) && requestedRate >= 0 ? requestedRate : Number(video.rate_per_sec ?? 0)
+    if (rate_per_sec !== undefined && rate_per_sec !== null && (!Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > MAX_RATE_PER_SEC)) {
+      return NextResponse.json({ error: `rate_per_sec must be between 0 and $${MAX_RATE_PER_SEC}/sec` }, { status: 400 })
+    }
+    const finalRate = Number.isFinite(requestedRate) && requestedRate >= 0
+      ? requestedRate
+      : Math.min(Number(video.rate_per_sec ?? 0), MAX_RATE_PER_SEC)
 
     // Create on Cloudflare (same path as the agent), then publish the videos row.
     const { uid, durationSecs } = await createCloudflareClip(video.cloudflare_uid, s, e)

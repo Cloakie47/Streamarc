@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { auth } from "@/app/lib/auth"
 import { createCloudflareClip, insertClipVideoRow, triggerClipCaptions } from "@/lib/agent/clip"
+import { MAX_RATE_PER_SEC } from "@/app/lib/constants"
 
 // POST /api/agent/clips/approve
 // Body: { job_id, index, title, description, rate_per_sec, start, end }
@@ -56,7 +57,12 @@ export async function POST(req: NextRequest) {
 
     const finalTitle = typeof title === "string" && title.trim() ? title.trim().slice(0, 200) : String(clip.suggested_title ?? "Clip")
     const finalDescription = typeof description === "string" ? description.trim().slice(0, 2000) : ""
-    const finalRate = Number.isFinite(Number(rate_per_sec)) && Number(rate_per_sec) >= 0 ? Number(rate_per_sec) : 0
+    // Rate ceiling: 0 allowed (free clip), above MAX_RATE_PER_SEC rejected.
+    const requestedRate = Number(rate_per_sec)
+    if (rate_per_sec !== undefined && rate_per_sec !== null && (!Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > MAX_RATE_PER_SEC)) {
+      return NextResponse.json({ error: `rate_per_sec must be between 0 and $${MAX_RATE_PER_SEC}/sec` }, { status: 400 })
+    }
+    const finalRate = Number.isFinite(requestedRate) && requestedRate >= 0 ? requestedRate : 0
 
     // Create on Cloudflare NOW, then publish the videos row.
     const { uid, durationSecs } = await createCloudflareClip(video.cloudflare_uid, s, e)

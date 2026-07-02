@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
+import { MAX_RATE_PER_SEC } from "@/app/lib/constants"
 
 // Long-form ceiling (podcasts, AMAs, recorded Spaces). Was 300 (5 min).
 const MAX_DURATION_SECONDS = 3600 // 1 hour
@@ -16,6 +17,16 @@ export async function POST(req: NextRequest) {
     const uploadLength = Number(file_size)
     if (!Number.isFinite(uploadLength) || uploadLength <= 0) {
       return NextResponse.json({ error: "Valid file_size required" }, { status: 400 })
+    }
+
+    // Watch-rate ceiling, enforced SERVER-side (the UI cap is advisory only).
+    // A rate must be a finite number, > 0, and <= MAX_RATE_PER_SEC.
+    const rate = rate_per_sec === undefined || rate_per_sec === null ? 0.00003 : Number(rate_per_sec)
+    if (!Number.isFinite(rate) || rate <= 0 || rate > MAX_RATE_PER_SEC) {
+      return NextResponse.json(
+        { error: `rate_per_sec must be > 0 and at most $${MAX_RATE_PER_SEC}/sec` },
+        { status: 400 },
+      )
     }
 
     // Any signed-in user may upload — no creator whitelist/approval step.
@@ -77,7 +88,7 @@ export async function POST(req: NextRequest) {
         title,
         description: description ?? "",
         status: "processing",
-        rate_per_sec: rate_per_sec ?? 0.00003,
+        rate_per_sec: rate,
         cloudflare_uid: videoUID,
         views: 0,
         total_earned: 0,

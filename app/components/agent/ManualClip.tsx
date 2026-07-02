@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Stream, type StreamPlayerApi } from "@cloudflare/stream-react"
 import { Scissors, X, Loader2 } from "lucide-react"
 import TrimSelector from "@/app/components/studio/TrimSelector"
+import { MAX_RATE_PER_SEC } from "@/app/lib/constants"
 
 export interface ManualClipProps {
   videoId: string
@@ -132,8 +133,8 @@ export default function ManualClip({ videoId, sourceCloudflareUid, durationSecs,
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</label>
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50" />
 
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Watch price (USDC / second)</label>
-                <input type="number" step="0.00001" min="0" value={rate} onChange={(e) => setRate(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Watch price (USDC / second) — max ${MAX_RATE_PER_SEC}/sec</label>
+                <input type="number" step="0.00001" min="0" max={MAX_RATE_PER_SEC} value={rate} onChange={(e) => setRate(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
               </div>
 
               {error && <p className="text-sm text-destructive">{error}</p>}

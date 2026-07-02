@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { auth } from "@/app/lib/auth"
 import { notFound, redirect } from "next/navigation"
 import WatchPage, { type UpNextVideo } from "@/app/components/watch/WatchPage"
+import { MAX_RATE_PER_SEC } from "@/app/lib/constants"
 
 type CreatorRow = { channel_name: string | null; display_name: string | null }
 
@@ -127,7 +128,9 @@ export default async function WatchVideoPage({ params }: Props) {
       title={video.title}
       description={video.description ?? ""}
       cloudflareUid={video.cloudflare_uid ?? undefined}
-      ratePerSecond={Number(video.rate_per_sec ?? 0.00003)}
+      // Clamped to the platform ceiling so the meter/display always match what
+      // settle-session (also clamped) will actually charge.
+      ratePerSecond={Math.min(Number(video.rate_per_sec ?? 0.00003), MAX_RATE_PER_SEC)}
       durationSecs={video.duration_secs ?? 272}
       creator={creator}
       chapters={

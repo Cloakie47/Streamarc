@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Captions, Check, Loader2, ChevronDown } from "lucide-react"
-import { SUBTITLE_LANGUAGES, SUBTITLE_FEE_USDC } from "@/lib/captions/languages"
+import { SUBTITLE_LANGUAGES, SUBTITLE_FEE_USDC, languageName } from "@/lib/captions/languages"
 
 interface SubtitlesControlProps {
   videoId: string
@@ -18,8 +18,13 @@ interface SubtitlesControlProps {
 // mount time — which can lag Cloudflare's caption-API "ready" status (manifest
 // regeneration + CDN cache). So we never assert a track is On until the PUBLIC
 // manifest (the same artifact the player reads) actually lists it.
-// cache: "no-store" bypasses the browser cache only — we deliberately do NOT
-// cache-bust the URL, because we want to see what the CDN would serve the player.
+// cache: "reload" both bypasses the browser cache AND overwrites the cached
+// entry with the fresh copy. The manifest is served with max-age=600, so a
+// browser that cached it pre-generation would otherwise feed the player a
+// caption-less manifest for up to 10 minutes. Every poll here refreshes that
+// shared cache entry, so by the time we remount the player, its manifest
+// request hits a current copy. (Same URL on purpose — a cache-busted URL
+// would leave the player's own cache key stale.)
 
 // Measured (2026-07): the manifest lags the caption API's "ready" by ~60s (CDN
 // cache TTL) — both track adds and deletes propagated on that cadence. The
@@ -32,7 +37,7 @@ const WATCH_ATTEMPTS = 36 // × 5s ≈ 3 more minutes
 const WATCH_INTERVAL_MS = 5000
 async function manifestHasTrack(uid: string, lang: string): Promise<boolean> {
   try {
-    const res = await fetch(`https://videodelivery.net/${uid}/manifest/video.m3u8`, { cache: "no-store" })
+    const res = await fetch(`https://videodelivery.net/${uid}/manifest/video.m3u8`, { cache: "reload" })
     if (!res.ok) return false
     const text = await res.text()
     return text.split("\n").some((l) => l.includes("TYPE=SUBTITLES") && l.includes(`LANGUAGE="${lang}"`))
@@ -51,6 +56,9 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
   const [open, setOpen] = useState(false)
   const [generatingLang, setGeneratingLang] = useState<string | null>(null)
   const [finishingLang, setFinishingLang] = useState<string | null>(null)
+  // Language whose generation just SUCCEEDED — drives the reassurance alert so
+  // the user knows it worked and will appear on its own, never "is it broken?".
+  const [successLang, setSuccessLang] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [insufficient, setInsufficient] = useState(false)
   const jobPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -143,6 +151,7 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
     setAvailable(Array.isArray(availableLangs) ? availableLangs : (prev) => Array.from(new Set([...(prev ?? []), lang])))
     if (charged > 0) window.dispatchEvent(new CustomEvent("gateway-balance-updated"))
     setGeneratingLang(null)
+    setSuccessLang(lang)
     verifyThenActivate(lang)
   }
 
@@ -169,6 +178,7 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
   async function generate(lang: string) {
     setError(null)
     setInsufficient(false)
+    setSuccessLang(null)
     setGeneratingLang(lang)
     try {
       const res = await fetch("/api/captions/generate", {
@@ -198,6 +208,26 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
 
   const isAvailable = (code: string) => (available ?? []).includes(code)
   const busy = generatingLang !== null || finishingLang !== null
+
+  // Live elapsed counter for the whole wait (generation ~10s + CDN ~60s), so
+  // the ~70s to a visible caption feels alive rather than frozen. One timer
+  // spans both phases: generating -> finishing (the state handoff is batched,
+  // so `busy` never flickers false in between and the clock keeps running).
+  const [elapsedSecs, setElapsedSecs] = useState(0)
+  const waitStartRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!busy) {
+      waitStartRef.current = null
+      setElapsedSecs(0)
+      return
+    }
+    if (waitStartRef.current === null) waitStartRef.current = Date.now()
+    const timer = setInterval(() => {
+      if (waitStartRef.current !== null) setElapsedSecs(Math.floor((Date.now() - waitStartRef.current) / 1000))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [busy])
+  const elapsedLabel = `${Math.floor(elapsedSecs / 60)}:${String(elapsedSecs % 60).padStart(2, "0")}`
 
   return (
     <div className="relative">
@@ -252,9 +282,13 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
                 <span className="flex flex-col items-start">
                   <span>{l.native}</span>
                   {generating ? (
-                    <span className="text-[11px] text-primary">Generating {l.name} subtitles… usually ~15s, up to ~1½ min to appear in the player</span>
+                    <span className="text-[11px] text-primary tabular-nums">
+                      Generating {l.name} subtitles… usually ready in about a minute · {elapsedLabel}
+                    </span>
                   ) : finishing ? (
-                    <span className="text-[11px] text-primary">Finishing up — waiting for the video CDN to list the track (usually under a minute)…</span>
+                    <span className="text-[11px] text-primary tabular-nums">
+                      Finishing up — waiting for the video CDN to list the track… · {elapsedLabel}
+                    </span>
                   ) : (
                     !avail && (
                       <span className="text-[11px] text-muted-foreground">
@@ -272,6 +306,12 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
             )
           })}
 
+          {successLang && (
+            <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-300">
+              ✓ {languageName(successLang)} subtitles generated and saved. They&apos;ll appear in the player
+              automatically — usually within about a minute. You can keep watching.
+            </div>
+          )}
           {insufficient && (
             <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs">
               <p className="text-amber-300">Not enough balance to generate (${SUBTITLE_FEE_USDC.toFixed(2)}).</p>

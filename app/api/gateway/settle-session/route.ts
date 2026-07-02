@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server"
 import { getWalletIdByAddress, signTypedDataWithWallet } from "@/app/lib/circle-wallets"
 import { getActingUser } from "@/app/lib/require-user"
+import { MAX_RATE_PER_SEC } from "@/app/lib/constants"
 
 const facilitator = new BatchFacilitatorClient()
 
@@ -61,7 +62,9 @@ export async function POST(req: NextRequest) {
       .eq("id", video_id)
       .single()
 
-    const ratePerSecond = video?.rate_per_sec ?? 0.00005
+    // Rate ceiling: clamp the stored rate so a legacy over-priced row can never
+    // charge above the platform max. Settlement math itself is unchanged.
+    const ratePerSecond = Math.min(Number(video?.rate_per_sec ?? 0.00005), MAX_RATE_PER_SEC)
     const actualAmount = clampedSeconds * ratePerSecond
 
     if (!viewer?.wallet_address) {
