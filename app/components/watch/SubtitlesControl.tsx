@@ -20,6 +20,16 @@ interface SubtitlesControlProps {
 // manifest (the same artifact the player reads) actually lists it.
 // cache: "no-store" bypasses the browser cache only — we deliberately do NOT
 // cache-bust the URL, because we want to see what the CDN would serve the player.
+
+// Measured (2026-07): the manifest lags the caption API's "ready" by ~60s (CDN
+// cache TTL) — both track adds and deletes propagated on that cadence. The
+// visible verify window must comfortably outlast it.
+const VERIFY_ATTEMPTS = 40 // × 3s ≈ 120s of "Finishing up…"
+const VERIFY_INTERVAL_MS = 3000
+// Past that, a background watcher keeps checking (spinner off, buttons usable)
+// and re-fires activation the moment the track lands — no user action needed.
+const WATCH_ATTEMPTS = 36 // × 5s ≈ 3 more minutes
+const WATCH_INTERVAL_MS = 5000
 async function manifestHasTrack(uid: string, lang: string): Promise<boolean> {
   try {
     const res = await fetch(`https://videodelivery.net/${uid}/manifest/video.m3u8`, { cache: "no-store" })
@@ -46,6 +56,10 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
   const jobPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const manifestPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  // The language the user most recently asked to turn on. Any verify/watch loop
+  // whose language no longer matches this aborts silently — so a slow watcher
+  // for an old selection can never re-activate over a newer one (or over Off).
+  const requestedLangRef = useRef<string | null>(null)
 
   useEffect(() => {
     mountedRef.current = true
@@ -67,27 +81,60 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
     }
   }, [videoId])
 
-  // Verify the manifest lists the track, THEN activate. Poll up to ~36s (the
-  // manifest usually catches up within a few seconds of API-ready); on timeout
-  // activate anyway (best effort — WatchPage's remount retries take over).
+  // Verify the manifest lists the track, THEN activate. Poll up to ~120s — the
+  // CDN was measured to lag API-ready by ~60s, so the visible window must
+  // outlast that. If it STILL isn't listed, activate best-effort and hand off
+  // to a background watcher that re-fires activation when the track lands.
   function verifyThenActivate(lang: string) {
     if (!cloudflareUid) {
       onActivate(lang)
       return
     }
+    requestedLangRef.current = lang
+    if (manifestPollRef.current) clearTimeout(manifestPollRef.current)
     setFinishingLang(lang)
     let attempts = 0
     const tick = async () => {
       const playable = await manifestHasTrack(cloudflareUid, lang)
-      if (!mountedRef.current) return
-      if (playable || attempts >= 12) {
-        if (!playable) console.warn(`[subtitles] manifest still missing "${lang}" after ${attempts} checks — activating anyway`)
+      if (!mountedRef.current || requestedLangRef.current !== lang) return
+      if (playable) {
         setFinishingLang(null)
-        onActivate(lang) // WatchPage remounts the player with defaultTextTrack (+retries)
+        onActivate(lang) // WatchPage remounts the player with defaultTextTrack
+        return
+      }
+      if (attempts >= VERIFY_ATTEMPTS) {
+        console.warn(`[subtitles] manifest still missing "${lang}" after ~${(VERIFY_ATTEMPTS * VERIFY_INTERVAL_MS) / 1000}s — activating best-effort, watching in background`)
+        setFinishingLang(null)
+        onActivate(lang)
+        watchInBackground(lang)
         return
       }
       attempts++
-      manifestPollRef.current = setTimeout(tick, 3000)
+      manifestPollRef.current = setTimeout(tick, VERIFY_INTERVAL_MS)
+    }
+    void tick()
+  }
+
+  // Safety net for a slower-than-measured CDN: quietly keep checking after the
+  // visible window times out, and the moment the manifest lists the track,
+  // re-fire onActivate — WatchPage remounts the player, whose CC menu is built
+  // from the (now-updated) manifest. The caption appears with no user action.
+  function watchInBackground(lang: string) {
+    if (!cloudflareUid) return
+    let attempts = 0
+    const tick = async () => {
+      const playable = await manifestHasTrack(cloudflareUid, lang)
+      if (!mountedRef.current || requestedLangRef.current !== lang) return
+      if (playable) {
+        onActivate(lang)
+        return
+      }
+      if (attempts >= WATCH_ATTEMPTS) {
+        console.warn(`[subtitles] background watch gave up — "${lang}" never appeared in the manifest`)
+        return
+      }
+      attempts++
+      manifestPollRef.current = setTimeout(tick, WATCH_INTERVAL_MS)
     }
     void tick()
   }
@@ -174,7 +221,13 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
           {/* Off */}
           <button
             type="button"
-            onClick={() => onActivate(null)}
+            onClick={() => {
+              // Cancel any pending verify/background watch so it can't re-activate later.
+              requestedLangRef.current = null
+              if (manifestPollRef.current) clearTimeout(manifestPollRef.current)
+              setFinishingLang(null)
+              onActivate(null)
+            }}
             className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-white/5"
           >
             <span>Off</span>
@@ -199,9 +252,9 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
                 <span className="flex flex-col items-start">
                   <span>{l.native}</span>
                   {generating ? (
-                    <span className="text-[11px] text-primary">Generating {l.name} subtitles… this can take up to a minute</span>
+                    <span className="text-[11px] text-primary">Generating {l.name} subtitles… usually ~15s, up to ~1½ min to appear in the player</span>
                   ) : finishing ? (
-                    <span className="text-[11px] text-primary">Finishing up — preparing the player…</span>
+                    <span className="text-[11px] text-primary">Finishing up — waiting for the video CDN to list the track (usually under a minute)…</span>
                   ) : (
                     !avail && (
                       <span className="text-[11px] text-muted-foreground">
