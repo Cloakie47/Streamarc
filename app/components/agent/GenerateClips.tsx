@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Scissors, X, Loader2, Sparkles } from "lucide-react"
-import { MIN_AI_CLIP_SECONDS } from "@/app/lib/clip-config"
+import { isSpeechTooSparse, MIN_AI_CLIP_SECONDS } from "@/app/lib/clip-config"
 
 const fmtUsd = (n: number | undefined) => `$${(n ?? 0).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`
 
@@ -12,12 +12,14 @@ export interface GenerateClipsProps {
   ratePerSecond: number
   durationSecs: number
   videoTitle: string
+  /** Measured speech density (words/sec) — null = unknown (gate stays open; the server still checks). */
+  speechWps?: number | null
 }
 
 // Watch-page control (owner/admin only): starts a clip job and routes the
 // creator to the Studio review page. The job/review UI itself lives in Studio
 // (/studio/clips/[jobId]) — nothing is rendered inline on the public watch page.
-export default function GenerateClips({ videoId, ratePerSecond, durationSecs, videoTitle }: GenerateClipsProps) {
+export default function GenerateClips({ videoId, ratePerSecond, durationSecs, videoTitle, speechWps = null }: GenerateClipsProps) {
   const router = useRouter()
   const [modalOpen, setModalOpen] = useState(false)
   const [budget, setBudget] = useState("0.60")
@@ -36,6 +38,10 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
   const belowRecommended = budgetNum < recommendedBudget
   // AI clipping is only offered for longer videos; manual clipping has no minimum.
   const tooShort = durationSecs < MIN_AI_CLIP_SECONDS
+  // The agent needs speech: gate off music/anime/silent videos (measured
+  // density persisted on the row). Unknown (null) stays enabled — the server
+  // gate re-checks before any job is created.
+  const noSpeech = typeof speechWps === "number" && isSpeechTooSparse(speechWps * durationSecs, speechWps)
 
   async function submit() {
     if (!(budgetNum > 0)) {
@@ -62,7 +68,7 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
 
   return (
     <div>
-      {tooShort ? (
+      {tooShort || noSpeech ? (
         <>
           <button
             type="button"
@@ -74,7 +80,9 @@ export default function GenerateClips({ videoId, ratePerSecond, durationSecs, vi
             Generate Clips with the AI Agent
           </button>
           <p className="mt-1.5 text-xs text-muted-foreground">
-            AI clipping is for videos over {Math.round(MIN_AI_CLIP_SECONDS / 60)} minutes — use manual clipping for shorter ones.
+            {noSpeech
+              ? "This video doesn't have enough speech for AI clipping — use manual clipping instead."
+              : `AI clipping is for videos over ${Math.round(MIN_AI_CLIP_SECONDS / 60)} minutes — use manual clipping for shorter ones.`}
           </p>
         </>
       ) : (

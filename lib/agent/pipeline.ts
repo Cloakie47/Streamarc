@@ -27,7 +27,7 @@
 // viewer flow (settle-session / settlePerSecond) is untouched; this path uses
 // settleServiceFee per chunk. Clips are inserted as the creator's own videos.
 
-import { getTranscript, textForInterval, totalWords, type Segment } from "./transcript.ts"
+import { CaptionsUnavailableError, getTranscript, textForInterval, totalWords, type Segment } from "./transcript.ts"
 import {
   scoreProbe,
   selectClips,
@@ -42,6 +42,7 @@ import { settleServiceFee } from "../settle-core/index.ts"
 import { fetchUnifiedGatewayBalance } from "../../app/lib/gateway-balance.ts"
 import { getSupabaseAdmin } from "../../app/lib/supabase-server.ts"
 import { MAX_RATE_PER_SEC } from "../../app/lib/constants.ts"
+import { isSpeechTooSparse, MIN_SPEECH_WORDS_PER_SECOND } from "../../app/lib/clip-config.ts"
 
 const DEFAULT_GOAL = "maximize viewer interest and shareability"
 const ARC_DOMAIN = 26 // Circle Gateway domain for Arc — settlements pull from this balance
@@ -81,8 +82,6 @@ const EXTENSION_SECONDS = 15 // follow-the-thought / retry extension size
 const MAX_EXTENSIONS_PER_REGION = 2
 const SENTENCE_EDGE_TOLERANCE = 3
 const RETRY_MIN_BUDGET = 0.05
-const MIN_WORDS = 12 // speech-density floor
-const MIN_WORDS_PER_SECOND = 0.2
 
 export interface DecisionEntry {
   time: string
@@ -537,16 +536,37 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   }
   log("funding-ok", `creator Gateway balance ${spendable.toFixed(6)} covers the ${budget.toFixed(6)} budget`, 0)
 
-  const segments: Segment[] = await getTranscript(sourceCloudflareUid)
+  let segments: Segment[]
+  try {
+    segments = await getTranscript(sourceCloudflareUid)
+  } catch (err) {
+    if (err instanceof CaptionsUnavailableError) {
+      // Cloudflare reported the caption track ERRORED — it couldn't transcribe
+      // the video (music/silent). Fail fast and clean: decline, $0 charged.
+      try {
+        await supabase.from("videos").update({ speech_wps: 0 }).eq("id", videoId)
+      } catch { /* column may not exist yet — best effort */ }
+      log("decline", "Cloudflare could not generate captions — no captionable speech (likely music/silent); declining with zero spend", 0)
+      return await finish([], true)
+    }
+    throw err
+  }
   const words = totalWords(segments)
   const wordsPerSecond = words / duration
   log("transcript", `${segments.length} cues, ${words} words (${wordsPerSecond.toFixed(2)} words/sec over ${duration}s)`, 0)
 
+  // Persist the measured density so the enqueue gate and watch-page UI can
+  // decide from a pure DB read next time. Best effort — the column is added by
+  // a migration and this must never fail a job.
+  try {
+    await supabase.from("videos").update({ speech_wps: Number(wordsPerSecond.toFixed(4)) }).eq("id", videoId)
+  } catch { /* ignore */ }
+
   // ====================== SPEECH-DENSITY PRE-CHECK ======================
-  if (words < MIN_WORDS || wordsPerSecond < MIN_WORDS_PER_SECOND) {
+  if (isSpeechTooSparse(words, wordsPerSecond)) {
     log(
       "decline",
-      `sparse captions (${words} words, ${wordsPerSecond.toFixed(2)} words/sec < ${MIN_WORDS_PER_SECOND}) — likely music/silent; declining with zero spend`,
+      `sparse captions (${words} words, ${wordsPerSecond.toFixed(2)} words/sec < ${MIN_SPEECH_WORDS_PER_SECOND}) — likely music/silent; declining with zero spend`,
       0,
     )
     return await finish([], true)

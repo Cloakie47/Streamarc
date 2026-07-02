@@ -96,6 +96,8 @@ export interface WatchPageProps {
   upNextVideos?: UpNextVideo[];
   canGenerateClips?: boolean;
   agentClips?: AgentClipCard[];
+  /** Measured speech density (words/sec) — null/undefined = unknown. Gates AI clipping for no-speech videos. */
+  speechWps?: number | null;
 }
 
 export default function WatchPage({
@@ -112,6 +114,7 @@ export default function WatchPage({
   upNextVideos = [],
   canGenerateClips = false,
   agentClips = [],
+  speechWps = null,
 }: WatchPageProps) {
   const router = useRouter();
   const [playing, setPlaying] = useState(false);
@@ -1231,6 +1234,7 @@ export default function WatchPage({
                   ratePerSecond={ratePerSecond}
                   durationSecs={durationSecs}
                   videoTitle={title}
+                  speechWps={speechWps}
                 />
               </div>
               {cloudflareUid && (

@@ -35,6 +35,7 @@ interface JobClip {
 interface Receipt {
   strategy?: string
   total_paid?: number
+  budget_given?: number
   tier_breakdown?: { skim_spend: number; footage_spend: number }
   seconds_bought?: number
   settlements?: string[]
@@ -196,6 +197,14 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
             <span className="rounded-full bg-primary/10 border border-primary/20 text-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">{receipt.strategy ?? "—"}</span>
             <span className="text-xs text-muted-foreground">service-fee receipt</span>
           </div>
+          {/* Cost transparency: the budget is a CAP, not the price — lead with
+              what was actually charged so nobody thinks they paid the cap. */}
+          {typeof receipt.budget_given === "number" && (
+            <p className="mb-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-300 tabular-nums">
+              Charged {fmtUsd(receipt.service_fee_charged ?? receipt.total_paid)} of your {fmtUsd(receipt.budget_given)} budget cap
+              <span className="block text-[11px] font-normal text-emerald-300/80">You only pay for what the agent actually consumed — the budget is a ceiling, not the price.</span>
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
             <Stat label="Service fee paid" value={fmtUsd(receipt.service_fee_charged ?? receipt.total_paid)} />
             <Stat label="Refunded" value={fmtUsd(receipt.refunded)} />

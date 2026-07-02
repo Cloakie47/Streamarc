@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { auth } from "@/app/lib/auth"
-import { MIN_AI_CLIP_SECONDS } from "@/app/lib/clip-config"
+import { isSpeechTooSparse, MIN_AI_CLIP_SECONDS } from "@/app/lib/clip-config"
 import { rateLimit } from "@/app/lib/rate-limit"
+import { withTimeout } from "@/app/lib/with-timeout"
+import { measureSpeechDensity } from "@/lib/agent/transcript"
+
+const NO_SPEECH_ERROR = "This video doesn't have enough speech for AI clipping — use manual clipping instead."
 
 // Sane ceiling for a single clip job's budget cap (USDC). The agent only ever
 // spends what it consumes per chunk; this just blocks fat-finger / abusive values.
@@ -38,7 +42,7 @@ export async function POST(req: NextRequest) {
     const supabase = getSupabaseAdmin()
     const { data: video, error: videoErr } = await supabase
       .from("videos")
-      .select("id, creator_id, owner_id, duration_secs")
+      .select("id, creator_id, owner_id, duration_secs, cloudflare_uid")
       .eq("id", video_id)
       .maybeSingle()
     if (videoErr) return NextResponse.json({ error: videoErr.message }, { status: 500 })
@@ -58,6 +62,33 @@ export async function POST(req: NextRequest) {
         { error: `AI clipping requires videos at least ${Math.round(MIN_AI_CLIP_SECONDS / 60)} minutes long — use manual clipping for shorter ones.` },
         { status: 400 },
       )
+    }
+
+    // Speech-density gate: the agent needs a transcript, so music/anime/silent
+    // videos are rejected BEFORE a job (and any charge) exists. Prefer the
+    // persisted measurement (pure DB read, written by the worker/this route);
+    // fall back to one bounded VTT probe when the video already has an English
+    // track. Unknown density passes through — the pipeline's own pre-check
+    // still declines at $0 spend.
+    let speechWps: number | null = null
+    const { data: densityRow, error: densityErr } = await supabase
+      .from("videos")
+      .select("speech_wps")
+      .eq("id", video_id)
+      .maybeSingle() // separate query: tolerates the column not existing yet
+    if (!densityErr && typeof (densityRow as { speech_wps?: number } | null)?.speech_wps === "number") {
+      speechWps = Number((densityRow as { speech_wps: number }).speech_wps)
+    }
+    if (speechWps === null && video.cloudflare_uid) {
+      const measured = await withTimeout(measureSpeechDensity(video.cloudflare_uid as string, durationSecs), 3000, null).catch(() => null)
+      if (measured) {
+        speechWps = measured.wordsPerSecond
+        // Best effort persist so next time this is a pure DB read.
+        await supabase.from("videos").update({ speech_wps: Number(measured.wordsPerSecond.toFixed(4)) }).eq("id", video_id)
+      }
+    }
+    if (speechWps !== null && isSpeechTooSparse(speechWps * durationSecs, speechWps)) {
+      return NextResponse.json({ error: NO_SPEECH_ERROR }, { status: 400 })
     }
 
     const resolvedGoal =

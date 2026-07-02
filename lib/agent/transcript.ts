@@ -45,7 +45,19 @@ function cfFetch(path: string, init?: RequestInit): Promise<Response> {
   })
 }
 
-type CaptionState = "ready" | "inprogress" | "none"
+type CaptionState = "ready" | "inprogress" | "none" | "error"
+
+/**
+ * Thrown when Cloudflare reports the caption track errored — it could not
+ * transcribe the video (typically no captionable speech: music, silence).
+ * Callers treat this as a clean no-speech DECLINE, never a raw failure.
+ */
+export class CaptionsUnavailableError extends Error {
+  constructor(uid: string) {
+    super(`Cloudflare could not generate captions for ${uid} — the video likely has no captionable speech`)
+    this.name = "CaptionsUnavailableError"
+  }
+}
 
 /** Current generation status for the English caption track. "none" = not requested yet. */
 async function getCaptionState(uid: string): Promise<CaptionState> {
@@ -55,6 +67,7 @@ async function getCaptionState(uid: string): Promise<CaptionState> {
   const data = (await res.json()) as { result?: { status?: string } }
   const status = data.result?.status
   if (status === "ready") return "ready"
+  if (status === "error") return "error" // CF gave up — fail fast, don't poll to timeout
   if (status) return "inprogress"
   return "none"
 }
@@ -71,6 +84,7 @@ export async function ensureCaptions(uid: string): Promise<void> {
   let state = await getCaptionState(uid)
 
   if (state === "ready") return // already generated — do not regenerate
+  if (state === "error") throw new CaptionsUnavailableError(uid) // fail fast, no 3-min poll
 
   if (state === "none") {
     const gen = await cfFetch(`/${uid}/captions/${LANG}/generate`, { method: "POST" })
@@ -83,6 +97,7 @@ export async function ensureCaptions(uid: string): Promise<void> {
 
   const startedAt = Date.now()
   while (state !== "ready") {
+    if (state === "error") throw new CaptionsUnavailableError(uid) // CF gave up mid-generation
     if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
       throw new Error(`caption generation timed out after ${POLL_TIMEOUT_MS / 1000}s for ${uid}`)
     }
@@ -148,6 +163,25 @@ export async function getTranscript(uid: string): Promise<Segment[]> {
 /** Total spoken words across all segments. */
 export function totalWords(segments: Segment[]): number {
   return segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0)
+}
+
+/**
+ * Cheap speech-density probe for the pre-charge AI-clipping gate: if the video
+ * already has a READY (or errored) English track, measure words + words/sec
+ * from the VTT — one small fetch. Returns null when density can't be known
+ * cheaply (no track yet / still generating): callers must treat null as
+ * "unknown, allow through" — the pipeline's own pre-check still declines at $0.
+ */
+export async function measureSpeechDensity(
+  uid: string,
+  durationSecs: number,
+): Promise<{ words: number; wordsPerSecond: number } | null> {
+  const state = await getCaptionState(uid)
+  if (state === "error") return { words: 0, wordsPerSecond: 0 } // CF couldn't transcribe = no speech
+  if (state !== "ready") return null
+  const vtt = await fetchVtt(uid)
+  const words = totalWords(parseVtt(vtt))
+  return { words, wordsPerSecond: durationSecs > 0 ? words / durationSecs : 0 }
 }
 
 /** Concatenated transcript text for cues overlapping [start, end). */

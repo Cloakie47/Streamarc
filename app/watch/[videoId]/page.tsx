@@ -40,6 +40,19 @@ export default async function WatchVideoPage({ params }: Props) {
   const role = (session.user as { role?: string }).role
   const canGenerateClips = session.user.id === ownerId || role === "admin"
 
+  // Measured speech density (words/sec) for the AI-clipping gate. Separate
+  // best-effort query so a missing column (migration not run yet) can never
+  // break the watch page — null = unknown, the UI stays enabled.
+  let speechWps: number | null = null
+  const { data: densityRow, error: densityErr } = await supabase
+    .from("videos")
+    .select("speech_wps")
+    .eq("id", videoId)
+    .maybeSingle()
+  if (!densityErr && typeof (densityRow as { speech_wps?: number } | null)?.speech_wps === "number") {
+    speechWps = Number((densityRow as { speech_wps: number }).speech_wps)
+  }
+
   const { data: agentJobs } = await supabase
     .from("agent_jobs")
     .select("clips")
@@ -143,6 +156,7 @@ export default async function WatchVideoPage({ params }: Props) {
       upNextVideos={upNextVideos}
       canGenerateClips={canGenerateClips}
       agentClips={agentClips}
+      speechWps={speechWps}
     />
   )
 }
