@@ -4,7 +4,6 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import { signIn } from "next-auth/react";
 import { Shield, Scissors, Languages, Zap } from "lucide-react";
-import CircuitTexture from "@/app/components/ui/CircuitTexture";
 
 type Tab = "signin" | "signup";
 type Step = "auth" | "verify" | "2fa" | "forgot" | "reset_code" | "reset_password";
@@ -246,58 +245,49 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
   const inputClass = "field-surface w-full px-4 py-3 text-sm";
 
   return (
-    <div className="relative min-h-[80vh] flex items-center justify-center overflow-hidden p-4">
-      {/* Ambient brand background, layered back-to-front:
-          1. circuit grid, radially MASKED so it's crisp near the card and
-             dissolves toward the edges (deliberate, not wallpaper)
-          2. aurora spotlight: soft teal radial gradients pooling brand color
-             above and around the card
-          3. two slow-drifting glow orbs (transform-only animation, GPU-cheap)
-          4. vignette last, darkening the edges so the eye settles on the card */}
-      <div aria-hidden className="pointer-events-none absolute inset-0">
+    <div className="relative min-h-screen flex items-center justify-center p-4">
+      {/* Background image (dark navy, flowing teal light streams, glow
+          upper-center). FIXED to the viewport so it covers the entire screen
+          on every size — wide monitors, laptops, mobile — with no bands or
+          tiling, and stays covered even if the page scrolls. object-cover
+          crops rather than letterboxes. WebP ~20KB; absolutely no layout
+          impact, never blocks first paint. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/auth-bg.webp"
+          alt=""
+          decoding="async"
+          fetchPriority="high"
+          className="absolute inset-0 h-full w-full object-cover object-center"
+        />
+        {/* Light contrast touch only (the image is already dark): edge
+            vignette so corners recede and the card/text stay the focus. */}
         <div
           className="absolute inset-0"
-          style={{
-            maskImage: "radial-gradient(ellipse 70% 60% at 50% 42%, black 25%, transparent 78%)",
-            WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 42%, black 25%, transparent 78%)",
-          }}
-        >
-          <CircuitTexture opacity={0.055} />
-        </div>
-
-        <div
-          className="absolute inset-0"
-          style={{ background: "radial-gradient(ellipse 62% 48% at 50% 22%, hsla(188, 86%, 56%, 0.10), transparent 65%)" }}
-        />
-        <div
-          className="absolute inset-0"
-          style={{ background: "radial-gradient(ellipse 42% 34% at 70% 72%, hsla(180, 80%, 60%, 0.05), transparent 70%)" }}
-        />
-
-        <motion.div
-          className="absolute left-[10%] top-[16%] h-72 w-72 rounded-full bg-sa-blue/[0.06] blur-[90px]"
-          animate={{ x: [0, 50, -25, 0], y: [0, -30, 25, 0] }}
-          transition={{ duration: 28, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.div
-          className="absolute right-[6%] bottom-[8%] h-80 w-80 rounded-full bg-sa-cyan/[0.05] blur-[100px]"
-          animate={{ x: [0, -45, 25, 0], y: [0, 20, -30, 0] }}
-          transition={{ duration: 34, repeat: Infinity, ease: "easeInOut" }}
-        />
-
-        <div
-          className="absolute inset-0"
-          style={{ background: "radial-gradient(ellipse 90% 85% at 50% 45%, transparent 55%, hsla(215, 50%, 4%, 0.7) 100%)" }}
+          style={{ background: "radial-gradient(ellipse 85% 80% at 50% 42%, transparent 52%, hsla(215, 50%, 4%, 0.55) 100%)" }}
         />
       </div>
 
-      <div className="relative w-full max-w-md">
-        {/* Glow beneath the card so it reads as lit, not floating in darkness */}
-        <div aria-hidden className="pointer-events-none absolute inset-x-8 -bottom-5 h-16 rounded-full bg-sa-blue/[0.12] blur-[60px]" />
+      <div className="relative z-10 w-full max-w-md">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="panel w-full translate-y-6 p-10 flex flex-col gap-8 relative overflow-hidden sm:translate-y-10"
+          className="panel w-full p-10 flex flex-col gap-8 relative overflow-hidden"
+          // Glassmorphism: the card sits IN the scene, not pasted on it. A
+          // ~58%-alpha navy + 16px frost lets the light streams glow through
+          // while keeping text clearly readable on the dark glass; a teal-
+          // tinted 1px border and a soft brand-teal outer glow lift it off
+          // the background. Radius softened slightly to match the aesthetic.
+          style={{
+            background: "hsla(213, 50%, 9%, 0.58)",
+            backdropFilter: "blur(16px) saturate(140%)",
+            WebkitBackdropFilter: "blur(16px) saturate(140%)",
+            border: "1px solid hsla(188, 86%, 65%, 0.18)",
+            borderRadius: "1.5rem",
+            boxShadow:
+              "inset 0 1px 0 hsla(188, 70%, 85%, 0.08), 0 0 60px hsla(188, 86%, 56%, 0.12), 0 24px 60px rgba(2, 8, 20, 0.55)",
+          }}
         >
         {/* Card depth: a lit top edge + faint sheen falling from it, so the
             panel reads as a surface catching the glow, not a flat rectangle. */}
@@ -586,7 +576,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                   ].map(({ icon: Icon, label }) => (
                     <span
                       key={label}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-sa-border/70 bg-sa-surface-2/60 px-3 py-1.5 text-[11px] font-medium text-sa-text-3"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[11px] font-medium text-sa-text-2 backdrop-blur-md"
                     >
                       <Icon size={12} className="text-sa-blue" />
                       {label}
@@ -594,20 +584,15 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
                   ))}
                 </div>
 
-                <div className="flex flex-col gap-3">
-                  <button
-                    type="button"
-                    onClick={handleGoogle}
-                    disabled={loading !== null}
-                    className="btn btn-primary w-full flex items-center justify-center gap-2.5 py-3 disabled:opacity-60"
-                  >
-                    {loading === "google" ? <Spinner /> : <GoogleIcon />}
-                    Continue with Google
-                  </button>
-                  <p className="text-center text-xs text-sa-text-3">
-                    One click. Works for new and returning accounts.
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleGoogle}
+                  disabled={loading !== null}
+                  className="btn btn-primary w-full flex items-center justify-center gap-2.5 py-3 disabled:opacity-60"
+                >
+                  {loading === "google" ? <Spinner /> : <GoogleIcon />}
+                  Continue with Google
+                </button>
               </div>
             )}
 
@@ -616,7 +601,7 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
         )}
 
         <p className="text-center text-xs text-sa-text-3">
-          By continuing you agree to StreamArc&apos;s terms. This is a 60-day testnet experiment.
+          By continuing you agree to StreamArc&apos;s terms.
         </p>
         </motion.div>
       </div>
