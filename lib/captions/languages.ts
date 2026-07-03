@@ -19,6 +19,8 @@ export const SUBTITLE_LANGUAGES: SubtitleLanguage[] = [
   { code: "zh", name: "Mandarin (Chinese)", native: "中文" },
   { code: "ml", name: "Malayalam", native: "മലയാളം" },
   { code: "ja", name: "Japanese", native: "日本語" },
+  { code: "tr", name: "Turkish", native: "Türkçe" },
+  { code: "vi", name: "Vietnamese", native: "Tiếng Việt" },
 ]
 
 export const SUBTITLE_LANGUAGE_CODES = SUBTITLE_LANGUAGES.map((l) => l.code)

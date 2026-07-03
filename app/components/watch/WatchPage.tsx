@@ -24,6 +24,7 @@ import { FROSTED_PLAY_CLASSES, FrostedPauseSvg, FrostedPlayMark, FrostedPlaySvg 
 import GenerateClips from "@/app/components/agent/GenerateClips";
 import ManualClip from "@/app/components/agent/ManualClip";
 import SubtitlesControl from "@/app/components/watch/SubtitlesControl";
+import AudioControl from "@/app/components/watch/AudioControl";
 import AgentClipsRow, { type AgentClipCard } from "@/app/components/agent/AgentClipsRow";
 
 const { intervalSeconds, freePreviewSeconds } = PAYMENT_CONFIG;
@@ -327,6 +328,18 @@ export default function WatchPage({
       setCaptionNonce((n) => n + 1);
     });
   };
+
+  // Remount the player with a fresh token WITHOUT changing the caption — used
+  // when a new alternate AUDIO track lands, so the player's native audio menu
+  // (built from the manifest at mount) picks it up. The nonce bump also fires
+  // the billing-invariant play-state reset, same as caption remounts.
+  const refreshPlayer = useCallback(() => {
+    captionResumeRef.current = streamRef.current?.currentTime ?? 0;
+    void mintPlaybackSrc().then((src) => {
+      setPlaybackSrc(src);
+      setCaptionNonce((n) => n + 1);
+    });
+  }, [mintPlaybackSrc]);
   // After turning a caption ON, re-remount the player a couple of times (3s and
   // 8s later) so it reloads a manifest that now lists the freshly-ready track —
   // the CDN edge serving the iframe can lag the one our playability check hit.
@@ -1348,8 +1361,11 @@ export default function WatchPage({
               typing an amount re-renders only the box, never this page. */}
           {VIEWER_ID && VIEWER_ID !== creatorId && <TipAmountBox onTip={sendTip} />}
 
-          {/* Subtitles — available to everyone; generate paid translations */}
-          <SubtitlesControl videoId={videoId} cloudflareUid={cloudflareUid} activeLang={captionLang} onActivate={applyCaption} />
+          {/* Subtitles + AI audio translation — available to everyone; paid generation */}
+          <div className="flex flex-wrap items-start gap-3">
+            <SubtitlesControl videoId={videoId} cloudflareUid={cloudflareUid} activeLang={captionLang} onActivate={applyCaption} />
+            <AudioControl videoId={videoId} cloudflareUid={cloudflareUid} durationSecs={durationSecs} onTrackAdded={refreshPlayer} />
+          </div>
 
           {/* Description */}
           {description && (

@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { motion } from "motion/react";
 import { signIn } from "next-auth/react";
-import { Shield } from "lucide-react";
+import { Shield, Scissors, Languages, Zap } from "lucide-react";
+import CircuitTexture from "@/app/components/ui/CircuitTexture";
 
 type Tab = "signin" | "signup";
 type Step = "auth" | "verify" | "2fa" | "forgot" | "reset_code" | "reset_password";
@@ -245,18 +246,80 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
   const inputClass = "field-surface w-full px-4 py-3 text-sm";
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="panel w-full max-w-md translate-y-6 p-10 flex flex-col gap-8 relative overflow-hidden sm:translate-y-10"
-      >
+    <div className="relative min-h-[80vh] flex items-center justify-center overflow-hidden p-4">
+      {/* Ambient brand background, layered back-to-front:
+          1. circuit grid, radially MASKED so it's crisp near the card and
+             dissolves toward the edges (deliberate, not wallpaper)
+          2. aurora spotlight: soft teal radial gradients pooling brand color
+             above and around the card
+          3. two slow-drifting glow orbs (transform-only animation, GPU-cheap)
+          4. vignette last, darkening the edges so the eye settles on the card */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div
+          className="absolute inset-0"
+          style={{
+            maskImage: "radial-gradient(ellipse 70% 60% at 50% 42%, black 25%, transparent 78%)",
+            WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 42%, black 25%, transparent 78%)",
+          }}
+        >
+          <CircuitTexture opacity={0.055} />
+        </div>
+
+        <div
+          className="absolute inset-0"
+          style={{ background: "radial-gradient(ellipse 62% 48% at 50% 22%, hsla(188, 86%, 56%, 0.10), transparent 65%)" }}
+        />
+        <div
+          className="absolute inset-0"
+          style={{ background: "radial-gradient(ellipse 42% 34% at 70% 72%, hsla(180, 80%, 60%, 0.05), transparent 70%)" }}
+        />
+
+        <motion.div
+          className="absolute left-[10%] top-[16%] h-72 w-72 rounded-full bg-sa-blue/[0.06] blur-[90px]"
+          animate={{ x: [0, 50, -25, 0], y: [0, -30, 25, 0] }}
+          transition={{ duration: 28, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className="absolute right-[6%] bottom-[8%] h-80 w-80 rounded-full bg-sa-cyan/[0.05] blur-[100px]"
+          animate={{ x: [0, -45, 25, 0], y: [0, 20, -30, 0] }}
+          transition={{ duration: 34, repeat: Infinity, ease: "easeInOut" }}
+        />
+
+        <div
+          className="absolute inset-0"
+          style={{ background: "radial-gradient(ellipse 90% 85% at 50% 45%, transparent 55%, hsla(215, 50%, 4%, 0.7) 100%)" }}
+        />
+      </div>
+
+      <div className="relative w-full max-w-md">
+        {/* Glow beneath the card so it reads as lit, not floating in darkness */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-8 -bottom-5 h-16 rounded-full bg-sa-blue/[0.12] blur-[60px]" />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="panel w-full translate-y-6 p-10 flex flex-col gap-8 relative overflow-hidden sm:translate-y-10"
+        >
+        {/* Card depth: a lit top edge + faint sheen falling from it, so the
+            panel reads as a surface catching the glow, not a flat rectangle. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0">
+          <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-sa-blue/40 to-transparent" />
+          <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-white/[0.04] to-transparent" />
+        </div>
+
         <div className="flex flex-col items-center gap-4 text-center relative z-10">
-          <div className="flex flex-col gap-1.5">
-            <h1 className="font-display text-3xl font-bold tracking-[-0.025em]">
-              Welcome to <span className="text-sa-blue">StreamArc</span>
-            </h1>
-            <p className="text-sm text-sa-text-3">Sign in to browse and publish streaming demos.</p>
+          <div className="flex flex-col items-center gap-3">
+            {/* Wordmark lockup, same treatment as the sidebar */}
+            <div className="flex flex-col items-center leading-tight">
+              <span className="font-display text-4xl font-bold tracking-[-0.025em] text-foreground">
+                Stream<span className="text-sa-blue">Arc</span>
+              </span>
+              <span className="mt-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-sa-text-3">
+                Per-second streaming
+              </span>
+            </div>
+            <p className="max-w-xs text-sm leading-relaxed text-sa-text-3">
+              Pay-per-second video on Arc. Only pay for the seconds you watch.
+            </p>
           </div>
         </div>
 
@@ -513,19 +576,38 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
               /* Google as the sole, primary way in — no divider, no tabs. It
                  handles both new and returning accounts, so one CTA covers
                  Sign In and Sign Up alike. */
-              <div className="flex flex-col gap-3">
-                <button
-                  type="button"
-                  onClick={handleGoogle}
-                  disabled={loading !== null}
-                  className="btn btn-primary w-full flex items-center justify-center gap-2.5 py-3 disabled:opacity-60"
-                >
-                  {loading === "google" ? <Spinner /> : <GoogleIcon />}
-                  Continue with Google
-                </button>
-                <p className="text-center text-xs text-sa-text-3">
-                  One click — works for new and returning accounts.
-                </p>
+              <div className="flex flex-col gap-5">
+                {/* Why sign in: three quick reasons for a first-time creator */}
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {[
+                    { icon: Zap, label: "Per-second USDC payments" },
+                    { icon: Scissors, label: "AI clipping" },
+                    { icon: Languages, label: "Multi-language audio & captions" },
+                  ].map(({ icon: Icon, label }) => (
+                    <span
+                      key={label}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-sa-border/70 bg-sa-surface-2/60 px-3 py-1.5 text-[11px] font-medium text-sa-text-3"
+                    >
+                      <Icon size={12} className="text-sa-blue" />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={handleGoogle}
+                    disabled={loading !== null}
+                    className="btn btn-primary w-full flex items-center justify-center gap-2.5 py-3 disabled:opacity-60"
+                  >
+                    {loading === "google" ? <Spinner /> : <GoogleIcon />}
+                    Continue with Google
+                  </button>
+                  <p className="text-center text-xs text-sa-text-3">
+                    One click. Works for new and returning accounts.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -536,7 +618,8 @@ export default function SignInPage({ onSignIn }: { onSignIn: () => void }) {
         <p className="text-center text-xs text-sa-text-3">
           By continuing you agree to StreamArc&apos;s terms. This is a 60-day testnet experiment.
         </p>
-      </motion.div>
+        </motion.div>
+      </div>
     </div>
   );
 }
