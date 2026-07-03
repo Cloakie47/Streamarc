@@ -216,6 +216,8 @@ export interface WatchPageProps {
   agentClips?: AgentClipCard[];
   /** Measured speech density (words/sec) — null/undefined = unknown. Gates AI clipping for no-speech videos. */
   speechWps?: number | null;
+  /** DB-checked users.is_admin for the session user — shows moderation affordances (delete any video). */
+  isAdmin?: boolean;
 }
 
 export default function WatchPage({
@@ -233,6 +235,7 @@ export default function WatchPage({
   canGenerateClips = false,
   agentClips = [],
   speechWps = null,
+  isAdmin = false,
 }: WatchPageProps) {
   const router = useRouter();
   const [playing, setPlaying] = useState(false);
@@ -252,6 +255,33 @@ export default function WatchPage({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  };
+
+  // Admin moderation: delete ANY video via the same hardened route owners use
+  // (the server re-checks users.is_admin — this button is a shortcut, not the
+  // authority). Explicit confirm so it can never be a one-click accident.
+  const [adminDeleting, setAdminDeleting] = useState(false);
+  const handleAdminDelete = async () => {
+    if (!window.confirm("Delete this video for all users? This cannot be undone.")) return;
+    setAdminDeleting(true);
+    try {
+      const res = await fetch("/api/stream/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: videoId }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        window.alert(data.error ?? "Delete failed");
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("streamarc-videos-updated"));
+      router.push("/");
+    } catch {
+      window.alert("Delete failed");
+    } finally {
+      setAdminDeleting(false);
+    }
   };
 
   const [balance, setBalance] = useState(userBalance || 0);
@@ -1346,14 +1376,29 @@ export default function WatchPage({
                   <span>{copied ? "Copied!" : "Share"}</span>
                 </button>
               </div>
-              {/* Right-side balance: small ownership badge when viewer owns the video,
-                  otherwise the tip card below carries the visual weight. */}
-              {isOwnVideo && (
-                <span className="mr-2 inline-flex items-center gap-1.5 rounded-full bg-sa-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-sa-accent ring-1 ring-inset ring-sa-accent/25">
-                  <span className="h-1.5 w-1.5 rounded-full bg-sa-accent" />
-                  You own this
-                </span>
-              )}
+              {/* Right side: ownership badge, and the admin moderation action.
+                  The delete button renders ONLY for DB-verified admins and is
+                  labeled as an admin action so it can't be mistaken for a
+                  normal viewer control. */}
+              <div className="flex items-center gap-2">
+                {isOwnVideo && (
+                  <span className="mr-2 inline-flex items-center gap-1.5 rounded-full bg-sa-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-sa-accent ring-1 ring-inset ring-sa-accent/25">
+                    <span className="h-1.5 w-1.5 rounded-full bg-sa-accent" />
+                    You own this
+                  </span>
+                )}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => void handleAdminDelete()}
+                    disabled={adminDeleting}
+                    className="inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-semibold text-red-400 ring-1 ring-inset ring-red-500/30 transition-all hover:bg-red-500/10 disabled:opacity-60"
+                  >
+                    <Trash2 size={15} />
+                    <span>{adminDeleting ? "Deleting…" : "Delete video (admin)"}</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

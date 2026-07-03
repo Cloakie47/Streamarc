@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    // Delete from Cloudflare Stream
+    // Delete from Cloudflare Stream. 404 = already gone, which is fine — the
+    // DB cleanup below must still run so the row doesn't orphan.
     if (video.cloudflare_uid) {
       const cfRes = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/stream/${video.cloudflare_uid}`,
@@ -49,13 +50,33 @@ export async function POST(req: NextRequest) {
           },
         }
       );
-      if (!cfRes.ok) {
-        console.error("Cloudflare delete failed:", await cfRes.text());
+      if (!cfRes.ok && cfRes.status !== 404) {
+        console.error("Cloudflare delete failed:", cfRes.status, await cfRes.text());
       }
     }
 
-    // Delete from DB
-    await supabase.from("videos").delete().eq("id", video_id);
+    // Related records first (best effort per table — some may not exist yet or
+    // hold no rows), so FK references can't block the row delete below.
+    const related: Array<{ table: string; column: string }> = [
+      { table: "watch_sessions", column: "video_id" },
+      { table: "comments", column: "video_id" },
+      { table: "favorites", column: "video_id" },
+      { table: "watchlist", column: "video_id" },
+      { table: "caption_jobs", column: "video_id" },
+      { table: "dub_jobs", column: "video_id" },
+      { table: "agent_jobs", column: "video_id" },
+    ];
+    for (const r of related) {
+      const { error } = await supabase.from(r.table).delete().eq(r.column, video_id);
+      if (error) console.warn(`[delete] related cleanup ${r.table} skipped:`, error.message);
+    }
+
+    // Delete the video row — surface failure instead of claiming success.
+    const { error: deleteErr } = await supabase.from("videos").delete().eq("id", video_id);
+    if (deleteErr) {
+      console.error("Video row delete failed:", deleteErr.message);
+      return NextResponse.json({ error: `Delete failed: ${deleteErr.message}` }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

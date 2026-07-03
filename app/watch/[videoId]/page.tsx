@@ -40,6 +40,12 @@ export default async function WatchVideoPage({ params }: Props) {
   const role = (session.user as { role?: string }).role
   const canGenerateClips = session.user.id === ownerId || role === "admin"
 
+  // Admin flag for moderation affordances (delete-any-video). Read from the
+  // DB per request — the SAME users.is_admin column /api/stream/delete
+  // authorizes against — so UI and API can never disagree.
+  const { data: adminRow } = await supabase.from("users").select("is_admin").eq("id", session.user.id).maybeSingle()
+  const isAdmin = Boolean((adminRow as { is_admin?: boolean } | null)?.is_admin)
+
   // Measured speech density (words/sec) for the AI-clipping gate. Separate
   // best-effort query so a missing column (migration not run yet) can never
   // break the watch page — null = unknown, the UI stays enabled.
@@ -157,6 +163,7 @@ export default async function WatchVideoPage({ params }: Props) {
       canGenerateClips={canGenerateClips}
       agentClips={agentClips}
       speechWps={speechWps}
+      isAdmin={isAdmin}
     />
   )
 }
