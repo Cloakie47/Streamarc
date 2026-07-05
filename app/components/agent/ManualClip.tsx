@@ -69,7 +69,7 @@ export default function ManualClip({ videoId, sourceCloudflareUid, durationSecs,
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-bold hover:bg-white/5 transition-colors"
       >
         <Scissors size={16} />
-        Clip manually — free
+        Clip manually (free)
       </button>
 
       {modalOpen && (
@@ -89,7 +89,7 @@ export default function ManualClip({ videoId, sourceCloudflareUid, durationSecs,
               <h2 className="text-lg font-bold">Clip manually</h2>
             </div>
             <p className="text-xs text-muted-foreground mb-4">
-              Cut <span className="text-foreground">{videoTitle}</span> yourself — drag the handles to pick the segment. This is free; you&apos;re just clipping your own footage.
+              Cut <span className="text-foreground">{videoTitle}</span> yourself: drag the handles to pick the segment. This is free; you&apos;re just clipping your own footage.
             </p>
 
             <div className="flex flex-col gap-4">
@@ -133,7 +133,7 @@ export default function ManualClip({ videoId, sourceCloudflareUid, durationSecs,
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</label>
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50" />
 
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Watch price (USDC / second) — max ${MAX_RATE_PER_SEC}/sec</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Watch price (USDC / second), max ${MAX_RATE_PER_SEC}/sec</label>
                 <input type="number" step="0.00001" min="0" max={MAX_RATE_PER_SEC} value={rate} onChange={(e) => setRate(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
               </div>
 
@@ -158,7 +158,7 @@ export default function ManualClip({ videoId, sourceCloudflareUid, durationSecs,
                   {busy ? "Creating clip…" : "Create clip"}
                 </button>
               </div>
-              {busy && <p className="text-xs text-muted-foreground">Cutting on Cloudflare — this can take up to a minute.</p>}
+              {busy && <p className="text-xs text-muted-foreground">Cutting on Cloudflare. This can take up to a minute.</p>}
             </div>
           </div>
         </div>

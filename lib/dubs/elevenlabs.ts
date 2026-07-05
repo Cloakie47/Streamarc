@@ -27,13 +27,13 @@ function apiKey(): string {
 function elevenLabsError(context: string, status: number, body: string): Error {
   const lower = body.toLowerCase()
   if (status === 401 && lower.includes("quota")) {
-    return new Error("ElevenLabs credits exhausted — audio translation is temporarily unavailable. (quota_exceeded)")
+    return new Error("ElevenLabs credits exhausted. Audio translation is temporarily unavailable. (quota_exceeded)")
   }
   if (lower.includes("quota_exceeded") || lower.includes("insufficient credits") || lower.includes("character limit")) {
-    return new Error("ElevenLabs credits exhausted — audio translation is temporarily unavailable. (quota_exceeded)")
+    return new Error("ElevenLabs credits exhausted. Audio translation is temporarily unavailable. (quota_exceeded)")
   }
   if (status === 401) {
-    return new Error(`ElevenLabs API key rejected (${context}) — check ELEVENLABS_API_KEY.`)
+    return new Error(`ElevenLabs API key rejected (${context}). Check ELEVENLABS_API_KEY.`)
   }
   return new Error(`ElevenLabs ${context} failed: ${status} ${body.slice(0, 300)}`)
 }

@@ -36,6 +36,13 @@ interface Receipt {
   strategy?: string
   total_paid?: number
   budget_given?: number
+  /** Fixed service fee actually settled (new pricing model). */
+  service_fee?: number
+  service_fee_tx?: string | null
+  /** Metered consumption (skim + footage), excluding the fee. */
+  processing?: number
+  estimated_quote?: number
+  max_quote?: number
   tier_breakdown?: { skim_spend: number; footage_spend: number }
   seconds_bought?: number
   settlements?: string[]
@@ -57,17 +64,17 @@ const fmtUsd = (n: number | undefined) => `$${(n ?? 0).toFixed(6).replace(/0+$/,
 const TERMINAL_STATUSES = new Set(["done", "failed"])
 
 function actionClass(action: string): string {
-  if (action.startsWith("consume") || action === "extend-region") return "text-amber-400"
+  if (action.startsWith("consume") || action === "extend-region" || action === "service-fee") return "text-amber-400"
   if (action === "accept-clip" || action === "propose-clip" || action === "complete" || action === "refund" || action === "funding-ok") return "text-emerald-400"
-  if (action === "reject-clip" || action === "decline" || action === "refund-failed" || action === "fund-failed" || action === "insufficient-balance" || action.startsWith("skip") || action.startsWith("stop")) return "text-rose-400"
-  if (action === "fund-budget" || action === "moment-found" || action === "editorial-brief" || action === "strategy" || action === "candidates" || action === "moments-analyzed") return "text-cyan-400"
-  if (action === "self-critique" || action === "self-critique-swap" || action === "pause-snap" || action === "cap-flex") return "text-violet-400"
+  if (action === "reject-clip" || action === "decline" || action === "refund-failed" || action === "fund-failed" || action === "fee-failed" || action === "insufficient-balance" || action.startsWith("skip") || action.startsWith("stop")) return "text-rose-400"
+  if (action === "fund-budget" || action === "moment-found" || action === "editorial-brief" || action === "strategy" || action === "candidates" || action === "moments-analyzed" || action === "keyword-focus") return "text-cyan-400"
+  if (action === "self-critique" || action === "self-critique-swap" || action === "pause-snap" || action === "cap-flex" || action === "confidence") return "text-violet-400"
   return "text-sa-text-3"
 }
 
 // Clean, human progress derived from the decision log (not the raw dump).
 function progressPhrase(log: DecisionEntry[]): string {
-  if (log.length === 0) return "Queued — waiting for the agent to start…"
+  if (log.length === 0) return "Queued. Waiting for the agent to start…"
   const has = (a: string) => log.some((e) => e.action === a)
   const moments = log.filter((e) => e.action === "moment-found").length
   const last = log[log.length - 1].action
@@ -75,7 +82,7 @@ function progressPhrase(log: DecisionEntry[]): string {
   if (last === "self-critique" || last === "self-critique-swap") return "Reviewing clip quality…"
   if (last === "final-select" || last === "candidates" || last === "accept-clip" || last === "reject-clip") return "Selecting the best clips…"
   if (last.startsWith("consume") || last === "extend-region" || last.startsWith("skip") || last.startsWith("stop")) return "Buying & analyzing footage…"
-  if (moments > 0) return `Found ${moments} valuable moment${moments === 1 ? "" : "s"} — analyzing…`
+  if (moments > 0) return `Found ${moments} valuable moment${moments === 1 ? "" : "s"}, analyzing…`
   if (last === "editorial-brief" || last === "moments-analyzed") return "Studying the video…"
   if (last === "fund-budget") return "Reserving budget…"
   if (last === "transcript" || last === "funding-ok") return "Reading the transcript…"
@@ -174,7 +181,7 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
                   ? receipt?.insufficient_funds
                     ? "Insufficient balance"
                     : pendingCount > 0
-                      ? `Ready for review — ${pendingCount} clip${pendingCount === 1 ? "" : "s"} pending`
+                      ? `Ready for review: ${pendingCount} clip${pendingCount === 1 ? "" : "s"} pending`
                       : "Completed"
                   : progressPhrase(log)}
           </p>
@@ -188,7 +195,7 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
       {isDone && receipt?.insufficient_funds && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 flex flex-col gap-2">
           <p className="text-sm font-semibold text-amber-300">Insufficient balance</p>
-          <p className="text-xs text-muted-foreground">Your Gateway balance didn&apos;t cover this budget — no funds were charged. Top up and run the agent again.</p>
+          <p className="text-xs text-muted-foreground">Your Gateway balance didn&apos;t cover this run. No funds were charged. Top up and run the agent again.</p>
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent("open-top-up"))}
@@ -206,16 +213,33 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
             <span className="rounded-full bg-primary/10 border border-primary/20 text-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">{receipt.strategy ?? "—"}</span>
             <span className="text-xs text-muted-foreground">service-fee receipt</span>
           </div>
-          {/* Cost transparency: the budget is a CAP, not the price — lead with
-              what was actually charged so nobody thinks they paid the cap. */}
-          {typeof receipt.budget_given === "number" && (
+          {/* Cost transparency: itemized fee + metered processing vs the quote —
+              the max is a CAP, not the price. */}
+          {typeof receipt.service_fee === "number" ? (
+            <p className="mb-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-300 tabular-nums">
+              Service fee {fmtUsd(receipt.service_fee)} + processing {fmtUsd(receipt.processing)} ={" "}
+              {fmtUsd(receipt.total_paid)} charged
+              <span className="block text-[11px] font-normal text-emerald-300/80">
+                Estimate was ~{fmtUsd(receipt.estimated_quote)}, max {fmtUsd(receipt.max_quote ?? receipt.budget_given)}. You paid
+                for what was used.
+              </span>
+            </p>
+          ) : typeof receipt.budget_given === "number" ? (
             <p className="mb-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-300 tabular-nums">
               Charged {fmtUsd(receipt.service_fee_charged ?? receipt.total_paid)} of your {fmtUsd(receipt.budget_given)} budget cap
-              <span className="block text-[11px] font-normal text-emerald-300/80">You only pay for what the agent actually consumed — the budget is a ceiling, not the price.</span>
+              <span className="block text-[11px] font-normal text-emerald-300/80">You only pay for what the agent actually consumed. The budget is a ceiling, not the price.</span>
             </p>
-          )}
+          ) : null}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-            <Stat label="Service fee paid" value={fmtUsd(receipt.service_fee_charged ?? receipt.total_paid)} />
+            {typeof receipt.service_fee === "number" ? (
+              <>
+                <Stat label="Charged (total)" value={fmtUsd(receipt.total_paid)} />
+                <Stat label="Service fee" value={fmtUsd(receipt.service_fee)} />
+                <Stat label="Processing" value={fmtUsd(receipt.processing)} />
+              </>
+            ) : (
+              <Stat label="Service fee paid" value={fmtUsd(receipt.service_fee_charged ?? receipt.total_paid)} />
+            )}
             <Stat label="Refunded" value={fmtUsd(receipt.refunded)} />
             <Stat label="Skim spend" value={fmtUsd(receipt.tier_breakdown?.skim_spend)} />
             <Stat label="Footage spend" value={fmtUsd(receipt.tier_breakdown?.footage_spend)} />
@@ -250,15 +274,15 @@ export default function ClipJobReview({ jobId, sourceCloudflareUid, sourceRate, 
       {!isRunning && status !== "loading" && !receipt?.insufficient_funds && (
         <div className="flex flex-col gap-4">
           {clips.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No clips were proposed for this job — see the decision log (unused budget was refunded).</p>
+            <p className="text-sm text-muted-foreground">No clips were proposed for this job. See the decision log; you only paid for what was consumed.</p>
           ) : (
             <>
-              <p className="text-xs text-muted-foreground">Review each clip — preview the segment, set the title, description and watch price, nudge the in/out points, then Approve to publish (or Discard). Nothing is published until you approve it.</p>
+              <p className="text-xs text-muted-foreground">Review each clip: preview the segment, set the title, description and watch price, nudge the in/out points, then Approve to publish (or Discard). Nothing is published until you approve it.</p>
               {clips.map((c, i) =>
                 c.status === "approved" ? (
                   <PublishedClipCard key={i} clip={c} />
                 ) : c.status === "discarded" ? (
-                  <div key={i} className="rounded-xl border border-border/50 bg-background/30 p-3 text-xs text-muted-foreground">Discarded: “{c.suggested_title}” — not published.</div>
+                  <div key={i} className="rounded-xl border border-border/50 bg-background/30 p-3 text-xs text-muted-foreground">Discarded: “{c.suggested_title}” (not published).</div>
                 ) : (
                   <PendingClipCard key={i} jobId={jobId} index={i} clip={c} sourceCloudflareUid={sourceCloudflareUid} defaultRate={sourceRate} onChanged={fetchJob} />
                 ),
@@ -400,7 +424,7 @@ function PendingClipCard({
         <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</label>
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50" />
 
-        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Watch price (USDC / second) — max ${MAX_RATE_PER_SEC}/sec</label>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Watch price (USDC / second), max ${MAX_RATE_PER_SEC}/sec</label>
         <input type="number" step="0.00001" min="0" max={MAX_RATE_PER_SEC} value={rate} onChange={(e) => setRate(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
       </div>
 

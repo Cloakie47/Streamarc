@@ -163,7 +163,7 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
         if (!mountedRef.current) return
         if (s.status === "ready") return onReady(lang, s.available, Number(s.charged ?? 0))
         if (s.status === "failed") {
-          setError(s.error ?? "Subtitle generation failed — please try again.")
+          setError(s.error ?? "Subtitle generation failed. Please try again.")
           setGeneratingLang(null)
           return
         }
@@ -287,12 +287,12 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
                     </span>
                   ) : finishing ? (
                     <span className="text-[11px] text-primary tabular-nums">
-                      Finishing up — waiting for the video CDN to list the track… · {elapsedLabel}
+                      Finishing up, waiting for the video CDN to list the track… · {elapsedLabel}
                     </span>
                   ) : (
                     !avail && (
                       <span className="text-[11px] text-muted-foreground">
-                        Generate {l.name} — {isEnglish ? "free" : `$${SUBTITLE_FEE_USDC.toFixed(2)}`}
+                        Generate {l.name} {isEnglish ? "(free)" : `($${SUBTITLE_FEE_USDC.toFixed(2)})`}
                       </span>
                     )
                   )}
@@ -309,7 +309,7 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
           {successLang && (
             <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-300">
               ✓ {languageName(successLang)} subtitles generated and saved. They&apos;ll appear in the player
-              automatically — usually within about a minute. You can keep watching.
+              automatically, usually within about a minute. You can keep watching.
             </div>
           )}
           {insufficient && (
@@ -326,7 +326,7 @@ export default function SubtitlesControl({ videoId, cloudflareUid, activeLang, o
           )}
           {error && <p className="mt-2 px-1 text-xs text-destructive">{error}</p>}
           <p className="mt-2 px-1 text-[10px] text-muted-foreground">
-            Generated subtitles are saved to this video for everyone — paid once.
+            Generated subtitles are saved to this video for everyone, paid once.
           </p>
         </div>
       )}

@@ -113,7 +113,7 @@ export default function AudioControl({ videoId, cloudflareUid, durationSecs, onT
         if (!mountedRef.current) return
         if (s.status === "ready") return onReady(lang, s.available, Number(s.charged ?? 0))
         if (s.status === "failed") {
-          setError(s.error ?? "Audio translation failed — please try again.")
+          setError(s.error ?? "Audio translation failed. Please try again.")
           setGeneratingLang(null)
           return
         }
@@ -188,7 +188,7 @@ export default function AudioControl({ videoId, cloudflareUid, durationSecs, onT
           Audio
         </button>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Audio translation is in testing — available for videos under {Math.round(MAX_DUB_SECONDS / 60)} minutes.
+          Audio translation is in testing. It&apos;s available for videos under {Math.round(MAX_DUB_SECONDS / 60)} minutes.
         </p>
       </div>
     )
@@ -229,13 +229,13 @@ export default function AudioControl({ videoId, cloudflareUid, durationSecs, onT
                     </span>
                   ) : finishing ? (
                     <span className="text-[11px] text-primary tabular-nums">
-                      Finishing up — adding the track to the player… · {elapsedLabel}
+                      Finishing up, adding the track to the player… · {elapsedLabel}
                     </span>
                   ) : avail ? (
-                    <span className="text-[11px] text-muted-foreground">Ready — switch audio in the player&apos;s ⚙ menu</span>
+                    <span className="text-[11px] text-muted-foreground">Ready. Switch audio in the player&apos;s ⚙ menu</span>
                   ) : (
                     <span className="text-[11px] text-muted-foreground">
-                      Generate {l.name} — ${DUB_PRICE_USDC.toFixed(2)}
+                      Generate {l.name} (${DUB_PRICE_USDC.toFixed(2)})
                     </span>
                   )}
                 </span>
@@ -250,8 +250,8 @@ export default function AudioControl({ videoId, cloudflareUid, durationSecs, onT
 
           {successLang && (
             <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-300">
-              ✓ {dubLabel(successLang)} audio generated and saved. Switch to it in the player&apos;s ⚙ menu — it may
-              take up to a minute to appear. You can keep watching.
+              ✓ {dubLabel(successLang)} audio generated and saved. Switch to it in the player&apos;s ⚙ menu. It may
+              take up to a minute to appear, and you can keep watching.
             </div>
           )}
           {insufficient && (
@@ -268,7 +268,7 @@ export default function AudioControl({ videoId, cloudflareUid, durationSecs, onT
           )}
           {error && <p className="mt-2 px-1 text-xs text-destructive">{error}</p>}
           <p className="mt-2 px-1 text-[10px] text-muted-foreground">
-            AI audio translation (testing) — keeps the creator&apos;s voice. Saved to this video for everyone — paid once.
+            AI audio translation (testing) keeps the creator&apos;s voice. Saved to this video for everyone, paid once.
           </p>
         </div>
       )}

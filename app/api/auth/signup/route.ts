@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
     } catch (mailErr: any) {
       console.error("Signup email send failed:", mailErr?.message)
       return NextResponse.json(
-        { error: "Couldn't send the verification email — please try again in a moment." },
+        { error: "Couldn't send the verification email. Please try again in a moment." },
         { status: 502 },
       )
     }

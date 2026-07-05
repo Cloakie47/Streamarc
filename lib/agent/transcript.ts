@@ -54,7 +54,7 @@ type CaptionState = "ready" | "inprogress" | "none" | "error"
  */
 export class CaptionsUnavailableError extends Error {
   constructor(uid: string) {
-    super(`Cloudflare could not generate captions for ${uid} — the video likely has no captionable speech`)
+    super(`Cloudflare could not generate captions for ${uid}. The video likely has no captionable speech.`)
     this.name = "CaptionsUnavailableError"
   }
 }

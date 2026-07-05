@@ -187,7 +187,7 @@ const TipAmountBox = memo(function TipAmountBox({ onTip }: { onTip: (amount: str
       {(error || success) && (
         <div className="mt-3 text-xs">
           {error && <p className="text-destructive">{error}</p>}
-          {success && <p className="text-green-400">Tip sent — thanks for supporting the creator!</p>}
+          {success && <p className="text-green-400">Tip sent. Thanks for supporting the creator!</p>}
         </div>
       )}
     </div>

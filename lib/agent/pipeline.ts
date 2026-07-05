@@ -34,6 +34,7 @@ import {
   findValuableMoments,
   generateEditorialBrief,
   selfCritique,
+  critiqueClips,
   type PurchasedRegion,
   type EditorialBrief,
   type ClipCritique,
@@ -41,8 +42,15 @@ import {
 import { settleServiceFee } from "../settle-core/index.ts"
 import { fetchUnifiedGatewayBalance } from "../../app/lib/gateway-balance.ts"
 import { getSupabaseAdmin } from "../../app/lib/supabase-server.ts"
-import { MAX_RATE_PER_SEC } from "../../app/lib/constants.ts"
-import { isSpeechTooSparse, MIN_SPEECH_WORDS_PER_SECOND } from "../../app/lib/clip-config.ts"
+import {
+  isSpeechTooSparse,
+  MIN_SPEECH_WORDS_PER_SECOND,
+  CLIP_RATE_PER_SEC,
+  SKIM_RATE_FRACTION,
+  CLIP_SERVICE_FEE_BASE,
+  CLIP_SERVICE_FEE_PER_MIN,
+  computeClipQuote,
+} from "../../app/lib/clip-config.ts"
 
 const DEFAULT_GOAL = "maximize viewer interest and shareability"
 const ARC_DOMAIN = 26 // Circle Gateway domain for Arc — settlements pull from this balance
@@ -59,7 +67,8 @@ const SUBCENT_CAP = 0.008 // USD per-chunk ceiling we try to stay under (sub-cen
 const SETTLEMENT_HARD_CAP = MAX_SETTLEMENTS * 2 // job-wide runaway backstop (skim + footage phases)
 
 // --- Two-tier consumption ---
-const TRANSCRIPT_SKIM_FRACTION = 0.1 // reading the transcript costs 10% of the full per-second rate
+// Skim fraction now lives in app/lib/clip-config.ts (SKIM_RATE_FRACTION) so the
+// quote shown in the modal and the rate billed here can never disagree.
 const SKIM_MIN_FOOTAGE_SECONDS = 75 // skim is only chosen if at least this much footage is also affordable
 const MOMENT_TARGET_SECONDS = 90 // footage region target around a valuable moment (hard clip cap is also 90)
 const MOMENT_PAD_SECONDS = 8 // padding around a moment's reported range before capping
@@ -75,6 +84,13 @@ const TARGET_REGION_SECONDS = 75
 const REPROBE_MIN_BUDGET_FRACTION = 0.4
 const DIMINISHING_LOW_SCORE = 3
 const DIMINISHING_STREAK = 3
+
+// --- Clip confidence pricing (display-only; never gates acceptance) ---
+// confidence = selection-model base − penalty per failed critique criterion,
+// clamped so a broken clip reads low but nothing defaults to a magic constant.
+const CONFIDENCE_PENALTY_PER_FLAG = 0.12
+const CONFIDENCE_MIN = 0.35
+const CONFIDENCE_MAX = 0.95
 
 // --- Shared ---
 const MAX_STRONG_REGIONS = 3 // the "3 clips" stop condition
@@ -129,9 +145,19 @@ export interface Receipt {
   service_fee_charged: number
   /** Unused budget refunded to the creator, platform → creator. */
   refunded: number
-  /** Net the creator paid for the service (== service_fee_charged). */
+  /** Net the creator paid: fixed service fee + metered processing. */
   total_paid: number
-  /** Spend split by tier: 10%-rate transcript read vs full-rate footage. */
+  /** The fixed service fee actually settled (0 on pre-fee declines). */
+  service_fee: number
+  /** The fee's own settlement tx (its clip_payments row is kind 'service_fee'). */
+  service_fee_tx: string | null
+  /** Metered consumption charged (skim + footage), excluding the fee. */
+  processing: number
+  /** The quote shown at enqueue: expected cost (fee + skim + ~70% footage). */
+  estimated_quote: number
+  /** The quote's hard cap (fee + skim + full footage allowance) == budget_given. */
+  max_quote: number
+  /** Spend split by tier: fraction-rate transcript read vs full-rate footage (fee excluded). */
   tier_breakdown: { skim_spend: number; footage_spend: number }
   seconds_bought: number
   windows: number
@@ -211,7 +237,13 @@ function mergeRegions(purchases: Purchase[], segments: Segment[]): PurchasedRegi
  */
 export async function runClipAgent(params: RunClipAgentParams): Promise<PipelineResult> {
   const { videoId, budgetUsdc: budget, onLog } = params
-  const goal = (params.goal ?? "").trim() || DEFAULT_GOAL
+  // Optional creator keyword focus rides on the goal as a parseable suffix
+  // (appended by enqueue-ui — no schema change needed). Strip it back out so
+  // the goal reads clean and the keywords can be threaded explicitly.
+  const rawGoal = (params.goal ?? "").trim()
+  const kwMatch = /\n?\[keyword-focus:\s*([^\]]+)\]\s*$/.exec(rawGoal)
+  const focusKeywords = kwMatch ? kwMatch[1].trim() : null
+  const goal = (kwMatch ? rawGoal.slice(0, kwMatch.index).trim() : rawGoal) || DEFAULT_GOAL
   const jobId: string | null = params.jobId ?? null
   if (!videoId || !Number.isFinite(budget) || budget <= 0) {
     throw new Error("runClipAgent: videoId and a positive budgetUsdc are required")
@@ -222,8 +254,10 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   // --- Running state ---
   const decisionLog: DecisionEntry[] = []
   let budgetRemaining = budget // remaining headroom under the spend CAP (not an escrow)
-  let totalSpent = 0 // sum of per-chunk settlements actually made (creator -> platform)
+  let totalSpent = 0 // everything charged: fixed service fee + per-chunk settlements (creator -> platform)
   let skimSpend = 0
+  let serviceFeeCharged = 0 // the fixed fee once settled (0 on pre-fee declines)
+  let serviceFeeTx: string | null = null
   const purchases: Purchase[] = [] // consumed windows (feed the regions)
   const securedRegions: Array<{ start: number; end: number; score: number }> = []
   let momentsFound = 0
@@ -253,11 +287,11 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   if (videoErr || !video) throw new Error(`video ${videoId} not found: ${videoErr?.message ?? "no row"}`)
   if (!video.cloudflare_uid) throw new Error(`video ${videoId} has no cloudflare_uid`)
 
-  // Consumption-rate ceiling: even if a stored rate somehow exceeds the
-  // platform max, the agent never charges above MAX_RATE_PER_SEC/sec. Both the
-  // skim (10% of rate) and footage (full rate) derive from this capped value.
-  // (Math.min keeps 0/NaN semantics — the rate>0 guard below still declines.)
-  const rate = Math.min(Number(video.rate_per_sec), MAX_RATE_PER_SEC)
+  // Agent consumption rate is a PLATFORM CONSTANT, independent of the video's
+  // viewer watch rate (which stays in its own $0.00005-0.0001 band). Skim
+  // bills at SKIM_RATE_FRACTION of this; footage at the full rate. Chunked
+  // settlement mechanics are unchanged — chunks just price off this rate.
+  const rate = CLIP_RATE_PER_SEC
   const duration = Number(video.duration_secs)
   const creatorId: string | null = video.owner_id ?? video.creator_id
   if (!creatorId) throw new Error(`video ${videoId} has no creator_id/owner_id`)
@@ -295,11 +329,13 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
 
   log(
     "start",
-    `clip service for "${videoTitle ?? videoIdResolved}" (${duration}s @ ${rate}/s) — creator ${creatorId.slice(0, 8)}… pays per chunk as consumed, up to a ${budget.toFixed(6)} USDC cap (no prepay)`,
+    `clip service for "${videoTitle ?? videoIdResolved}" (${duration}s @ clip rate ${rate}/s, independent of watch rate) — creator ${creatorId.slice(0, 8)}… pays a fixed service fee then per chunk as consumed, up to a ${budget.toFixed(6)} USDC cap (no prepay)`,
     0,
   )
+  if (focusKeywords) log("keyword-focus", `keyword-focus: ${focusKeywords}`, 0)
 
   // --- Receipt / finish helpers ---
+  const quote = computeClipQuote(duration)
   function buildReceipt(clips: PendingClip[]): Receipt {
     return {
       strategy: strategyLabel,
@@ -308,7 +344,12 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
       service_fee_charged: round6(totalSpent),
       refunded: 0, // no prepay/refund — pay-as-consumed
       total_paid: round6(totalSpent),
-      tier_breakdown: { skim_spend: round6(skimSpend), footage_spend: round6(totalSpent - skimSpend) },
+      service_fee: round6(serviceFeeCharged),
+      service_fee_tx: serviceFeeTx,
+      processing: round6(totalSpent - serviceFeeCharged),
+      estimated_quote: quote.estimated,
+      max_quote: quote.max,
+      tier_breakdown: { skim_spend: round6(skimSpend), footage_spend: round6(totalSpent - skimSpend - serviceFeeCharged) },
       seconds_bought: purchases.reduce((n, p) => n + p.seconds, 0),
       windows: purchases.length,
       moments_found: momentsFound,
@@ -341,9 +382,9 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   // This is NOT creator earnings — it is never written to the `earnings` table
   // (which the studio income query reads), so studio totals are unaffected.
   // Best-effort: a ledger insert failure is logged but never fails the job.
-  // Every row is a 'consume' carrying the REAL on-chain tx of that chunk's
-  // settlement (there is no prepay/refund anymore).
-  async function recordClipPayment(direction: "consume", amount: number, circleTx: string | null) {
+  // Rows: 'service_fee' (once, at job start) and 'consume' (one per chunk),
+  // each carrying the REAL settlement tx (there is no prepay/refund anymore).
+  async function recordClipPayment(direction: "consume" | "service_fee", amount: number, circleTx: string | null) {
     const { error } = await supabase.from("clip_payments").insert({
       job_id: jobId,
       creator_id: recipientId,
@@ -520,21 +561,19 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
   }
 
   // ============================ FUNDING + TRANSCRIPT ============================
-  if (!(rate > 0)) {
-    log("decline", `rate_per_sec is ${rate} — cannot price a clip job for a non-priced video`, 0)
-    return await finish([], true)
-  }
+  // (The old rate_per_sec>0 decline is gone: the agent bills at the platform
+  // clip rate, so even free-to-watch videos can be clipped.)
 
   // --- Funding check (before any money moves): the creator's Gateway balance
-  // must cover the budget. If not, decline cleanly (the UI offers a top-up). ---
+  // must cover the MAX quote. If not, decline cleanly (the UI offers a top-up). ---
   const gateway = await fetchUnifiedGatewayBalance(payerAddress)
   const spendable = parseFloat(gateway.chainBalances.find((b) => b.domain === ARC_DOMAIN)?.balance ?? "0")
   if (spendable + 1e-9 < budget) {
     insufficientFunds = true
-    log("insufficient-balance", `creator Gateway balance ${spendable.toFixed(6)} < budget ${budget.toFixed(6)} — insufficient balance, top up to run`, 0)
+    log("insufficient-balance", `creator Gateway balance ${spendable.toFixed(6)} < max quote ${budget.toFixed(6)} — insufficient balance, top up to run`, 0)
     return await finish([], true)
   }
-  log("funding-ok", `creator Gateway balance ${spendable.toFixed(6)} covers the ${budget.toFixed(6)} budget`, 0)
+  log("funding-ok", `creator Gateway balance ${spendable.toFixed(6)} covers the ${budget.toFixed(6)} max quote`, 0)
 
   let segments: Segment[]
   try {
@@ -572,8 +611,35 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     return await finish([], true)
   }
 
+  // ====================== SERVICE FEE (settled FIRST) ======================
+  // Fixed fee = base + per-minute of duration, settled as its own real
+  // settlement + clip_payments row BEFORE any metered consumption. It sits
+  // after the FREE pre-checks (funding/transcript/density) so a doomed job
+  // declines at $0 — but if the fee itself fails, the job does not run.
+  const serviceFee = round6(CLIP_SERVICE_FEE_BASE + CLIP_SERVICE_FEE_PER_MIN * (duration / 60))
+  try {
+    const r = await settleServiceFee({ payerWalletId, payerAddress, toAddress: platformToAddress, amountUsdc: serviceFee })
+    serviceFeeTx = r.tx
+  } catch (err) {
+    log(
+      "fee-failed",
+      `service fee ${serviceFee.toFixed(6)} settlement failed (${(err as Error)?.message ?? String(err)}) — job not started, nothing charged`,
+      0,
+    )
+    return await finish([], true)
+  }
+  serviceFeeCharged = serviceFee
+  totalSpent += serviceFee
+  budgetRemaining -= serviceFee
+  log(
+    "service-fee",
+    `service fee ${serviceFee.toFixed(6)} settled (tx ${serviceFeeTx.slice(0, 12)}…) — base ${CLIP_SERVICE_FEE_BASE.toFixed(2)} + ${CLIP_SERVICE_FEE_PER_MIN.toFixed(3)}/min × ${(duration / 60).toFixed(1)} min; consumption cap ${budgetRemaining.toFixed(6)}`,
+    serviceFee,
+  )
+  await recordClipPayment("service_fee", serviceFee, serviceFeeTx)
+
   // ====================== STRATEGY (two-tier consumption) ======================
-  const skimRate = rate * TRANSCRIPT_SKIM_FRACTION
+  const skimRate = rate * SKIM_RATE_FRACTION
   const skimCost = duration * skimRate
   const minFootageCost = SKIM_MIN_FOOTAGE_SECONDS * rate
 
@@ -589,14 +655,14 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
       log("skip-buy", `could not settle any transcript-read chunk (budget cap ${budget.toFixed(6)}, spent ${totalSpent.toFixed(6)}) — skipping skim`, 0)
       return
     }
-    log("consume-skim", `read ${skimmed}/${skimSeconds}s transcript at ${Math.round(TRANSCRIPT_SKIM_FRACTION * 100)}% rate via ${Math.ceil(skimmed / skimPlan.chunkSeconds)} chunk settlement(s)`, 0)
+    log("consume-skim", `read ${skimmed}/${skimSeconds}s transcript at ${Math.round(SKIM_RATE_FRACTION * 100)}% of clip rate via ${Math.ceil(skimmed / skimPlan.chunkSeconds)} chunk settlement(s)`, 0)
 
     // (b) PASS 1 — editorial brief: define what "important" means for THIS video.
-    editorialBrief = await generateEditorialBrief({ segments, durationSecs: duration, videoTitle, goal })
+    editorialBrief = await generateEditorialBrief({ segments, durationSecs: duration, videoTitle, goal, keywords: focusKeywords })
     log("editorial-brief", editorialBrief.summary, 0)
 
     // (c) PASS 2 — moment finding against the brief's criteria (chunked for long videos).
-    const { moments, chunks } = await findValuableMoments({ segments, durationSecs: duration, videoTitle, goal, brief: editorialBrief })
+    const { moments, chunks } = await findValuableMoments({ segments, durationSecs: duration, videoTitle, goal, brief: editorialBrief, keywords: focusKeywords })
     momentsFound = moments.length
     log("moments-analyzed", `analyzed ${chunks} chunk(s); found ${moments.length} candidate moment(s) against the brief`, 0)
     if (moments.length === 0) return
@@ -653,7 +719,7 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
       const purchase = await buyWindow(ws, we, label)
       if (!purchase) return null
       const text = textForInterval(segments, purchase.start, purchase.end)
-      const { score, reason } = await scoreProbe({ windowStart: purchase.start, windowEnd: purchase.end, durationSecs: duration, text, videoTitle })
+      const { score, reason } = await scoreProbe({ windowStart: purchase.start, windowEnd: purchase.end, durationSecs: duration, text, videoTitle, keywords: focusKeywords })
       scoredProbes.push({ ...purchase, score, reason })
       log("score-probe", `${fmt(purchase.start)}–${fmt(purchase.end)} scored ${score}/10 — ${reason}`, 0)
       return score
@@ -787,8 +853,8 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
 
   // --- Self-critique: verify each accepted clip; allow at most one swap ---
   if (selected.length > 0) {
+    const preCritique = selected
     const crit = await selfCritique({ clips: selected, regions: mergeRegions(purchases, segments), segments, videoTitle, goal, brief: editorialBrief })
-    selfCritiqueResult = { critiques: crit.critiques, swap: crit.swap }
     for (const v of crit.critiques) {
       // "no verdict" is the sentinel selfCritique uses when the model returned no
       // per-clip data (parse miss): the booleans are meaningless defaults, so don't
@@ -806,6 +872,53 @@ export async function runClipAgent(params: RunClipAgentParams): Promise<Pipeline
     }
     if (crit.swap) log("self-critique-swap", crit.swap, 0)
     selected = crit.clips
+
+    // --- Confidence pricing on the FINAL cuts ---
+    // Verdicts must describe exactly what the creator will see. Kept clips
+    // were critiqued as-is above; a swap introduces cuts that were never
+    // evaluated — re-critique the final set once in that case.
+    const sameClip = (a: { title: string; start: number; end: number }, b: { title: string; start: number; end: number }) =>
+      a.title === b.title && Math.abs(a.start - b.start) < 0.5 && Math.abs(a.end - b.end) < 0.5
+    const setChanged =
+      selected.length !== preCritique.length || selected.some((sc) => !preCritique.some((pc) => sameClip(sc, pc)))
+    let finalVerdicts: ClipCritique[] = crit.critiques
+    if (setChanged) {
+      finalVerdicts = await critiqueClips({ clips: selected, segments, videoTitle, goal, brief: editorialBrief })
+      for (const v of finalVerdicts) {
+        if (v.verdict !== "no verdict") {
+          log(
+            "self-critique",
+            `(final cut) "${v.title}": hook ${v.opens_on_hook ? "✓" : "✗"}, stands-alone ${v.stands_alone ? "✓" : "✗"}, complete ${v.ends_complete ? "✓" : "✗"}, single-topic ${v.single_topic ? "✓" : "✗"} — ${v.verdict}`,
+            0,
+          )
+        }
+      }
+    }
+    selfCritiqueResult = { critiques: finalVerdicts, swap: crit.swap }
+
+    const clampConf = (n: number) => Math.max(CONFIDENCE_MIN, Math.min(CONFIDENCE_MAX, n))
+    selected = selected.map((clip, i) => {
+      const verdict = finalVerdicts.find((v) => v.title === clip.title) ?? finalVerdicts[i]
+      const base = Number.isFinite(clip.confidence) ? clip.confidence : 0.75
+      if (!verdict || verdict.verdict === "no verdict") {
+        const conf = clampConf(base)
+        log("confidence", `"${clip.title}" confidence ${conf.toFixed(2)} = base ${base.toFixed(2)} (no critique verdict, no penalty)`, 0)
+        return { ...clip, confidence: conf }
+      }
+      const failed: string[] = []
+      if (!verdict.opens_on_hook) failed.push("hook✗")
+      if (!verdict.stands_alone) failed.push("stands-alone✗")
+      if (!verdict.ends_complete) failed.push("complete✗")
+      if (!verdict.single_topic) failed.push("single-topic✗")
+      const penalty = failed.length * CONFIDENCE_PENALTY_PER_FLAG
+      const conf = clampConf(base - penalty)
+      log(
+        "confidence",
+        `"${clip.title}" confidence ${conf.toFixed(2)} = base ${base.toFixed(2)}${penalty > 0 ? ` − ${penalty.toFixed(2)} (${failed.join(", ")})` : " (all criteria ✓)"}`,
+        0,
+      )
+      return { ...clip, confidence: conf }
+    })
   }
 
   // ============================ CLIP PROPOSALS (no Cloudflare yet) ============================

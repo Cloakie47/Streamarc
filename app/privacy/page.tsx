@@ -38,7 +38,7 @@ export default function PrivacyPage() {
               <span className="font-semibold text-foreground">
                 Watch sessions.
               </span>{" "}
-              Video ID, start and stop timestamps, seconds watched — used to
+              Video ID, start and stop timestamps, and seconds watched, used to
               compute per-second payments and power your history/favourites
               lists.
             </li>

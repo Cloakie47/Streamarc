@@ -187,7 +187,8 @@ export default function Navbar({
             : "none",
         }}
       >
-        <div className="flex items-center gap-4 px-6 py-3.5 lg:px-8">
+        {/* Mobile: pl-16 clears the fixed hamburger (the Sidebar drawer trigger). */}
+        <div className="flex items-center gap-4 py-3.5 pl-16 pr-4 lg:px-8">
           <div ref={searchRef} className="relative flex-1 max-w-xl group">
             <Search
               className="absolute left-4 top-1/2 -translate-y-1/2 z-10 text-sa-text-3 group-focus-within:text-sa-cyan transition-colors duration-200"

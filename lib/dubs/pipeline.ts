@@ -59,7 +59,7 @@ export async function runDubJob(supabase: SupabaseClient, input: DubJobInput): P
       status: "failed",
       charged: 0,
       circleTx: null,
-      error: `Audio translation is in testing — available for videos under ${Math.round(MAX_DUB_SECONDS / 60)} minutes.`,
+      error: `Audio translation is in testing. It's available for videos under ${Math.round(MAX_DUB_SECONDS / 60)} minutes.`,
       available: current,
     }
   }
@@ -85,7 +85,7 @@ export async function runDubJob(supabase: SupabaseClient, input: DubJobInput): P
   const payerAddress = user?.wallet_address as string | undefined
   const payerWalletId = user?.circle_wallet_id as string | undefined
   if (!payerAddress || !payerWalletId) {
-    return { status: "failed", charged: 0, circleTx: null, error: "Requester wallet not found — connect a wallet.", available: current }
+    return { status: "failed", charged: 0, circleTx: null, error: "Requester wallet not found. Connect a wallet first.", available: current }
   }
 
   // ---- Produce the dubbed track (these throw on failure -> worker marks failed, no charge) ----
@@ -117,7 +117,7 @@ export async function runDubJob(supabase: SupabaseClient, input: DubJobInput): P
   const arc = bal.chainBalances.find((b) => b.domain === ARC_DOMAIN)
   const spendable = arc ? parseFloat(arc.balance || "0") : 0
   if (spendable < DUB_PRICE_USDC) {
-    return { status: "failed", charged: 0, circleTx: null, error: "Insufficient balance at charge time — top up and retry.", available: current }
+    return { status: "failed", charged: 0, circleTx: null, error: "Insufficient balance at charge time. Top up and retry.", available: current }
   }
 
   // Idempotency re-check just before charging (a concurrent run may have finished).
@@ -138,7 +138,7 @@ export async function runDubJob(supabase: SupabaseClient, input: DubJobInput): P
       status: "failed",
       charged: DUB_PRICE_USDC,
       circleTx: tx,
-      error: `Dub was paid for (tx ${tx}) but could not be saved — contact support, do not retry.`,
+      error: `Dub was paid for (tx ${tx}) but could not be saved. Contact support and do not retry.`,
       available: current,
     }
   }

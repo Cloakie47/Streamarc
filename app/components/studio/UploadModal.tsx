@@ -213,7 +213,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
           {/* Rate */}
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 block">
-              Rate per second (USDC): $0.00005 to ${MAX_RATE_PER_SEC} — max ${MAX_RATE_PER_SEC}/sec
+              Rate per second (USDC): $0.00005 to ${MAX_RATE_PER_SEC} (max ${MAX_RATE_PER_SEC}/sec)
             </label>
             <input
               type="number"
@@ -242,7 +242,7 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
               ) : (
                 <p className="text-sm text-muted-foreground">Click to select video file</p>
               )}
-              <p className="text-xs text-muted-foreground">MP4, MOV, WebM. Long-form OK — up to 1 hour, large files supported.</p>
+              <p className="text-xs text-muted-foreground">MP4, MOV, WebM. Long-form OK: up to 1 hour, large files supported.</p>
             </div>
             <input
               ref={fileInputRef}

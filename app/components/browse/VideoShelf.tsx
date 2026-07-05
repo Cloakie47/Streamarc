@@ -404,7 +404,7 @@ function ShelfEmpty() {
       </div>
       <h3 className="text-xl font-bold tracking-tight">No videos yet</h3>
       <p className="max-w-sm text-sm text-sa-text-3">
-        Creators are on their way — check back soon or be the first to upload a demo.
+        Creators are on their way. Check back soon or be the first to upload a demo.
       </p>
     </section>
   );

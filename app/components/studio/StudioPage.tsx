@@ -116,7 +116,7 @@ function EarningsChart({ data, loading }: { data: ChartPoint[]; loading: boolean
       </div>
       {!loading && isEmpty && (
         <p className="text-center text-sm text-sa-text-3">
-          Start earning — share your first video
+          Start earning: share your first video
         </p>
       )}
     </div>

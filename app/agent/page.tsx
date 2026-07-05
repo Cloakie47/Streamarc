@@ -44,7 +44,7 @@ export default async function AgentStatsPage() {
         </div>
         <p className="text-sm text-muted-foreground leading-relaxed">
           An autonomous AI agent that pays creators per second to read their videos, finds the most valuable moments, and
-          publishes clips — settling every payment on-chain via Circle Gateway.
+          publishes clips, settling every payment on-chain via Circle Gateway.
         </p>
       </header>
 

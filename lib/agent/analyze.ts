@@ -33,6 +33,17 @@ const PAUSE_GAP_SECONDS = 0.5 // a gap to the next cue >= this means the speaker
 const MAX_PAUSE_EXTENSION_SECONDS = 8 // cap how far end-snapping will extend looking for a pause
 const START_PAUSE_LOOKBACK_SECONDS = 3 // how far back to snap a clip start to a post-pause speech onset
 
+// --- Sentence-aware boundaries (pauses alone cut mid-thought on fast speech) ---
+const SENTENCE_LOOKBACK_SECONDS = 6 // start snap: how far back to look for a true sentence start
+const CONNECTIVE_SKIP_WINDOW_SECONDS = 6 // skip a leading transitional filler sentence within this window
+/** Does this cue text end a sentence (allowing a trailing quote/bracket)? */
+const SENTENCE_END_RE = /[.!?…]["'”’)\]]?\s*$/
+function endsSentenceText(text: string): boolean {
+  return SENTENCE_END_RE.test(text.trim())
+}
+/** Transitional filler openers a clip should not start on ("So, next we will…"). */
+const LEADING_CONNECTIVE_RE = /^(so|and|but|then|next|also|now|okay|ok|or|plus|well|anyway|right)[,\s]/i
+
 export interface ProbeScore {
   /** Clip-worthiness, 0 (skip) to 10 (must-clip). */
   score: number
@@ -141,12 +152,24 @@ function extractJsonObject<T>(text: string): T | null {
  * ("Can this stand alone?" is the FINAL-selection criterion — the sonnet call.)
  * `text` is the transcript of just that window (may be empty → low score).
  */
+/**
+ * Optional creator-provided focus keywords, injected into brief/scoring
+ * prompts as a BIAS (weight keyword-relevant moments up), never a filter.
+ */
+function keywordFocusBlock(keywords?: string | null): string {
+  if (!keywords) return ""
+  return `
+FOCUS KEYWORDS: the creator asked to prioritize moments about: ${keywords}. Treat segments matching or closely related to these keywords as HIGHER-PRIORITY clip targets and weight their scores up accordingly. This is a bias, NOT a filter — a clearly superior moment on another topic should still be surfaced.
+`
+}
+
 export async function scoreProbe(p: {
   windowStart: number
   windowEnd: number
   durationSecs: number
   text: string
   videoTitle?: string
+  keywords?: string | null
 }): Promise<ProbeScore> {
   const sampleSecs = Math.round(p.windowEnd - p.windowStart)
   const posMin = (p.windowStart / 60).toFixed(1)
@@ -159,7 +182,7 @@ Do NOT penalize this sample for being incomplete or for "cutting off" — it is 
 Score 0-10 the LIKELIHOOD that the surrounding 1-2 minutes around this sample contains a clip-worthy moment.
 Signals that RAISE the score: a story starting, a strong or controversial claim, specific named numbers or facts, emotional energy, disagreement or tension, or a question being answered directly.
 Signals that LOWER the score: filler, logistics/housekeeping, pure small talk, or dead air.
-
+${keywordFocusBlock(p.keywords)}
 Video title: ${p.videoTitle ?? "(unknown)"}
 Sample (around minute ${posMin} of ${totalMin}):
 """
@@ -221,6 +244,7 @@ export async function generateEditorialBrief(p: {
   durationSecs: number
   videoTitle?: string
   goal: string
+  keywords?: string | null
 }): Promise<EditorialBrief> {
   if (p.segments.length === 0) return EMPTY_BRIEF
   const transcript = p.segments.map((s) => `${Math.round(s.start)}s ${s.text}`).join("\n")
@@ -229,7 +253,7 @@ export async function generateEditorialBrief(p: {
   const user = `You are a senior video editor preparing to clip a ${totalMin}-minute video. Read the FULL transcript and produce an EDITORIAL BRIEF.
 
 The creator's goal for these clips is: ${p.goal}
-
+${keywordFocusBlock(p.keywords)}
 Determine:
 - genre: what kind of video this is (AMA, tutorial, debate, sermon, comedy, interview, keynote, panel, ...).
 - speakers: who is speaking (names/roles if inferable).
@@ -279,7 +303,7 @@ async function findMomentsInRange(
   segs: Segment[],
   rangeStart: number,
   rangeEnd: number,
-  p: { videoTitle?: string; goal: string; brief: EditorialBrief; durationSecs: number },
+  p: { videoTitle?: string; goal: string; brief: EditorialBrief; durationSecs: number; keywords?: string | null },
 ): Promise<ValuableMoment[]> {
   if (segs.length === 0) return []
   const transcript = segs.map((s) => `${Math.round(s.start)}s ${s.text}`).join("\n")
@@ -288,6 +312,7 @@ async function findMomentsInRange(
 
 The creator's goal for these clips is: ${p.goal}
 What makes a moment important in THIS video (score against THESE criteria, not a generic rubric): ${p.brief.importance_criteria}
+${keywordFocusBlock(p.keywords)}
 
 This is the segment from ${fmt(rangeStart)} to ${fmt(rangeEnd)}. Identify the most valuable moments WITHIN it — each a self-contained thought (usually 20-90s) — with an approximate start/end second, a 0-10 score AGAINST THE CRITERIA ABOVE, what is said, and why it matters.
 
@@ -305,13 +330,14 @@ Return ONLY JSON, no other text:
 }
 
 /** Final ranking call: merge candidates from all chunks into the global top 5-8. */
-async function mergeMoments(candidates: ValuableMoment[], p: { goal: string; brief: EditorialBrief; durationSecs: number }): Promise<ValuableMoment[]> {
+async function mergeMoments(candidates: ValuableMoment[], p: { goal: string; brief: EditorialBrief; durationSecs: number; keywords?: string | null }): Promise<ValuableMoment[]> {
   const list = candidates.map((m, i) => `${i + 1}. ${fmt(m.start)}-${fmt(m.end)} (score ${m.score}) — ${m.what}`).join("\n")
 
   const user = `You are merging candidate clip moments found across overlapping chunks of a long ${p.brief.genre} video into the GLOBAL best list.
 
 The creator's goal: ${p.goal}
 Importance criteria for this video: ${p.brief.importance_criteria}
+${keywordFocusBlock(p.keywords)}
 
 Candidate moments (may include near-duplicates from overlapping chunks):
 ${list}
@@ -339,6 +365,7 @@ export async function findValuableMoments(p: {
   videoTitle?: string
   goal: string
   brief: EditorialBrief
+  keywords?: string | null
 }): Promise<{ moments: ValuableMoment[]; chunks: number }> {
   if (p.segments.length === 0) return { moments: [], chunks: 0 }
 
@@ -461,12 +488,14 @@ function locateRun(words: StreamWord[], phrase: string[], fromIdx: number, ancho
 }
 
 /**
- * Apply the rules to one candidate by SEMANTICS, not punctuation. Locate the
- * model's exact opening_words / closing_words in the cues to set start/end, then:
- *   - PAUSE-BASED end snap: if the gap to the next cue is < 0.5s the speaker
- *     hasn't finished, so extend through cues until a >= 0.5s pause (max +8s,
- *     90s cap); if none, keep the cue end. Mirror snap pulls the start back to a
- *     post-pause speech onset within 3s.
+ * Apply the rules to one candidate. Locate the model's exact opening_words /
+ * closing_words in the cues to set start/end, then make the edges SENTENCE-AWARE:
+ *   - END: snap to the nearest cue that COMPLETES a sentence (. ? ! …), within
+ *     the region and the 90s cap (cap-flex); pause-walk fallback (>= 0.5s gap,
+ *     max +8s) when the transcript has no clean sentence edge (noted in log).
+ *   - START: snap to a sentence START (previous cue ends a sentence) within 6s
+ *     back; post-pause onset fallback within 3s. Then skip a leading
+ *     transitional filler sentence ("So, next we will…") within 6s forward.
  *   - dead-air edge pads: tight lead pad (≤0.3s, never across a >1.5s gap); end
  *     at cue-end +0.5s, never into a >1.5s gap;
  *   - both edges must fall inside ONE purchased region;
@@ -494,45 +523,105 @@ function validateCandidate(c: ClipCandidate, intervals: PurchasedRegion[], segme
 
   const snapNotes: string[] = []
 
-  // --- PAUSE-BASED END SNAP ---
-  // The end maps to the END of the cue holding the closing words. If the silence
-  // gap to the NEXT cue is < 0.5s, the speaker hasn't finished — extend through
-  // subsequent cues until a >= 0.5s pause, bounded by +8s, the region, and the
-  // 90s hard cap. If no pause is found within those limits, keep the cue end.
+  // --- SENTENCE-AWARE END SNAP (pause fallback) ---
+  // The end maps to the END of the cue holding the closing words. Prefer the
+  // end of a COMPLETED SENTENCE (cue text ending . ? ! …): scan forward from
+  // the closing cue to the nearest sentence-ending cue, bounded by the region
+  // and the 90s hard cap (cap-flex may extend to finish the thought). Only if
+  // no sentence edge exists in that window, fall back to the old pause walk
+  // (>= 0.5s gap, max +8s) and note that the transcript had no clean edge.
   let endIdx = segments.findIndex((s) => s.start === words[closeMatch.last].cueStart && s.end === endCueEnd)
   if (endIdx >= 0) {
     const origEnd = endCueEnd
-    while (endIdx + 1 < segments.length) {
-      const cur = segments[endIdx]
-      const next = segments[endIdx + 1]
-      if (next.start - cur.end >= PAUSE_GAP_SECONDS) break // speaker paused — a real sentence end
-      if (next.end - origEnd > MAX_PAUSE_EXTENSION_SECONDS) break
-      if (next.end - startCueStart > HARD_CAP_SECONDS) break
-      if (next.end > region.end + 0.5) break
-      endIdx++
+    let sentenceIdx = -1
+    for (let k = endIdx; k < segments.length; k++) {
+      const cue = segments[k]
+      if (cue.end > region.end + 0.5) break
+      if (cue.end - startCueStart > HARD_CAP_SECONDS) break
+      if (endsSentenceText(cue.text)) {
+        sentenceIdx = k
+        break
+      }
     }
-    if (segments[endIdx].end > origEnd + 0.05) {
-      endCueEnd = segments[endIdx].end
-      snapNotes.push(`end extended +${(endCueEnd - origEnd).toFixed(1)}s to speech pause`)
+    if (sentenceIdx >= 0) {
+      endIdx = sentenceIdx
+      if (segments[endIdx].end > origEnd + 0.05) {
+        endCueEnd = segments[endIdx].end
+        snapNotes.push(`end snapped +${(endCueEnd - origEnd).toFixed(1)}s to sentence end`)
+      }
+      // sentenceIdx === endIdx with no extension: the closing cue already ends
+      // a sentence — perfect edge, nothing to note.
+    } else {
+      while (endIdx + 1 < segments.length) {
+        const cur = segments[endIdx]
+        const next = segments[endIdx + 1]
+        if (next.start - cur.end >= PAUSE_GAP_SECONDS) break // speaker paused
+        if (next.end - origEnd > MAX_PAUSE_EXTENSION_SECONDS) break
+        if (next.end - startCueStart > HARD_CAP_SECONDS) break
+        if (next.end > region.end + 0.5) break
+        endIdx++
+      }
+      if (segments[endIdx].end > origEnd + 0.05) {
+        endCueEnd = segments[endIdx].end
+        snapNotes.push(`end extended +${(endCueEnd - origEnd).toFixed(1)}s to speech pause`)
+      }
+      snapNotes.push("boundary: no clean sentence edge (end)")
     }
   }
 
-  // --- PAUSE-BASED START SNAP (mirror) ---
-  // Prefer starting at a speech onset that follows a >= 0.5s pause, within 3s
-  // before the mapped start (so we don't open mid-sentence). Pick the latest
-  // such onset at/before the mapped start; if none, keep the mapped start.
+  // --- SENTENCE-AWARE START SNAP (pause fallback) ---
+  // Prefer starting at the START of a sentence: a cue whose PREVIOUS cue ends
+  // with sentence punctuation (or no previous cue at all), searched within a
+  // 6s lookback. Only if no sentence start exists, fall back to the old
+  // post-pause speech onset (3s lookback) and note the missing clean edge.
   {
     const origStart = startCueStart
-    let bestOnset: number | null = null
+    let bestSentence: number | null = null
+    let bestPause: number | null = null
     for (const cand of segments) {
-      if (cand.start < origStart - START_PAUSE_LOOKBACK_SECONDS || cand.start > origStart + 0.05) continue
+      if (cand.start < origStart - SENTENCE_LOOKBACK_SECONDS || cand.start > origStart + 0.05) continue
       const prev = segments.filter((s) => s.end <= cand.start + 0.05).sort((a, b) => b.end - a.end)[0]
+      const startsSentence = !prev || endsSentenceText(prev.text)
       const precededByPause = !prev || cand.start - prev.end >= PAUSE_GAP_SECONDS
-      if (precededByPause && (bestOnset === null || cand.start > bestOnset)) bestOnset = cand.start
+      if (startsSentence && (bestSentence === null || cand.start > bestSentence)) bestSentence = cand.start
+      if (precededByPause && cand.start >= origStart - START_PAUSE_LOOKBACK_SECONDS && (bestPause === null || cand.start > bestPause)) {
+        bestPause = cand.start
+      }
     }
-    if (bestOnset !== null && bestOnset < origStart - 0.05) {
-      startCueStart = bestOnset
-      snapNotes.push(`start moved -${(origStart - bestOnset).toFixed(1)}s to a speech onset after a pause`)
+    if (bestSentence !== null) {
+      if (bestSentence < origStart - 0.05) {
+        startCueStart = bestSentence
+        snapNotes.push(`start snapped -${(origStart - bestSentence).toFixed(1)}s to a sentence start`)
+      }
+      // bestSentence === origStart: mapped start already begins a sentence.
+    } else {
+      if (bestPause !== null && bestPause < origStart - 0.05) {
+        startCueStart = bestPause
+        snapNotes.push(`start moved -${(origStart - bestPause).toFixed(1)}s to a speech onset after a pause`)
+      }
+      snapNotes.push("boundary: no clean sentence edge (start)")
+    }
+  }
+
+  // --- LEADING-CONNECTIVE SKIP ---
+  // A clip must not open on transitional filler ("So, next we will be
+  // exploring…"). If the chosen start cue begins with a connective, advance to
+  // the NEXT sentence start within a small window — as long as enough clip
+  // remains to stay above the minimum length and reach the closing words.
+  {
+    const startIdx = segments.findIndex((s) => Math.abs(s.start - startCueStart) < 0.05)
+    if (startIdx >= 0 && LEADING_CONNECTIVE_RE.test(segments[startIdx].text.trim())) {
+      for (let k = startIdx; k + 1 < segments.length; k++) {
+        const nxt = segments[k + 1]
+        if (nxt.start - startCueStart > CONNECTIVE_SKIP_WINDOW_SECONDS) break
+        if (endsSentenceText(segments[k].text)) {
+          if (nxt.start < endCueEnd - MIN_CLIP_SECONDS) {
+            snapNotes.push(`start advanced +${(nxt.start - startCueStart).toFixed(1)}s past connective opener to the next sentence start`)
+            startCueStart = nxt.start
+          }
+          break
+        }
+      }
     }
   }
 
@@ -566,7 +655,9 @@ function validateCandidate(c: ClipCandidate, intervals: PurchasedRegion[], segme
       end,
       title: String(c.title ?? "Untitled clip").slice(0, 120),
       hook: String(c.hook ?? "").slice(0, 280),
-      confidence: Math.max(0, Math.min(1, Number(c.confidence) || 0)),
+      // Preserve NaN: it is the "inherit from the replaced clip" sentinel used
+      // by selfCritique's rebuilt cuts (|| 0 would silently turn it into 0).
+      confidence: Number.isFinite(Number(c.confidence)) ? Math.max(0, Math.min(1, Number(c.confidence))) : Number.NaN,
       opening_words: String(c.opening_words ?? "").slice(0, 200),
       closing_words: String(c.closing_words ?? "").slice(0, 200),
     },
@@ -711,6 +802,99 @@ export interface ClipCritique {
  * Safety: never returns zero clips when a coherent candidate exists — if nothing
  * validates, it keeps the original selection (best-of) with a logged note.
  */
+interface RawEvaluation {
+  clip?: number
+  opens_on_hook?: boolean
+  stands_alone?: boolean
+  ends_complete?: boolean
+  single_topic?: boolean
+  score?: number
+  reasoning?: string
+}
+
+/** Map raw model evaluations onto clips, aligned by the 1-based `clip` index. */
+function buildCritiques(clips: Array<{ title: string }>, evaluations: RawEvaluation[] | undefined): ClipCritique[] {
+  const evalByIndex = new Map<number, RawEvaluation>()
+  ;(evaluations ?? []).forEach((e, i) => {
+    const idx = Number.isFinite(Number(e?.clip)) ? Math.round(Number(e.clip)) - 1 : i
+    if (idx >= 0 && idx < clips.length && !evalByIndex.has(idx)) evalByIndex.set(idx, e)
+  })
+  return clips.map((c, i) => {
+    const e = evalByIndex.get(i)
+    const reasoning = String(e?.reasoning ?? "").slice(0, 280)
+    const score = Number.isFinite(Number(e?.score)) ? Math.max(0, Math.min(10, Math.round(Number(e!.score)))) : undefined
+    return {
+      title: c.title,
+      opens_on_hook: !!e?.opens_on_hook,
+      stands_alone: !!e?.stands_alone,
+      ends_complete: !!e?.ends_complete,
+      single_topic: e?.single_topic !== false,
+      score,
+      reasoning: reasoning || undefined,
+      // Real verdict when evaluated; sentinel only when the model genuinely
+      // returned nothing for this clip (the pipeline logs that case gracefully).
+      verdict: reasoning ? reasoning : e ? `score ${score ?? "?"}/10` : "no verdict",
+    }
+  })
+}
+
+/**
+ * Base confidence for a critique-rebuilt cut with no selection-model number of
+ * its own: the selection confidence of the ORIGINAL clip it overlaps (i.e. the
+ * clip it replaces), else the mean of the originals.
+ */
+function inheritedConfidence(clip: { start: number; end: number }, originals: SelectedClip[]): number {
+  const overlapping = originals.find((o) => clip.start < o.end && clip.end > o.start)
+  if (overlapping && Number.isFinite(overlapping.confidence)) return overlapping.confidence
+  const finite = originals.map((o) => o.confidence).filter((n) => Number.isFinite(n))
+  return finite.length > 0 ? finite.reduce((s, n) => s + n, 0) / finite.length : 0.75
+}
+
+/**
+ * Evaluations-only critique of a FINAL clip set (post-swap / post-extension):
+ * the four quality booleans + score per clip, no re-selection. The pipeline
+ * uses this to price each proposal's confidence against the exact cut the
+ * creator will see. Aligned by index with the input clips.
+ */
+export async function critiqueClips(p: {
+  clips: SelectedClip[]
+  segments: Segment[]
+  videoTitle?: string
+  goal: string
+  brief: EditorialBrief | null
+}): Promise<ClipCritique[]> {
+  if (p.clips.length === 0) return []
+  const brief = p.brief ?? EMPTY_BRIEF
+  const clipBlocks = p.clips
+    .map(
+      (c, i) =>
+        `Clip ${i + 1}: "${c.title}" — hook: ${c.hook}\n  range ${fmt(c.start)}-${fmt(c.end)}\n  transcript: """${textForInterval(p.segments, c.start, c.end)}"""`,
+    )
+    .join("\n\n")
+
+  const user = `You are quality-checking FINAL short clips cut from a ${brief.genre} video before they are shown to the creator.
+
+The creator's goal: ${p.goal}
+Importance criteria for this video: ${brief.importance_criteria}
+
+Judge EVERY clip on all four criteria:
+- opens_on_hook: opens on a hook within the first ~3 seconds
+- stands_alone: makes sense without any surrounding context
+- ends_complete: ends on a completed thought (not mid-sentence)
+- single_topic: covers exactly ONE topic / idea arc (no drift into a second topic)
+
+Video title: ${p.videoTitle ?? "(unknown)"}
+
+${clipBlocks}
+
+Return ONLY JSON, no other text:
+{"evaluations":[{"clip":<1-based index>,"opens_on_hook":<bool>,"stands_alone":<bool>,"ends_complete":<bool>,"single_topic":<bool>,"score":<0-10>,"reasoning":"..."}]}`
+
+  const out = await callClaude({ model: SELECTION_MODEL, maxTokens: 1500, user, temperature: 0 })
+  const parsed = extractJsonObject<{ evaluations?: RawEvaluation[] }>(out)
+  return buildCritiques(p.clips, parsed?.evaluations)
+}
+
 export async function selfCritique(p: {
   clips: SelectedClip[]
   regions: PurchasedRegion[]
@@ -775,28 +959,7 @@ Return ONLY JSON, no prose, no code fences:
   }
 
   // --- Per-clip verdicts (one per PROPOSED clip), aligned by `clip` index. ---
-  const evalByIndex = new Map<number, NonNullable<typeof parsed.evaluations>[number]>()
-  ;(parsed.evaluations ?? []).forEach((e, i) => {
-    const idx = Number.isFinite(Number(e?.clip)) ? Math.round(Number(e.clip)) - 1 : i
-    if (idx >= 0 && idx < p.clips.length && !evalByIndex.has(idx)) evalByIndex.set(idx, e)
-  })
-  const critiques: ClipCritique[] = p.clips.map((c, i) => {
-    const e = evalByIndex.get(i)
-    const reasoning = String(e?.reasoning ?? "").slice(0, 280)
-    const score = Number.isFinite(Number(e?.score)) ? Math.max(0, Math.min(10, Math.round(Number(e!.score)))) : undefined
-    return {
-      title: c.title,
-      opens_on_hook: !!e?.opens_on_hook,
-      stands_alone: !!e?.stands_alone,
-      ends_complete: !!e?.ends_complete,
-      single_topic: e?.single_topic !== false,
-      score,
-      reasoning: reasoning || undefined,
-      // Real verdict when evaluated; sentinel only when the model genuinely
-      // returned nothing for this clip (the pipeline logs that case gracefully).
-      verdict: reasoning ? reasoning : e ? `score ${score ?? "?"}/10` : "no verdict",
-    }
-  })
+  const critiques: ClipCritique[] = buildCritiques(p.clips, parsed.evaluations)
 
   // --- Build the ranked final selection from the model's `final` list. Each is
   // re-validated in code (opening/closing words located in the cues). ---
@@ -806,7 +969,13 @@ Return ONLY JSON, no prose, no code fences:
     if (finalClips.length >= maxClips) break
     const refIdx = Math.round(Number(item?.ref)) - 1
     const isClip = String(item?.source ?? "").toLowerCase() !== "region"
-    const baseConfidence = isClip && refIdx >= 0 && refIdx < p.clips.length ? p.clips[refIdx].confidence : 0.7
+    const resolvedRef = isClip && refIdx >= 0 && refIdx < p.clips.length
+    // Base confidence CARRIES the selection model's number. Region-sourced (or
+    // unresolvable-ref) picks have no direct selection confidence — mark NaN
+    // and inherit AFTER validation from the original clip they overlap, i.e.
+    // the clip they effectively replace. (This was a hardcoded 0.7 before,
+    // which stamped every rebuilt clip with the same constant.)
+    const baseConfidence = resolvedRef ? p.clips[refIdx].confidence : Number.NaN
     const candidate: ClipCandidate = {
       opening_words: String(item?.opening_words ?? ""),
       closing_words: String(item?.closing_words ?? ""),
@@ -817,6 +986,9 @@ Return ONLY JSON, no prose, no code fences:
     }
     const verdict = validateCandidate(candidate, p.regions, p.segments)
     if (verdict.accepted && verdict.clip && !finalClips.some((fc) => same(fc, verdict.clip!))) {
+      if (!Number.isFinite(verdict.clip.confidence)) {
+        verdict.clip.confidence = inheritedConfidence(verdict.clip, p.clips)
+      }
       finalClips.push(verdict.clip)
     } else if (!verdict.accepted) {
       rejected.push(`"${candidate.title}" (${verdict.rule})`)

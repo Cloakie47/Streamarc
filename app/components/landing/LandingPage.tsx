@@ -337,7 +337,7 @@ const STEPS = [
     n: "01",
     icon: Radio,
     title: "Stream anything",
-    body: "Live shows, recorded series, and creator channels — all in one clean, fast-loading app.",
+    body: "Live shows, recorded series, and creator channels, all in one clean, fast-loading app.",
   },
   {
     n: "02",
@@ -349,7 +349,7 @@ const STEPS = [
     n: "03",
     icon: ShieldCheck,
     title: "You own your data",
-    body: "Transparent, on-chain settlement. Your watch history stays yours — never sold, never tracked.",
+    body: "Transparent, on-chain settlement. Your watch history stays yours: never sold, never tracked.",
   },
 ];
 

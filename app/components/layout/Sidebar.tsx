@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   Home, Compass, PlayCircle, LayoutDashboard, Shield,
-  History, Heart, Clock, Settings, LogOut, Copy, Check, Wallet, Scissors,
+  History, Heart, Clock, Settings, LogOut, Copy, Check, Wallet, Scissors, Menu, X,
 } from "lucide-react";
 import { useCurrentUser, signOut } from "@/app/lib/auth-client";
 import { DEFAULT_WATCH_VIDEO_ID } from "@/app/lib/constants";
@@ -255,7 +255,20 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  // Mobile drawer (< lg the fixed sidebar is display:none — without this
+  // there is NO navigation at all on small screens).
+  const [mobileOpen, setMobileOpen] = useState(false);
   const { userId } = useCurrentUser();
+
+  // Lock page scroll while the drawer is open.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [mobileOpen]);
 
   useEffect(() => {
     if (!userId) return;
@@ -369,15 +382,9 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
       ? liveBalance.toFixed(4)
       : balance.toFixed(4);
 
-  return (
-    <>
-      <motion.div
-        initial={{ opacity: 0, x: -16 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="fixed left-0 top-0 bottom-0 z-50 hidden lg:block"
-        style={{ width: "var(--sidebar-width)" }}
-      >
+  // Shared between the fixed desktop rail and the mobile drawer — same
+  // content, two containers.
+  const sidebarBody = (
         <aside
           className="flex h-full flex-col px-4 py-6 gap-5 relative"
           style={{
@@ -513,7 +520,75 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
             </div>
           </div>
         </aside>
+  );
+
+  return (
+    <>
+      {/* Desktop rail — unchanged. */}
+      <motion.div
+        initial={{ opacity: 0, x: -16 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        className="fixed left-0 top-0 bottom-0 z-50 hidden lg:block"
+        style={{ width: "var(--sidebar-width)" }}
+      >
+        {sidebarBody}
       </motion.div>
+
+      {/* Mobile: hamburger in the top bar area opens the drawer. */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        aria-label="Open menu"
+        className="fixed left-3 top-3 z-[55] inline-flex h-10 w-10 items-center justify-center rounded-xl border lg:hidden"
+        style={{
+          background: "hsla(213, 50%, 6%, 0.85)",
+          borderColor: "hsla(198, 30%, 22%, 0.6)",
+          backdropFilter: "blur(22px) saturate(140%)",
+          WebkitBackdropFilter: "blur(22px) saturate(140%)",
+        }}
+      >
+        <Menu size={18} className="text-sa-text-2" />
+      </button>
+
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            <motion.div
+              key="drawer-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-0 z-[64] bg-black/60 lg:hidden"
+              onClick={() => setMobileOpen(false)}
+            />
+            <motion.div
+              key="drawer"
+              initial={{ x: -300 }}
+              animate={{ x: 0 }}
+              exit={{ x: -300 }}
+              transition={{ type: "tween", duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="fixed bottom-0 left-0 top-0 z-[65] w-[280px] max-w-[85vw] lg:hidden"
+              // Any button press inside (nav item, top-up, sign out) closes the
+              // drawer — navigation and modals continue underneath as normal.
+              onClickCapture={(e) => {
+                if ((e.target as HTMLElement).closest("button")) setMobileOpen(false);
+              }}
+            >
+              {sidebarBody}
+              <button
+                type="button"
+                onClick={() => setMobileOpen(false)}
+                aria-label="Close menu"
+                className="absolute right-3 top-4 z-20 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sa-border bg-sa-surface-2/80 text-sa-text-2 transition-colors hover:text-foreground"
+              >
+                <X size={16} />
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {showTopUp && (
         <div
@@ -522,7 +597,7 @@ export default function Sidebar({ balance: initialBalance, onBalanceChange, onPa
           onClick={() => setShowTopUp(false)}
         >
           <div
-            className="panel p-6 w-[440px] space-y-4 max-h-[90vh] overflow-y-auto"
+            className="panel mx-4 w-full max-w-[440px] space-y-4 overflow-y-auto p-6 max-h-[90vh]"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-bold text-foreground">Top up balance</h3>

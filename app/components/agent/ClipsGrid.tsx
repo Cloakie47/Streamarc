@@ -11,7 +11,7 @@ export default function ClipsGrid({ rows }: { rows: ApiVideoRow[] }) {
   const openWatch = useCallback((id: string) => void router.push(`/watch/${id}`), [router])
 
   if (rows.length === 0) {
-    return <p className="text-sm text-sa-text-3">No agent clips have been published yet — generate some from a video page.</p>
+    return <p className="text-sm text-sa-text-3">No agent clips have been published yet. Generate some from a video page.</p>
   }
 
   return (

@@ -50,7 +50,7 @@ export default function ClipJobsList() {
       </p>
     )
   if (jobs.length === 0)
-    return <p className="text-sm text-muted-foreground">No clip jobs yet — start one from a video&apos;s “Generate Clips” button.</p>
+    return <p className="text-sm text-muted-foreground">No clip jobs yet. Start one from a video&apos;s “Generate Clips” button.</p>
 
   return (
     <div className="flex flex-col gap-2">

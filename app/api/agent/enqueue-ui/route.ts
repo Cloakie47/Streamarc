@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/app/lib/supabase-server"
 import { auth } from "@/app/lib/auth"
-import { isSpeechTooSparse, MIN_AI_CLIP_SECONDS } from "@/app/lib/clip-config"
+import { isSpeechTooSparse, MIN_AI_CLIP_SECONDS, MAX_AI_CLIP_SECONDS, computeClipQuote } from "@/app/lib/clip-config"
 import { rateLimit } from "@/app/lib/rate-limit"
 import { withTimeout } from "@/app/lib/with-timeout"
 import { measureSpeechDensity } from "@/lib/agent/transcript"
 
-const NO_SPEECH_ERROR = "This video doesn't have enough speech for AI clipping — use manual clipping instead."
-
-// Sane ceiling for a single clip job's budget cap (USDC). The agent only ever
-// spends what it consumes per chunk; this just blocks fat-finger / abusive values.
-const MAX_CLIP_BUDGET_USDC = 5
+const NO_SPEECH_ERROR = "This video doesn't have enough speech for AI clipping. Use manual clipping instead."
 
 // POST /api/agent/enqueue-ui
 // Browser-facing enqueue. Authenticates via the NextAuth session (NOT the
@@ -30,13 +26,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Too many clip jobs, try again shortly." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } })
     }
 
-    const { video_id, budget_usdc, goal } = await req.json()
-    const budget = Number(budget_usdc)
-    if (!video_id || !Number.isFinite(budget) || budget <= 0) {
-      return NextResponse.json({ error: "video_id and a positive budget_usdc are required" }, { status: 400 })
-    }
-    if (budget > MAX_CLIP_BUDGET_USDC) {
-      return NextResponse.json({ error: `Budget too large — max is $${MAX_CLIP_BUDGET_USDC.toFixed(2)} per clip job` }, { status: 400 })
+    // Pricing is a COMPUTED quote now — any client-supplied budget is ignored.
+    const { video_id, goal, keywords } = await req.json()
+    if (!video_id) {
+      return NextResponse.json({ error: "video_id is required" }, { status: 400 })
     }
 
     const supabase = getSupabaseAdmin()
@@ -54,12 +47,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Only the video's owner can generate clips" }, { status: 403 })
     }
 
-    // AI clipping is only for longer videos — never run the agent on a too-short
-    // one (manual clipping has no minimum and is unaffected).
+    // AI clipping length gates (manual clipping has no limits and is unaffected):
+    // under 2 minutes and over 60 minutes are both unavailable.
     const durationSecs = Number(video.duration_secs)
     if (!(durationSecs >= MIN_AI_CLIP_SECONDS)) {
       return NextResponse.json(
-        { error: `AI clipping requires videos at least ${Math.round(MIN_AI_CLIP_SECONDS / 60)} minutes long — use manual clipping for shorter ones.` },
+        { error: `AI clipping requires videos at least ${Math.round(MIN_AI_CLIP_SECONDS / 60)} minutes long. Use manual clipping for shorter ones.` },
+        { status: 400 },
+      )
+    }
+    if (durationSecs > MAX_AI_CLIP_SECONDS) {
+      return NextResponse.json(
+        { error: "AI clipping supports videos up to 60 minutes during testing." },
         { status: 400 },
       )
     }
@@ -94,16 +93,35 @@ export async function POST(req: NextRequest) {
     const resolvedGoal =
       typeof goal === "string" && goal.trim() ? goal.trim().slice(0, 500) : "maximize viewer interest and shareability"
 
+    // Optional keyword focus: sanitized comma list, appended to the goal as a
+    // parseable suffix (no schema change) — the pipeline strips it back out
+    // and threads the keywords into brief/scoring as a bias.
+    const cleanedKeywords =
+      typeof keywords === "string"
+        ? keywords
+            .split(",")
+            .map((k) => k.replace(/[\[\]]/g, "").trim())
+            .filter(Boolean)
+            .slice(0, 8)
+            .map((k) => k.slice(0, 40))
+            .join(", ")
+        : ""
+    const storedGoal = cleanedKeywords ? `${resolvedGoal}\n[keyword-focus: ${cleanedKeywords}]` : resolvedGoal
+
+    // Server-authoritative quote: budget_usdc stores the MAX (the pipeline's
+    // hard consumption cap = fee + skim + full footage allowance).
+    const quote = computeClipQuote(durationSecs)
+
     const { data, error } = await supabase
       .from("agent_jobs")
-      .insert({ video_id, budget_usdc: Number(budget_usdc), goal: resolvedGoal, status: "queued" })
+      .insert({ video_id, budget_usdc: quote.max, goal: storedGoal, status: "queued" })
       .select("id, status")
       .single()
     if (error || !data) {
       return NextResponse.json({ error: error?.message ?? "failed to enqueue job" }, { status: 500 })
     }
 
-    return NextResponse.json({ id: data.id, status: data.status })
+    return NextResponse.json({ id: data.id, status: data.status, quote })
   } catch (err: any) {
     console.error("agent enqueue-ui failed:", err?.message)
     return NextResponse.json({ error: "enqueue failed" }, { status: 500 })

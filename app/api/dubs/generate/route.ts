@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     const duration = Number(video.duration_secs)
     if (!(duration > 0) || duration > MAX_DUB_SECONDS) {
       return NextResponse.json(
-        { error: `Audio translation is in testing — available for videos under ${Math.round(MAX_DUB_SECONDS / 60)} minutes.` },
+        { error: `Audio translation is in testing. It's available for videos under ${Math.round(MAX_DUB_SECONDS / 60)} minutes.` },
         { status: 400 },
       )
     }

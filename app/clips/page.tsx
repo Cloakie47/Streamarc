@@ -47,7 +47,7 @@ export default async function ClipsPage() {
           <div>
             <h1 className="text-xl font-bold">Agent Clips</h1>
             <p className="text-sm text-sa-text-3">
-              Short clips autonomously generated — and paid for per second — by the StreamArc Clip Agent.
+              Short clips autonomously generated, and paid for per second, by the StreamArc Clip Agent.
             </p>
           </div>
         </header>
