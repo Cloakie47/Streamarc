@@ -208,4 +208,4 @@ MIT. See [LICENSE](LICENSE).
 
 ---
 
-Built solo by Justin T Roy. Placed 2nd at the ARC x lablab.ai Hackathon 2026.
+Built solo by Justin T Roy.
