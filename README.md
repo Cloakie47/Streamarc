@@ -205,7 +205,3 @@ public/         static assets
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
----
-
-Built solo by Justin T Roy.
