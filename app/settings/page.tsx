@@ -13,7 +13,7 @@ export default async function Settings() {
   const { data: user, error } = await supabase
     .from("users")
     .select(
-      "id, email, display_name, channel_name, bio, avatar_url, banner_url, x_handle, reddit_handle, telegram_handle",
+      "id, email, display_name, channel_name, bio, avatar_url, x_handle, reddit_handle, telegram_handle",
     )
     .eq("id", session.user.id)
     .single();

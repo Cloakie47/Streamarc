@@ -11,7 +11,6 @@ export interface UserProfile {
   channel_name: string | null;
   bio: string | null;
   avatar_url: string | null;
-  banner_url: string | null;
   x_handle: string | null;
   reddit_handle: string | null;
   telegram_handle: string | null;
@@ -102,23 +101,6 @@ export default function SettingsPage({ user }: { user: UserProfile }) {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Profile Settings</h1>
         <p className="mt-2 text-sm text-sa-text-3">Manage your public creator details and social links.</p>
-      </div>
-
-      {/* Banner */}
-      <div className="flex flex-col gap-2">
-        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Banner Image
-        </label>
-        <div className="panel relative flex h-32 w-full cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-sa-blue/[0.08] transition-opacity hover:opacity-90">
-          {user.banner_url ? (
-            <img src={user.banner_url} alt="Banner" className="w-full h-full object-cover" />
-          ) : (
-            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-              <Camera size={24} />
-              <span className="text-xs">Upload banner (2048×1152px, max 6MB)</span>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Avatar */}

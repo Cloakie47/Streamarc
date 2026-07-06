@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
 
     const { data: dbVideos } = await supabase
       .from("videos")
-      .select("id, title, created_at, status, views, total_earned, cloudflare_uid, chapters, duration_secs")
+      .select("id, title, created_at, status, views, total_earned, cloudflare_uid, chapters, duration_secs, thumbnail_url")
       .eq("creator_id", creator_id)
       .order("created_at", { ascending: false })
 
@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
         cloudflare_uid: v.cloudflare_uid ?? null,
         chapters: v.chapters ?? null,
         duration_secs: v.duration_secs ?? null,
+        thumbnail_url: v.thumbnail_url ?? null,
       }
     })
 

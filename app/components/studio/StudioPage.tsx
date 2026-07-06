@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { motion } from "motion/react"
 import { Plus, TrendingUp, Users, Camera, Twitter, MessageCircle, Save, Trash2, Sparkles, X, Film, MoreVertical, Wallet, ArrowRight } from "lucide-react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts"
@@ -142,9 +143,11 @@ interface VideoRow {
   cloudflare_uid?: string | null
   chapters?: unknown
   duration_secs?: number | null
+  thumbnail_url?: string | null
 }
 
 export default function StudioPage() {
+  const router = useRouter()
   const [activeNav, setActiveNav] = useState("Dashboard")
   const [stats, setStats] = useState<EarningsStats | null>(null)
   const [videos, setVideos] = useState<VideoRow[]>([])
@@ -165,6 +168,8 @@ export default function StudioPage() {
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null)
   const [chapterEditorVideo, setChapterEditorVideo] = useState<VideoRow | null>(null)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  // Video pending delete confirmation (renders the centered modal).
+  const [deleteTarget, setDeleteTarget] = useState<VideoRow | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
   const [chartLoading, setChartLoading] = useState(true)
@@ -256,9 +261,9 @@ export default function StudioPage() {
     return () => document.removeEventListener("mousedown", onDoc)
   }, [openMenuId])
 
+  // Confirmation lives in a centered modal (deleteTarget), not window.confirm.
   const handleDeleteVideo = async (videoId: string) => {
     if (!userId) return
-    if (!confirm("Are you sure you want to delete this video? This cannot be undone.")) return
     setDeletingVideoId(videoId)
     try {
       const res = await fetch("/api/stream/delete", {
@@ -275,6 +280,7 @@ export default function StudioPage() {
       console.error("Delete failed")
     } finally {
       setDeletingVideoId(null)
+      setDeleteTarget(null)
     }
   }
 
@@ -501,13 +507,39 @@ export default function StudioPage() {
                         </div>
                       </td>
                     </tr>
-                  ) : videos.map((v) => (
+                  ) : videos.map((v) => {
+                    // Same thumbnail sources the rest of the app uses: the stored
+                    // thumbnail_url, else Cloudflare Stream's generated poster.
+                    const thumb =
+                      v.thumbnail_url ??
+                      (v.cloudflare_uid ? `https://videodelivery.net/${v.cloudflare_uid}/thumbnails/thumbnail.jpg?height=180` : null)
+                    return (
                     <tr key={v.id} className="group transition-colors hover:bg-sa-surface">
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="aspect-video w-16 shrink-0 overflow-hidden rounded-lg bg-sa-surface-2" />
+                        {/* Video area navigates to the watch page (the app's standard
+                            /watch/[id] route). Chapters + the actions menu live in
+                            their own cell and stop propagation, so they never navigate. */}
+                        <div
+                          role="link"
+                          tabIndex={0}
+                          onClick={() => router.push(`/watch/${v.id}`)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              router.push(`/watch/${v.id}`)
+                            }
+                          }}
+                          className="-mx-2 flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-white/[0.04]"
+                          title={`Watch "${v.title}"`}
+                        >
+                          <div className="aspect-video w-16 shrink-0 overflow-hidden rounded-lg bg-sa-surface-2">
+                            {thumb && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={thumb} alt="" width={112} height={63} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                            )}
+                          </div>
                           <div className="min-w-0">
-                            <p className="line-clamp-1 text-sm font-medium">{v.title}</p>
+                            <p className="line-clamp-1 text-sm font-medium transition-colors group-hover:text-sa-blue">{v.title}</p>
                             <p className="mt-0.5 text-xs text-sa-text-3">{formatAge(v.created_at)}</p>
                           </div>
                         </div>
@@ -518,7 +550,10 @@ export default function StudioPage() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => setChapterEditorVideo(v)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setChapterEditorVideo(v)
+                            }}
                             className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-sa-border bg-sa-surface-2 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
                           >
                             <Sparkles size={13} />
@@ -544,7 +579,7 @@ export default function StudioPage() {
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     setOpenMenuId(null)
-                                    void handleDeleteVideo(v.id)
+                                    setDeleteTarget(v)
                                   }}
                                   className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-3 py-2 text-left text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:cursor-wait disabled:opacity-60"
                                 >
@@ -561,7 +596,8 @@ export default function StudioPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -714,6 +750,60 @@ export default function StudioPage() {
           onClose={() => setChapterEditorVideo(null)}
           onSave={() => void fetchVideos()}
         />
+      )}
+
+      {/* Delete confirmation — centered modal overlay, same pattern as the
+          Generate Clips modal (fixed inset backdrop + centered card). Backdrop
+          click and Cancel dismiss without deleting; Delete is destructive red. */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => {
+            if (!deletingVideoId) setDeleteTarget(null)
+          }}
+        >
+          <div
+            className="relative w-full max-w-md mx-4 rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Trash2 size={18} className="text-red-400" />
+              <h2 className="text-lg font-bold">Delete this video?</h2>
+            </div>
+            <p className="mb-1 line-clamp-2 text-sm font-medium text-foreground">{deleteTarget.title}</p>
+            <p className="mb-5 text-xs text-muted-foreground">
+              This permanently removes the video for all viewers. It cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deletingVideoId === deleteTarget.id}
+                className="flex-1 rounded-xl border border-border py-2.5 text-sm font-medium transition-colors hover:bg-white/5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteVideo(deleteTarget.id)}
+                disabled={deletingVideoId === deleteTarget.id}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-500/90 py-2.5 text-sm font-bold text-white transition-colors hover:bg-red-500 disabled:opacity-60"
+              >
+                {deletingVideoId === deleteTarget.id ? (
+                  <>
+                    <span className="block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Deleting…
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={15} />
+                    Delete video
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
