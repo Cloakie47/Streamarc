@@ -121,9 +121,11 @@ export default function UploadModal({ userId, onClose, onSuccess }: UploadModalP
       await new Promise<void>((resolve, reject) => {
         const upload = new TusUpload(file, {
           uploadUrl: uploadURL,
-          // Cloudflare requires a finite, 256KiB-aligned chunk size; 50 MiB
-          // keeps the upload resumable rather than one giant PATCH.
-          chunkSize: 50 * 1024 * 1024,
+          // Cloudflare requires a finite, 256KiB-aligned chunk size. Cloudflare
+          // discards ALL bytes of an interrupted chunk, so the chunk is the
+          // real retry unit: 16 MiB caps the re-send after a network blip and
+          // lets sub-50MB files actually resume instead of restarting from 0.
+          chunkSize: 16 * 1024 * 1024,
           retryDelays: [0, 3000, 5000, 10000, 20000],
           onProgress: (bytesSent, bytesTotal) => {
             if (bytesTotal > 0) setProgress(Math.round((bytesSent / bytesTotal) * 100))
