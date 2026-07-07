@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { AudioLines, Check, Loader2, ChevronDown } from "lucide-react"
+import { AudioLines, Check, Info, Loader2, ChevronDown } from "lucide-react"
 import { DUB_LANGUAGES, DUB_PRICE_USDC, MAX_DUB_SECONDS, dubLabel } from "@/lib/dubs/languages"
 
 interface AudioControlProps {
@@ -47,6 +47,8 @@ export default function AudioControl({ videoId, cloudflareUid, durationSecs, onT
   const [successLang, setSuccessLang] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [insufficient, setInsufficient] = useState(false)
+  // Why-is-this-disabled tooltip for the too-long state (hover or tap).
+  const [showDisabledInfo, setShowDisabledInfo] = useState(false)
   const jobPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const manifestPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
@@ -178,7 +180,7 @@ export default function AudioControl({ videoId, cloudflareUid, durationSecs, onT
 
   if (tooLong) {
     return (
-      <div className="relative">
+      <div className="flex items-center gap-1.5">
         <button
           type="button"
           disabled
@@ -187,9 +189,24 @@ export default function AudioControl({ videoId, cloudflareUid, durationSecs, onT
           <AudioLines size={16} />
           Audio
         </button>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Audio translation is in testing. It&apos;s available for videos under {Math.round(MAX_DUB_SECONDS / 60)} minutes.
-        </p>
+        <div className="relative">
+          <button
+            type="button"
+            aria-label="Why is audio translation unavailable?"
+            aria-expanded={showDisabledInfo}
+            onClick={() => setShowDisabledInfo((v) => !v)}
+            onMouseEnter={() => setShowDisabledInfo(true)}
+            onMouseLeave={() => setShowDisabledInfo(false)}
+            className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          >
+            <Info size={14} />
+          </button>
+          {showDisabledInfo && (
+            <div className="absolute left-1/2 top-8 z-30 w-56 -translate-x-1/2 rounded-lg border border-border bg-card p-2.5 text-[11px] leading-relaxed text-muted-foreground shadow-2xl">
+              Audio translation is in testing. Available for videos under {Math.round(MAX_DUB_SECONDS / 60)} minutes.
+            </div>
+          )}
+        </div>
       </div>
     )
   }

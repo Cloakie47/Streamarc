@@ -1323,6 +1323,36 @@ export default function WatchPage({
 
           </div>
 
+          {/* Live payment stats — the signature per-second meter, prominent right under the creator row */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { label: "Session Cost", value: `$${cost.toFixed(4)}`, color: "text-sa-accent" },
+              { label: "Seconds Paid", value: `${paidSecs}s`, color: "text-foreground" },
+              { label: "Balance", value: `$${balance.toFixed(4)}`, color: "text-sa-green" },
+              { label: "Current Rate", value: rateStatusLabel, color: "text-sa-blue" },
+            ].map((stat) => (
+              <div key={stat.label} className="panel-muted px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">{stat.label}</p>
+                <p className={`mt-1.5 font-mono text-base font-bold tabular-nums ${stat.color}`}>{stat.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Disclaimer (hidden during free preview; no “first N seconds free” copy) */}
+          {!free && (
+            <p className="text-xs text-sa-text-3">
+              {playing
+                ? isOwnVideo
+                  ? "You're the creator. Playback is free."
+                  : (
+                    <>
+                      Paying <span className="font-mono tabular-nums text-sa-blue">${formatSubCentsShows(ratePerSecond)}/sec</span> · batch every {intervalSeconds}s via Circle x402 · pause anytime
+                    </>
+                  )
+                : "Paused. Charges stopped instantly."}
+            </p>
+          )}
+
           {/* Action row — contained in a subtle surface so pills stop floating in negative space */}
           {VIEWER_ID && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sa-border/60 bg-sa-surface-2/40 p-1.5">
@@ -1406,10 +1436,15 @@ export default function WatchPage({
               typing an amount re-renders only the box, never this page. */}
           {VIEWER_ID && VIEWER_ID !== creatorId && <TipAmountBox onTip={sendTip} />}
 
-          {/* Subtitles + AI audio translation — available to everyone; paid generation */}
-          <div className="flex flex-wrap items-start gap-3">
-            <SubtitlesControl videoId={videoId} cloudflareUid={cloudflareUid} activeLang={captionLang} onActivate={applyCaption} />
-            <AudioControl videoId={videoId} cloudflareUid={cloudflareUid} durationSecs={durationSecs} onTrackAdded={refreshPlayer} />
+          {/* Translation cluster: subtitles + AI audio dubbing grouped as one
+              labelled surface so they read as related — available to everyone;
+              paid generation */}
+          <div className="rounded-xl border border-sa-border/60 bg-sa-surface-2/40 p-4">
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">Translation</p>
+            <div className="flex flex-wrap items-start gap-3">
+              <SubtitlesControl videoId={videoId} cloudflareUid={cloudflareUid} activeLang={captionLang} onActivate={applyCaption} />
+              <AudioControl videoId={videoId} cloudflareUid={cloudflareUid} durationSecs={durationSecs} onTrackAdded={refreshPlayer} />
+            </div>
           </div>
 
           {/* Description */}
@@ -1446,36 +1481,6 @@ export default function WatchPage({
             </div>
           )}
           {agentClips.length > 0 && <AgentClipsRow clips={agentClips} />}
-
-          {/* Disclaimer (hidden during free preview; no “first N seconds free” copy) */}
-          {!free && (
-            <p className="text-xs text-sa-text-3">
-              {playing
-                ? isOwnVideo
-                  ? "You're the creator. Playback is free."
-                  : (
-                    <>
-                      Paying <span className="font-mono tabular-nums text-sa-blue">${formatSubCentsShows(ratePerSecond)}/sec</span> · batch every {intervalSeconds}s via Circle x402 · pause anytime
-                    </>
-                  )
-                : "Paused. Charges stopped instantly."}
-            </p>
-          )}
-
-          {/* Stats: full-width horizontal row */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: "Session Cost", value: `$${cost.toFixed(4)}`, color: "text-sa-accent" },
-              { label: "Seconds Paid", value: `${paidSecs}s`, color: "text-foreground" },
-              { label: "Balance", value: `$${balance.toFixed(4)}`, color: "text-sa-green" },
-              { label: "Current Rate", value: rateStatusLabel, color: "text-sa-blue" },
-            ].map((stat) => (
-              <div key={stat.label} className="panel-muted px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">{stat.label}</p>
-                <p className={`mt-1.5 font-mono text-base font-bold tabular-nums ${stat.color}`}>{stat.value}</p>
-              </div>
-            ))}
-          </div>
 
           {commentsPanel}
 
