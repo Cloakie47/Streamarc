@@ -16,6 +16,7 @@ import {
   Pencil,
   Trash2,
   Share2,
+  Check,
 } from "lucide-react";
 import { createWatchSession, endWatchSession, settleWatchSession } from "@/app/lib/payments";
 import { PAYMENT_CONFIG } from "@/app/lib/constants";
@@ -1353,99 +1354,103 @@ export default function WatchPage({
             </p>
           )}
 
-          {/* Action row — contained in a subtle surface so pills stop floating in negative space */}
-          {VIEWER_ID && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sa-border/60 bg-sa-surface-2/40 p-1.5">
-              <div className="flex flex-wrap items-center gap-1">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleWatchLater();
-                  }}
-                  disabled={savingWatchlist}
-                  aria-pressed={savedToWatchlist}
-                  title={savedToWatchlist ? "Saved to Watch Later" : "Save to Watch Later"}
-                  className={`inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-all ${
-                    savedToWatchlist
-                      ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/30"
-                      : "text-sa-text-2 hover:bg-white/[0.06] hover:text-foreground"
-                  } disabled:opacity-60`}
-                >
-                  <Bookmark size={15} className={savedToWatchlist ? "fill-current" : ""} />
-                  <span>{savedToWatchlist ? "Saved" : "Watch Later"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleFavorite();
-                  }}
-                  disabled={togglingFavorite}
-                  aria-pressed={favorited}
-                  title={favorited ? "Remove from favourites" : "Add to favourites"}
-                  className={`inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-all ${
-                    favorited
-                      ? "bg-red-500/15 text-red-400 ring-1 ring-inset ring-red-500/30"
-                      : "text-sa-text-2 hover:bg-white/[0.06] hover:text-foreground"
-                  } disabled:opacity-60`}
-                >
-                  <Heart size={15} className={favorited ? "fill-current" : ""} />
-                  <span>{favorited ? "Favourited" : "Favourite"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleShare();
-                  }}
-                  title="Share link"
-                  className="inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium text-sa-text-2 transition-all hover:bg-white/[0.06] hover:text-foreground"
-                >
-                  <Share2 size={15} />
-                  <span>{copied ? "Copied!" : "Share"}</span>
-                </button>
+          {/* Unified controls card: ONE bordered surface holding two groups on
+              one row — Translation (subtitles + AI audio dubbing) on the left,
+              the labeled quick actions right-aligned. Stacks on mobile. */}
+          <div className="rounded-xl border border-sa-border/60 bg-sa-surface-2/40 p-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
+              {/* LEFT: translation — available to everyone; paid generation */}
+              <div className="min-w-0">
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">Translation</p>
+                <div className="flex flex-wrap items-start gap-3">
+                  <SubtitlesControl videoId={videoId} cloudflareUid={cloudflareUid} activeLang={captionLang} onActivate={applyCaption} />
+                  <AudioControl videoId={videoId} cloudflareUid={cloudflareUid} durationSecs={durationSecs} onTrackAdded={refreshPlayer} />
+                </div>
               </div>
-              {/* Right side: ownership badge, and the admin moderation action.
-                  The delete button renders ONLY for DB-verified admins and is
-                  labeled as an admin action so it can't be mistaken for a
-                  normal viewer control. */}
-              <div className="flex items-center gap-2">
-                {isOwnVideo && (
-                  <span className="mr-2 inline-flex items-center gap-1.5 rounded-full bg-sa-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-sa-accent ring-1 ring-inset ring-sa-accent/25">
-                    <span className="h-1.5 w-1.5 rounded-full bg-sa-accent" />
-                    You own this
-                  </span>
-                )}
-                {isAdmin && (
+
+              {/* RIGHT: quick actions, right-aligned. The admin delete renders
+                  ONLY for DB-verified admins and is labeled as an admin action
+                  so it can't be mistaken for a normal viewer control. */}
+              {VIEWER_ID && (
+                <div className="flex flex-wrap items-center justify-end gap-1 lg:shrink-0">
+                  {isOwnVideo && (
+                    <span className="mr-1 inline-flex items-center gap-1.5 rounded-full bg-sa-accent/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-sa-accent ring-1 ring-inset ring-sa-accent/25">
+                      <span className="h-1.5 w-1.5 rounded-full bg-sa-accent" />
+                      You own this
+                    </span>
+                  )}
                   <button
                     type="button"
-                    onClick={() => void handleAdminDelete()}
-                    disabled={adminDeleting}
-                    className="inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-semibold text-red-400 ring-1 ring-inset ring-red-500/30 transition-all hover:bg-red-500/10 disabled:opacity-60"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleWatchLater();
+                    }}
+                    disabled={savingWatchlist}
+                    aria-pressed={savedToWatchlist}
+                    title={savedToWatchlist ? "Saved to Watch Later" : "Save to Watch Later"}
+                    className={`inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-all ${
+                      savedToWatchlist
+                        ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/30"
+                        : "text-sa-text-2 hover:bg-white/[0.06] hover:text-foreground"
+                    } disabled:opacity-60`}
                   >
-                    <Trash2 size={15} />
-                    <span>{adminDeleting ? "Deleting…" : "Delete video (admin)"}</span>
+                    <Bookmark size={15} className={savedToWatchlist ? "fill-current" : ""} />
+                    <span>{savedToWatchlist ? "Saved" : "Watch Later"}</span>
                   </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Dedicated tip section — only for non-creators. Isolated component:
-              typing an amount re-renders only the box, never this page. */}
-          {VIEWER_ID && VIEWER_ID !== creatorId && <TipAmountBox onTip={sendTip} />}
-
-          {/* Translation cluster: subtitles + AI audio dubbing grouped as one
-              labelled surface so they read as related — available to everyone;
-              paid generation */}
-          <div className="rounded-xl border border-sa-border/60 bg-sa-surface-2/40 p-4">
-            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">Translation</p>
-            <div className="flex flex-wrap items-start gap-3">
-              <SubtitlesControl videoId={videoId} cloudflareUid={cloudflareUid} activeLang={captionLang} onActivate={applyCaption} />
-              <AudioControl videoId={videoId} cloudflareUid={cloudflareUid} durationSecs={durationSecs} onTrackAdded={refreshPlayer} />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleFavorite();
+                    }}
+                    disabled={togglingFavorite}
+                    aria-pressed={favorited}
+                    title={favorited ? "Remove from favourites" : "Add to favourites"}
+                    className={`inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-all ${
+                      favorited
+                        ? "bg-red-500/15 text-red-400 ring-1 ring-inset ring-red-500/30"
+                        : "text-sa-text-2 hover:bg-white/[0.06] hover:text-foreground"
+                    } disabled:opacity-60`}
+                  >
+                    <Heart size={15} className={favorited ? "fill-current" : ""} />
+                    <span>{favorited ? "Favourited" : "Favourite"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleShare();
+                    }}
+                    title="Share link"
+                    className={`inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-all ${
+                      copied
+                        ? "bg-sa-green/15 text-sa-green ring-1 ring-inset ring-sa-green/30"
+                        : "text-sa-text-2 hover:bg-white/[0.06] hover:text-foreground"
+                    }`}
+                  >
+                    {copied ? <Check size={15} /> : <Share2 size={15} />}
+                    <span>{copied ? "Copied!" : "Share"}</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => void handleAdminDelete()}
+                      disabled={adminDeleting}
+                      className="ml-1 inline-flex h-9 items-center gap-2 rounded-full px-4 text-[13px] font-semibold text-red-400 ring-1 ring-inset ring-red-500/30 transition-all hover:bg-red-500/10 disabled:opacity-60"
+                    >
+                      <Trash2 size={15} />
+                      <span>{adminDeleting ? "Deleting…" : "Delete video (admin)"}</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Dedicated tip section — full-width row below the controls, only
+              for non-creators. Isolated component: typing an amount re-renders
+              only the box, never this page. */}
+          {VIEWER_ID && VIEWER_ID !== creatorId && <TipAmountBox onTip={sendTip} />}
 
           {/* Description */}
           {description && (
