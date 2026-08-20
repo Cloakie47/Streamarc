@@ -15,20 +15,30 @@ interface ChartPoint {
   amount: number
 }
 
+type ChartRange = "1d" | "7d" | "1m" | "all"
+
+const CHART_RANGES: Array<{ key: ChartRange; label: string; heading: string }> = [
+  { key: "1d", label: "1D", heading: "last 24 hours" },
+  { key: "7d", label: "7D", heading: "last 7 days" },
+  { key: "1m", label: "1M", heading: "last 30 days" },
+  { key: "all", label: "All", heading: "all time" },
+]
+
 interface EarningsTooltipProps {
   active?: boolean
   payload?: Array<{ payload: ChartPoint }>
+  range?: ChartRange
 }
 
-function EarningsTooltip({ active, payload }: EarningsTooltipProps) {
+function EarningsTooltip({ active, payload, range }: EarningsTooltipProps) {
   if (!active || !payload?.length) return null
   const point = payload[0]?.payload
   if (!point) return null
-  const date = new Date(point.date + "T00:00:00Z").toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  })
+  const d = new Date(point.date)
+  const date =
+    range === "1d"
+      ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+      : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
   return (
     <div className="panel-muted px-3 py-2">
       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sa-text-3">{date}</p>
@@ -39,11 +49,25 @@ function EarningsTooltip({ active, payload }: EarningsTooltipProps) {
   )
 }
 
-function EarningsChart({ data, loading }: { data: ChartPoint[]; loading: boolean }) {
+function EarningsChart({
+  data,
+  loading,
+  range,
+  onRangeChange,
+  hasVideos,
+}: {
+  data: ChartPoint[]
+  loading: boolean
+  range: ChartRange
+  onRangeChange: (range: ChartRange) => void
+  hasVideos: boolean
+}) {
   const total = data.reduce((sum, d) => sum + d.amount, 0)
   const isEmpty = total === 0
+  const heading = CHART_RANGES.find((r) => r.key === range)?.heading ?? "all time"
   const fmtAxisDate = (iso: string) => {
-    const d = new Date(iso + "T00:00:00Z")
+    const d = new Date(iso)
+    if (range === "1d") return d.toLocaleTimeString(undefined, { hour: "numeric" })
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
   }
   return (
@@ -52,7 +76,7 @@ function EarningsChart({ data, loading }: { data: ChartPoint[]; loading: boolean
         <div className="flex flex-col gap-1">
           <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-sa-text-3">
             <TrendingUp size={12} className="text-sa-blue" />
-            Total earned · last 30 days
+            Total earned · {heading}
           </span>
           <div className="flex items-baseline gap-2">
             <span className="font-mono text-3xl font-bold tabular-nums text-sa-blue drop-shadow-[0_0_12px_hsla(188,86%,56%,0.35)]">
@@ -65,6 +89,23 @@ function EarningsChart({ data, loading }: { data: ChartPoint[]; loading: boolean
               </span>
             )}
           </div>
+        </div>
+        <div className="flex items-center gap-1 self-start rounded-lg border border-sa-border bg-sa-surface-2/60 p-1">
+          {CHART_RANGES.map((r) => (
+            <button
+              key={r.key}
+              type="button"
+              onClick={() => onRangeChange(r.key)}
+              aria-pressed={range === r.key}
+              className={`focus-ring rounded-md px-2.5 py-1 text-xs font-bold transition-colors ${
+                range === r.key
+                  ? "bg-sa-blue/15 text-sa-blue"
+                  : "text-sa-text-3 hover:text-sa-text"
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
         </div>
       </div>
       <div className="h-[200px] w-full">
@@ -98,7 +139,7 @@ function EarningsChart({ data, loading }: { data: ChartPoint[]; loading: boolean
                 interval={0}
               />
               <Tooltip
-                content={<EarningsTooltip />}
+                content={<EarningsTooltip range={range} />}
                 cursor={{ stroke: "hsla(188, 86%, 56%, 0.25)", strokeWidth: 1 }}
               />
               <Area
@@ -117,7 +158,7 @@ function EarningsChart({ data, loading }: { data: ChartPoint[]; loading: boolean
       </div>
       {!loading && isEmpty && (
         <p className="text-center text-sm text-sa-text-3">
-          Start earning: share your first video
+          {hasVideos ? "No earnings in this period." : "Start earning: share your first video"}
         </p>
       )}
     </div>
@@ -173,6 +214,7 @@ export default function StudioPage() {
   const menuRef = useRef<HTMLDivElement | null>(null)
   const [chartData, setChartData] = useState<ChartPoint[]>([])
   const [chartLoading, setChartLoading] = useState(true)
+  const [chartRange, setChartRange] = useState<ChartRange>("all")
   const avatarInputRef = useRef<HTMLInputElement>(null)
 
   const { userId, walletAddress, isLoading } = useCurrentUser()
@@ -182,8 +224,12 @@ export default function StudioPage() {
     fetchStats()
     fetchVideos()
     fetchProfile()
-    fetchChartData()
   }, [userId])
+
+  useEffect(() => {
+    if (!userId) return
+    fetchChartData(chartRange)
+  }, [userId, chartRange])
 
 
   const fetchStats = async () => {
@@ -218,14 +264,14 @@ export default function StudioPage() {
     }
   }
 
-  const fetchChartData = async () => {
+  const fetchChartData = async (range: ChartRange) => {
     if (!userId) return
     setChartLoading(true)
     try {
       const res = await fetch("/api/studio/earnings-chart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ creator_id: userId }),
+        body: JSON.stringify({ creator_id: userId, range }),
       })
       const json = await res.json() as { data?: ChartPoint[] }
       setChartData(json.data ?? [])
@@ -410,7 +456,13 @@ export default function StudioPage() {
 
       {activeTab === "dashboard" && (
         <>
-          <EarningsChart data={chartData} loading={chartLoading} />
+          <EarningsChart
+            data={chartData}
+            loading={chartLoading}
+            range={chartRange}
+            onRangeChange={setChartRange}
+            hasVideos={videos.length > 0}
+          />
 
           {loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

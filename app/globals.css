@@ -530,6 +530,20 @@
     box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px var(--sa-blue);
   }
 
+  /* Recharts makes its surface focusable (a11y layer), which shows the
+     browser's default white outline on click. Suppress that, but keep a
+     theme-colored ring for keyboard focus. */
+  .recharts-wrapper:focus,
+  .recharts-wrapper svg:focus {
+    outline: none;
+  }
+  .recharts-wrapper:focus-visible,
+  .recharts-wrapper svg:focus-visible {
+    outline: none;
+    border-radius: 8px;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px var(--sa-blue);
+  }
+
   /* ── PREMIUM SKELETON SHIMMER ── */
   .skeleton-shimmer {
     position: relative;
